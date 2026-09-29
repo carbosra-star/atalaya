@@ -191,6 +191,8 @@ def _headers(resp):
     resp.headers["Referrer-Policy"] = "same-origin"
     if request.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
+    elif request.path == "/" or request.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache"  # el navegador comprueba si hay versión nueva: no hace falta Ctrl+F5
     if (resp.mimetype in ("application/json", "text/html", "text/css", "application/javascript", "text/javascript")
             and "gzip" in request.headers.get("Accept-Encoding", "") and not resp.direct_passthrough
             and resp.status_code == 200 and "Content-Encoding" not in resp.headers):
@@ -496,4 +498,6 @@ def health():
 init_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), debug=os.environ.get("DEBUG") == "1")
+    # En local se recarga sola al cambiar el código (RELOAD=0 para desactivarlo); en Docker se usa gunicorn
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), debug=os.environ.get("DEBUG") == "1",
+            use_reloader=os.environ.get("RELOAD", "1") == "1")
