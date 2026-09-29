@@ -595,31 +595,81 @@ const CATSM = { nada: 'Sin ningún dato', venta_antigua: 'Solo venta de hace má
 // Referencia de porfolio: enlaza a la ficha solo si está en seguimiento
 const pfRef = (k, n) => `<td class="art" title="${esc(k + ' ' + n)}">${S.byK[k] ? refLink({ k }) : `<b>${esc(k)}</b>`} <span class="nm">${esc(n)}</span></td>`;
 const chk = (v) => v == null ? '<span class="muted">—</span>' : v ? '<span class="ok">✓<span class="sr"> sí</span></span>' : '<span class="no">✗<span class="sr"> no</span></span>';
-async function pagePortfolio(main) {
+const pfTabla = (rows, cols, empty, fit = true) => `<div class="tw"><table${fit ? ' class="fit"' : ''}><thead><tr>${cols.map(c => `<th scope="col"${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+const lanzCompleto = (x) => x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en;
+
+// Bloques: cada uno sabe pintar su tabla y es a la vez sección desplegable y vista de detalle
+const PF_BLOQUES = {
+  cambios: {
+    t: 'Altas y bajas', n: (pf) => pf.cambios ? `entran ${pf.cambios.entran.length} · salen ${pf.cambios.salen.length}` : '—',
+    lead: () => 'Referencias que entran y salen del seguimiento' + (S.ds.prev ? ` desde la carga anterior (${fdt(S.ds.prev.created)})` : '') + ', con el motivo.',
+    html: (pf) => {
+      if (!pf.cambios) return '<p class="muted">Se verá a partir de la próxima carga: esta es la primera con la sección Porfolio.</p>';
+      const tb = (xs) => pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="nowrap">${MOTIVO[x.m] || esc(x.m)}</td></tr>`).join(''), [['Referencia'], ['Motivo']], 'Ninguna.');
+      return `<div class="two"><section><h3>Entran (${pf.cambios.entran.length})</h3>${tb(pf.cambios.entran)}</section><section><h3>Salen (${pf.cambios.salen.length})</h3>${tb(pf.cambios.salen)}</section></div>`;
+    },
+  },
+  lanzamientos: {
+    t: 'Lanzamientos', n: (pf) => fmt(pf.lanz.length),
+    lead: (pf) => `PT activos dados de alta en los últimos ${pf.cfg.lanz} meses y lo que tienen preparado. El stock mínimo solo se pide a los contra stock.`,
+    html: (pf, q) => {
+      const pend = q.get('pend') === '1', xs = pf.lanz.filter(x => !pend || !lanzCompleto(x));
+      return `<form class="filters" onsubmit="return false"><label class="fld" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-pend ${pend ? 'checked' : ''}> Solo con algo pendiente (${pf.lanz.filter(x => !lanzCompleto(x)).length})</label></form>` +
+        pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td></tr>`).join(''),
+          [['Referencia'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c']], 'Ningún lanzamiento con estos criterios.', false);
+    },
+  },
+  'sin-movimiento': {
+    t: 'Sin movimiento', n: (pf) => fmt(pf.fuera.length),
+    lead: () => 'PT activos en el maestro sin stock, previsión, pedidos, OF, propuestas ni venta reciente, y que no son lanzamientos: candidatos a inactivar en ABAS.',
+    html: (pf) => pfTabla(pf.fuera.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td></tr>`).join(''), [['Referencia'], ['Alta'], ['Qué tiene']], 'Ninguno.'),
+  },
+  inactivos: {
+    t: 'Inactivos con stock', n: (pf) => fmt(pf.inact.length),
+    lead: () => 'Inactivos en el maestro que todavía tienen stock: no salen en el seguimiento.',
+    html: (pf) => pfTabla(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}<td class="r num">${fmt(x.st)}</td><td class="num">${fdate(x.fina)}</td></tr>`).join(''), [['Referencia'], ['Stock', 'r'], ['Inactivo desde']], 'Ninguno.'),
+  },
+  activos: {
+    t: 'PT activos', n: (pf) => fmt(pf.res.activos), soloVista: true,
+    lead: () => 'Todos los productos terminados activos del maestro: los que están en seguimiento y los que no, con el motivo.',
+    html: (pf, q) => {
+      const ver = q.get('ver') || '';
+      const rows = [...S.ds.refs.map(r => ({ k: r.k, n: r.n, alta: r.al || '', gp: r.gp, seg: true, m: '' })), ...pf.fuera.map(x => ({ k: x.k, n: x.n, alta: x.alta, gp: x.gp || '', seg: false, m: CATSM[x.cat] || x.cat }))]
+        .filter(x => !ver || (ver === 'seg') === x.seg).sort((a, b) => a.k < b.k ? -1 : 1);
+      const op = (v, t) => `<option value="${v}" ${ver === v ? 'selected' : ''}>${t}</option>`;
+      return `<form class="filters" onsubmit="return false"><label class="fld">Mostrar<select data-ver>${op('', 'Todos')}${op('seg', 'En seguimiento')}${op('fuera', 'Sin movimiento')}</select></label></form><p class="muted small">${fmt(rows.length)} referencias</p>` +
+        pfTabla(rows.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${x.alta ? fdate(x.alta) : '<span class="muted">—</span>'}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.seg)}</td><td class="nowrap">${x.seg ? '' : esc(x.m)}</td></tr>`).join(''),
+          [['Referencia'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Motivo si no está']], 'Ninguna.');
+    },
+  },
+};
+const PF_ORDEN = ['cambios', 'lanzamientos', 'sin-movimiento', 'inactivos'];
+function pfAbiertos() { try { return JSON.parse(localStorage.getItem('pfOpen')) || { cambios: true }; } catch (e) { return { cambios: true }; } }
+
+async function pagePortfolio(main, [sub]) {
   if (!S.ds) return noData(main, 'Porfolio');
   const pf = S.ds.porfolio;
   if (!pf) { main.innerHTML = '<h1>Porfolio</h1><p class="lead">Esta carga es anterior a la sección Porfolio. Vuelve a cargar el MM_Supply desde Datos para verla.</p>'; return; }
-  const { q } = parseHash(), pend = q.get('pend') === '1';
-  const lz = pf.lanz.filter(x => !pend || !(x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en));
-  const cb = pf.cambios, t = (rows, cols, empty, fit = true) => `<div class="tw"><table${fit ? ' class="fit"' : ''}><thead><tr>${cols.map(c => `<th scope="col"${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
-  const cambiosT = (xs) => t(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="nowrap">${MOTIVO[x.m] || esc(x.m)}</td></tr>`).join(''), [['Referencia'], ['Motivo']], 'Ninguna.');
+  const { q } = parseHash(), rerender = () => pagePortfolio(main, [sub]);
+  const bindFiltros = () => {
+    $$('[data-pend]', main).forEach(c => c.onchange = () => { setQuery({ pend: c.checked ? '1' : '' }); rerender(); });
+    $$('[data-ver]', main).forEach(s => s.onchange = () => { setQuery({ ver: s.value }); rerender(); });
+  };
+  const B = PF_BLOQUES[sub];
+  if (sub && !B) return pageNotFound(main);
+  if (B) {  // vista de detalle de un caso
+    main.innerHTML = `<p class="crumbs"><a href="#/porfolio">Porfolio</a> › ${B.t}</p><h1>${B.t} <span class="muted">(${B.n(pf)})</span></h1><p class="lead">${B.lead(pf)}</p>${B.html(pf, q)}`;
+    return bindFiltros();
+  }
+  const card = (href, v, l) => `<a class="kpi kpi-link" href="${href}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
+  const ab = pfAbiertos();
   main.innerHTML = `<h1>Porfolio</h1><p class="lead">Productos terminados del maestro de artículos: qué entra y sale del seguimiento, cómo van los lanzamientos y qué conviene limpiar en ABAS.</p>
-    <div class="kpis"><div class="kpi"><div class="v">${fmt(pf.res.maestro)}</div><div class="l">PT en el maestro</div></div><div class="kpi"><div class="v">${fmt(pf.res.activos)}</div><div class="l">PT activos</div></div>
-      <div class="kpi"><div class="v">${fmt(pf.res.seguimiento)}</div><div class="l">En seguimiento (activos con movimiento)</div></div><div class="kpi"><div class="v">${fmt(pf.res.fuera)}</div><div class="l">Activos sin movimiento</div></div></div>
-    <h2>Altas y bajas${S.ds.prev ? ` desde la carga anterior (${fdt(S.ds.prev.created)})` : ''}</h2>
-    ${cb ? `<div class="two"><section><h3>Entran (${cb.entran.length})</h3>${cambiosT(cb.entran)}</section><section><h3>Salen (${cb.salen.length})</h3>${cambiosT(cb.salen)}</section></div>`
-      : '<p class="muted">Se verá a partir de la próxima carga: esta es la primera con la sección Porfolio.</p>'}
-    <h2>Lanzamientos (${pf.lanz.length})</h2>
-    <p class="muted small">PT activos dados de alta en los últimos ${pf.cfg.lanz} meses y lo que tienen preparado. El stock mínimo solo se pide a los contra stock.</p>
-    <form class="filters" onsubmit="return false"><label class="fld" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="pfPend" ${pend ? 'checked' : ''}> Solo con algo pendiente (${pf.lanz.filter(x => !(x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en)).length})</label></form>
-    ${t(lz.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td></tr>`).join(''),
-      [['Referencia'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c']], 'Ningún lanzamiento con estos criterios.', false)}
-    <h2>Limpieza del maestro</h2>
-    <div class="two"><section><h3>PT activos sin movimiento (${pf.fuera.length})</h3><p class="muted small">Activos en el maestro pero sin stock, previsión, pedidos, OF, propuestas ni venta reciente: candidatos a inactivar, o lanzamientos que aún no tienen nada.</p>
-      ${t(pf.fuera.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td></tr>`).join(''), [['Referencia'], ['Alta'], ['Qué tiene']], 'Ninguno.')}</section>
-      <section><h3>Inactivos con stock (${pf.inact.length})</h3><p class="muted small">Inactivos en el maestro que todavía tienen stock: no salen en el seguimiento.</p>
-      ${t(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}<td class="r num">${fmt(x.st)}</td><td class="num">${fdate(x.fina)}</td></tr>`).join(''), [['Referencia'], ['Stock', 'r'], ['Inactivo desde']], 'Ninguno.')}</section></div>`;
-  $('#pfPend').onchange = (e) => { setQuery({ pend: e.target.checked ? '1' : '' }); pagePortfolio(main); };
+    <div class="kpis">${card('#/porfolio/activos', fmt(pf.res.activos), 'PT activos')}${card('#/coberturas?gp=', fmt(pf.res.seguimiento), 'En seguimiento')}
+      ${card('#/porfolio/cambios', pf.cambios ? `${pf.cambios.entran.length} · ${pf.cambios.salen.length}` : '—', 'Entran · salen')}${card('#/porfolio/lanzamientos', fmt(pf.lanz.length), 'Lanzamientos')}
+      ${card('#/porfolio/sin-movimiento', fmt(pf.fuera.length), 'Sin movimiento')}${card('#/porfolio/inactivos', fmt(pf.inact.length), 'Inactivos con stock')}</div>
+    ${PF_ORDEN.map(k => { const b = PF_BLOQUES[k]; return `<details class="blk" data-blk="${k}" ${ab[k] ? 'open' : ''}><summary><h2>${b.t} <span class="muted">(${b.n(pf)})</span></h2><a class="small" href="#/porfolio/${k}">ver en detalle</a></summary><p class="muted small">${b.lead(pf)}</p>${b.html(pf, q)}</details>`; }).join('')}`;
+  $$('details.blk', main).forEach(d => d.addEventListener('toggle', () => { const o = pfAbiertos(); o[d.dataset.blk] = d.open; try { localStorage.setItem('pfOpen', JSON.stringify(o)); } catch (e) {} }));
+  bindFiltros();
 }
 async function pageSoon(main, [k]) { const s = SOON[k] || ['Próximamente', '']; main.innerHTML = `<h1>${s[0]}</h1><p class="lead">${s[1]}</p><p class="muted">Este módulo está en preparación.</p>`; }
 async function pageNotFound(main) { main.innerHTML = '<h1>Página no encontrada</h1><p class="lead">La dirección no corresponde a ninguna sección. Vuelve al <a href="#/">inicio</a>.</p>'; }

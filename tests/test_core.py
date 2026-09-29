@@ -108,6 +108,7 @@ check("lanzamiento preparado", lz["L1"]["app"] and all(lz["L1"][c] for c in ("pv
 check("lanzamiento sin nada", not lz["L2"]["app"] and not any(lz["L2"][c] for c in ("pv", "ln", "mn", "lt", "en")), lz["L2"])
 fu = {x["k"]: x["cat"] for x in pf["fuera"]}
 check("sin movimiento por categorías", fu == {"L2": "nada", "L3": "nada", "F1": "prev_futura", "F2": "venta_antigua", "F3": "prev_pasada"}, fu)
+check("sin movimiento con su planificación", all(x["gp"] == "Contra Stock" for x in pf["fuera"]), pf["fuera"][0])
 check("última venta de la venta antigua", next(x for x in pf["fuera"] if x["k"] == "F2")["uv"] == "06/2025")
 check("inactivos con stock", [(x["k"], x["st"], x["fina"]) for x in pf["inact"]] == [("I1", 120, "2026-03-02")], pf["inact"])
 en = {x["k"]: x["m"] for x in pf["cambios"]["entran"]}

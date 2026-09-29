@@ -230,7 +230,7 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         if k in en_app:
             continue
         cat = "prev_futura" if k in PFUT else "venta_antigua" if k in VL else "prev_pasada" if k in PPAS else "nada"
-        fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else ""))
+        fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), gp=a["gp"], cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else ""))
     fuera.sort(key=lambda x: (x["cat"], x["alta"]))
 
     inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), fina=iso(a["fina"])) for k, a in pt.items()
@@ -448,7 +448,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         prev = [round(x) for x in pv] if pv else [0] * H
         v0 = vt[12] if vt else 0.0
         refs.append(dict(
-            k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"],
+            k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"], al=a["alta"].isoformat() if a["alta"] else "",
             st=round(st), mn=round(mn), lt=round(lote), pr=round(a["precio"], 2),
             pv=prev, pv0r=_resto(prev[0], v0, dias_quedan, dias_mes), hp=[round(x) for x in HP.get(k, [0.0] * 12)], pd=[round(x) for x in pd] if pd else [0] * H,
             at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),

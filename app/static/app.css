@@ -99,6 +99,16 @@ main{padding:22px 24px 60px;width:100%}
 .kpi{background:var(--sheet);border:1px solid var(--rule);border-radius:10px;padding:12px 14px}
 .kpi .v{font:700 24px/1.1 var(--narrow)}
 .kpi .l{color:var(--ink2);font-size:13px}
+a.kpi-link{display:block;text-decoration:none;color:var(--ink);position:relative}
+a.kpi-link:hover{border-color:var(--link)}
+a.kpi-link::after{content:"›";position:absolute;right:12px;top:10px;color:var(--ink2);font-size:18px}
+/* Bloques desplegables de Porfolio */
+details.blk{border-top:1px solid var(--rule);padding:4px 0 14px}
+details.blk>summary{display:flex;align-items:baseline;gap:14px;cursor:pointer;list-style:none;padding:8px 0}
+details.blk>summary::-webkit-details-marker{display:none}
+details.blk>summary h2{margin:6px 0}
+details.blk>summary h2::before{content:"▸";display:inline-block;width:18px;color:var(--ink2);transition:transform .15s}
+details.blk[open]>summary h2::before{transform:rotate(90deg)}
 
 /* ---- Filtros y tablas */
 .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px}

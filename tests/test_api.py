@@ -55,6 +55,7 @@ check("porfolio: fuera solo quedan activos sin movimiento que no son lanzamiento
       pf.get("fuera") is not None and all(x["cat"] != "prev_futura" and x["alta"] < "2025-12-29" for x in pf["fuera"]),
       [(x["k"], x["cat"], x["alta"]) for x in pf.get("fuera", []) if x["cat"] == "prev_futura" or x["alta"] >= "2025-12-29"][:3])
 check("porfolio: inactivos con stock, todos con stock > 0", all(x["st"] > 0 for x in pf.get("inact", [])), len(pf.get("inact", [])))
+check("cada referencia lleva su fecha de alta", sum(bool(r.get("al")) for r in ds["refs"]) > len(ds["refs"]) * 0.9, sum(bool(r.get("al")) for r in ds["refs"]))
 check("los lanzamientos siempre están en seguimiento", pf.get("lanz") and all(x["app"] for x in pf["lanz"]), sum(not x["app"] for x in pf.get("lanz", [])))
 ilu = [k for k in ("501541932400", "501545112400", "501540227240", "501548402400") if k in {r["k"] for r in ds["refs"]}]
 check("tonos nuevos de ILUSIONYST en seguimiento (con y sin previsión)", len(ilu) == 4, ilu)
