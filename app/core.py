@@ -15,7 +15,11 @@ import re
 
 H = 12  # horizonte en meses
 HMIN, FMIN, FMAX = 6, 0.5, 1.5  # acierto: meses mínimos de historia y límites del factor de sesgo
-LANZ_MESES, ALTA_MESES = 9, 4  # porfolio: ventana de lanzamientos y antigüedad máxima de un "alta nueva"
+LANZ_MESES, ALTA_MESES = 9, 4
+# ABC y parámetros por clase (A, B, C, D); se cambian desde Datos → Criterios
+ABC_DEF = dict(cortes=[45, 80, 95], freq={"Belloch": [12, 6, 4, 2], "Yunsey": [6, 4, 2, 1]},
+               ss={"Belloch": [75, 75, 50, 0], "Yunsey": [75, 75, 50, 0]})
+ABC_VIDA, ABC_MIN = 12, 3  # meses de venta para un ABC definitivo / mínimos para anualizarla  # porfolio: ventana de lanzamientos y antigüedad máxima de un "alta nueva"
 SHEETS = ["MM_Art", "MM_TLY", "MM_Stocks", "MM_Vtas", "MM_PedVentas", "MM_Prev", "MM_PROP", "MM_OF", "MM_Maq"]
 MESES = {"ene": 0, "feb": 1, "mar": 2, "abr": 3, "may": 4, "jun": 5, "jul": 6, "ago": 7, "sep": 8, "oct": 9, "nov": 10, "dic": 11}
 
@@ -197,6 +201,46 @@ def acierto(refs: list[dict], dq: int, dm: int) -> None:
                  pvc=[round(x * fc) for x in r["pv"]], pv0rc=_resto(r["pv"][0] * fc, r["v0"], dq, dm))
 
 
+def clasificar(refs: list[dict], cortes: list[int]) -> None:
+    """ABC por mandante con Pareto sobre la venta de los 12 meses cerrados. Con menos de ABC_VIDA
+    meses desde la primera venta se anualiza la venta media; con menos de ABC_MIN se usa la previsión
+    de 12 meses (ABC provisional). Bajo pedido: NA. Cada referencia queda en la clase en la que
+    empieza (la que cruza un corte no salta a la siguiente)."""
+    for r in refs:
+        fv = r.get("fv")
+        if "fv" not in r:  # carga antigua: la primera venta se deduce de los 12 meses guardados
+            fv = next((i - 12 for i, x in enumerate(r["vt"]) if x > 0), None)
+        n = -fv if fv is not None else 0
+        if n >= ABC_VIDA:
+            m, x = sum(r["vt"]), "venta"
+        elif n >= ABC_MIN:
+            m, x = sum(r["vt"][12 - n:]) / n * 12, "anual"
+        else:
+            m, x = sum(r["pv"]), "prev"
+        r.update(abcm=round(m), abcx=x, abcn=n, abcp=x != "venta")
+    a, b, c = (p / 100 for p in cortes)
+    for md in {r["md"] for r in refs}:
+        g = sorted((r for r in refs if r["md"] == md and r["gp"] != "Bajo Pedido"), key=lambda r: (-r["abcm"], r["k"]))
+        tot = sum(r["abcm"] for r in g) or 1
+        cum = 0.0
+        for r in g:
+            p = cum / tot
+            cum += r["abcm"]
+            r["abc"] = "D" if r["abcm"] <= 0 else "A" if p < a else "B" if p < b else "C" if p < c else "D"
+    for r in refs:
+        if r["gp"] == "Bajo Pedido":
+            r["abc"] = "NA"
+
+
+def recalcular(ds: dict, cortes: list[int]) -> dict:
+    """Vuelve a clasificar el ABC de una carga guardada con otros cortes, y con él el acierto de la
+    previsión (que usa el grupo mandante × ABC), sin volver a leer el Excel."""
+    clasificar(ds["refs"], cortes)
+    if ds["refs"] and "hp" in ds["refs"][0] and ds["meta"].get("dias"):
+        acierto(ds["refs"], *ds["meta"]["dias"])
+    return ds
+
+
 def _hace_meses(d: dt.date, n: int) -> dt.date:
     y, m = divmod(d.year * 12 + d.month - 1 - n, 12)
     return dt.date(y, m + 1, min(d.day, calendar.monthrange(y, m + 1)[1]))
@@ -249,8 +293,9 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
                 lanz=lanz, fuera=fuera, inact=inact, cambios=cambios, cfg=dict(lanz=LANZ_MESES, alta=ALTA_MESES))
 
 
-def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = None) -> dict:
-    """anterior: {código: nombre} de la carga anterior, para las altas y bajas del porfolio."""
+def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = None, cortes: list[int] | None = None) -> dict:
+    """anterior: {código: nombre} de la carga anterior, para las altas y bajas del porfolio.
+    cortes: cortes del ABC en % (por defecto ABC_DEF)."""
     base_y, base_m = today.year, today.month - 1
 
     def midx(d: dt.date) -> int:
@@ -356,6 +401,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             vcols.append((j, (cy - base_y) * 12 + (mm - base_m)))
     VT: dict[str, list[float]] = {}
     VL: dict[str, int] = {}  # último mes con venta (índice respecto al mes en curso), en toda la hoja
+    FV: dict[str, int] = {}  # primer mes con venta, para saber si el ABC es definitivo
     for r in tv.data:
         k = _code(_get(r, 0))
         if not k or k == "Total general":
@@ -367,6 +413,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
                 a[mi + 12] += q
             if q > 0 and mi <= 0:
                 VL[k] = max(VL.get(k, mi), mi)
+                FV[k] = min(FV.get(k, mi), mi)
         VT[k] = a
 
     # Pedidos pendientes
@@ -448,26 +495,14 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         prev = [round(x) for x in pv] if pv else [0] * H
         v0 = vt[12] if vt else 0.0
         refs.append(dict(
-            k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"], al=a["alta"].isoformat() if a["alta"] else "",
+            k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"], al=a["alta"].isoformat() if a["alta"] else "", fv=FV.get(k),
             st=round(st), mn=round(mn), lt=round(lote), pr=round(a["precio"], 2),
             pv=prev, pv0r=_resto(prev[0], v0, dias_quedan, dias_mes), hp=[round(x) for x in HP.get(k, [0.0] * 12)], pd=[round(x) for x in pd] if pd else [0] * H,
             at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),
             vt=[round(x) for x in vt[:12]] if vt else [0] * 12, v0=round(v0),
         ))
 
-    # ABC por mandante: % acumulado de la previsión de los próximos 12 meses
-    for md in ("Belloch", "Yunsey"):
-        g = sorted(((r, sum(r["pv"])) for r in refs if r["md"] == md and r["gp"] != "Bajo Pedido"), key=lambda x: -x[1])
-        tot = sum(t for _, t in g) or 1
-        cum = 0.0
-        for r, t in g:
-            cum += t
-            p = cum / tot
-            r["abc"] = "D" if t <= 0 else "A" if p < 0.45 else "B" if p < 0.80 else "C" if p < 0.95 else "D"
-    for r in refs:
-        if r["gp"] == "Bajo Pedido":
-            r["abc"] = "NA"
-        r.setdefault("abc", "D")
+    clasificar(refs, cortes or ABC_DEF["cortes"])
     acierto(refs, dias_quedan, dias_mes)
 
     refs.sort(key=lambda r: r["k"])

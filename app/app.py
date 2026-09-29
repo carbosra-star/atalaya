@@ -135,7 +135,7 @@ def init_db() -> None:
 
 
 def get_config() -> dict:
-    cfg = {"horizonte": 3}
+    cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF))}
     for r in db().execute("SELECT key,value FROM config"):
         cfg[r["key"]] = json.loads(r["value"])
     return cfg
@@ -311,7 +311,7 @@ def upload():
         f.save(tmp.name)
         path = tmp.name
     try:
-        ds = core.parse(core.read_workbook(path), hoy, prev)
+        ds = core.parse(core.read_workbook(path), hoy, prev, get_config()["abc"]["cortes"])
     except core.DataError as e:
         return err(str(e))
     except Exception as e:  # fichero corrupto u otro formato
@@ -349,12 +349,46 @@ def config():
     if g.user["role"] != "admin":
         return err("Solo un administrador puede cambiar los criterios", 403)
     b = request.get_json(silent=True) or {}
-    hz = b.get("horizonte")
-    if not isinstance(hz, int) or not 1 <= hz <= 6:
-        return err("El horizonte debe estar entre 1 y 6 meses")
-    db().execute("INSERT INTO config(key,value) VALUES('horizonte',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(hz),))
+    if "horizonte" not in b and "abc" not in b:
+        return err("No hay nada que guardar")
+    save = {}
+    if "horizonte" in b:
+        hz = b["horizonte"]
+        if not isinstance(hz, int) or not 1 <= hz <= 6:
+            return err("El horizonte debe estar entre 1 y 6 meses")
+        save["horizonte"] = hz
+    if "abc" in b:
+        problema = abc_invalido(b["abc"])
+        if problema:
+            return err(problema)
+        save["abc"] = {k: b["abc"][k] for k in ("cortes", "freq", "ss")}
+    antes = get_config()["abc"]["cortes"]
+    for k, v in save.items():
+        db().execute("INSERT INTO config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, json.dumps(v)))
+    if "abc" in save and save["abc"]["cortes"] != antes:  # el ABC de la carga vigente se recalcula con los cortes nuevos
+        row = _load_row()
+        if row:
+            ds = core.recalcular(json.loads(zlib.decompress(row["data"])), save["abc"]["cortes"])
+            db().execute("UPDATE loads SET data=? WHERE id=?", (zlib.compress(json.dumps(ds, separators=(",", ":")).encode(), 6), row["id"]))
     db().commit()
     return jsonify(get_config())
+
+
+def abc_invalido(a) -> str:
+    """Devuelve el problema de unos parámetros del ABC, o "" si son válidos."""
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+    if not isinstance(a, dict):
+        return "Parámetros del ABC no válidos"
+    c = a.get("cortes")
+    if not (isinstance(c, list) and len(c) == 3 and all(isinstance(x, int) and 1 <= x <= 99 for x in c) and c[0] < c[1] < c[2]):
+        return "Los cortes del ABC deben ser tres porcentajes crecientes entre 1 y 99 (por ejemplo 45, 80 y 95)"
+    for clave, nombre, lo, hi in (("freq", "La frecuencia de fabricación", 0, 365), ("ss", "El % de SS", -1, 300)):
+        d = a.get(clave)
+        for md in ("Belloch", "Yunsey"):
+            v = d.get(md) if isinstance(d, dict) else None
+            if not (isinstance(v, list) and len(v) == 4 and all(num(x) and lo < x <= hi for x in v)):
+                return f"{nombre} de {md} debe tener un valor por clase (A, B, C y D) entre {lo + 1} y {hi}"
+    return ""
 
 
 # ---------------------------------------------------------------- notas y acciones

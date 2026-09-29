@@ -124,6 +124,30 @@ pf4 = core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **dict(sig, PFUTV={"L2"}
 check("lanzamiento con previsión solo más allá de 12 meses: previsión ✓", next(x for x in pf4["lanz"] if x["k"] == "L2")["pv"])
 check("sin carga anterior no hay cambios", core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **sig)["cambios"] is None)
 
+# ABC por venta: 12 meses cerrados; lanzamientos con venta anualizada (3-11 meses) o previsión (< 3 meses)
+def rabc(k, vt, fv, pv=0, gp="Contra Stock", md="Belloch"):
+    r = dict(k=k, md=md, gp=gp, vt=vt, pv=[pv] * 12)
+    if fv != "sin":
+        r["fv"] = fv
+    return r
+
+
+R = [rabc("R1", [100] * 12, -20), rabc("R2", [10] * 12, -15), rabc("R3", [0] * 7 + [50] * 5, -5), rabc("R4", [0] * 11 + [5], -1, pv=30),
+     rabc("R5", [0] * 12, None), rabc("R6", [99] * 12, -30, gp="Bajo Pedido")]
+core.clasificar(R, [45, 80, 95])
+d = {r["k"]: r for r in R}
+check("ABC: la más vendida es A aunque supere sola el corte", d["R1"]["abc"] == "A", d["R1"]["abc"])
+check("ABC: reparto por venta con cortes 45/80/95", [d[k]["abc"] for k in ("R1", "R3", "R4", "R2", "R5", "R6")] == ["A", "B", "B", "C", "D", "NA"],
+      [d[k]["abc"] for k in ("R1", "R3", "R4", "R2", "R5", "R6")])
+check("ABC: 12 meses de venta, definitivo", d["R1"]["abcx"] == "venta" and not d["R1"]["abcp"] and d["R1"]["abcm"] == 1200)
+check("ABC: 5 meses de venta, anualizada y provisional", d["R3"]["abcx"] == "anual" and d["R3"]["abcp"] and d["R3"]["abcm"] == 600 and d["R3"]["abcn"] == 5, d["R3"])
+check("ABC: 1 mes de venta, por previsión y provisional", d["R4"]["abcx"] == "prev" and d["R4"]["abcp"] and d["R4"]["abcm"] == 360, d["R4"])
+core.clasificar(R, [60, 90, 99])
+check("ABC: con cortes 60/90/99", [d[k]["abc"] for k in ("R1", "R3", "R4", "R2")] == ["A", "A", "B", "C"], [d[k]["abc"] for k in ("R1", "R3", "R4", "R2")])
+viejo = rabc("V", [0] * 4 + [20] * 8, "sin")
+core.clasificar([viejo], [45, 80, 95])
+check("ABC: carga antigua sin primera venta, se deduce de los 12 meses", viejo["abcx"] == "anual" and viejo["abcn"] == 8, viejo)
+
 # Evaluación con previsión corregida y cargas antiguas sin pvc
 base = dict(st=500, mn=0, at=0, en=[], pd=[0] * 12, pv=[100] * 12, pv0r=100)
 nueva = dict(base, pvc=[50] * 12, pv0rc=50)

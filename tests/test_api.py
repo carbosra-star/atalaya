@@ -74,6 +74,19 @@ check("previsión operativa: todos los meses tienen versión", all(ds["meta"]["p
 check("se compara con la carga de la fecha anterior", ds["prev"] and ds["prev"].get("hoy") == "2026-09-22", ds["prev"] and ds["prev"].get("hoy"))
 check("carga anterior evaluada en las seis combinaciones", ds["prev"] and set(ds["prev"]["sem"]) == {"OF", "OFPF", "ALL", "OF_C", "OFPF_C", "ALL_C"})
 
+# Parámetros del ABC desde la app
+cfg = c.get("/api/me").json["config"]
+check("parámetros del ABC por defecto", cfg.get("abc", {}).get("cortes") == [45, 80, 95] and cfg["abc"]["freq"]["Yunsey"] == [6, 4, 2, 1], cfg.get("abc"))
+nA = lambda d: sum(r["abc"] == "A" for r in d["refs"])  # noqa: E731
+antes = nA(c.get("/api/dataset").json)
+r = c.put("/api/config", json={"abc": dict(cfg["abc"], cortes=[60, 90, 99])}, headers=H)
+check("guardar cortes nuevos", r.status_code == 200 and r.json["abc"]["cortes"] == [60, 90, 99], r.json)
+check("al cambiar los cortes se recalcula el ABC de la carga vigente", nA(c.get("/api/dataset").json) > antes, (antes, nA(c.get("/api/dataset").json)))
+check("cortes no válidos se rechazan", c.put("/api/config", json={"abc": dict(cfg["abc"], cortes=[80, 45, 95])}, headers=H).status_code == 400)
+check("frecuencia no válida se rechaza", c.put("/api/config", json={"abc": dict(cfg["abc"], freq={"Belloch": [0, 6, 4, 2], "Yunsey": [6, 4, 2, 1]})}, headers=H).status_code == 400)
+c.put("/api/config", json={"abc": cfg["abc"]}, headers=H)
+check("el horizonte se sigue guardando aparte", c.put("/api/config", json={"horizonte": 3}, headers=H).json.get("abc", {}).get("cortes") == [45, 80, 95])
+
 # Validaciones de acciones
 r = c.post("/api/actions", json={"ref": "<img src=x onerror=alert(1)>", "text": "x"}, headers=H)
 check("acción con referencia no válida se rechaza", r.status_code == 400)
