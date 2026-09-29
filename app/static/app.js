@@ -462,7 +462,7 @@ async function pageData(main) {
       <div id="prev" aria-live="polite"></div></section>
     <section class="card" style="max-width:760px;margin-top:14px"><h2>Criterios del semáforo</h2>
       <form class="form" id="cfgF"><label>Horizonte de alerta (meses)<input type="number" name="hz" min="1" max="6" value="${S.cfg.horizonte}"></label><div><button class="btn ghost">Guardar criterios</button></div></form>
-      <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: tiene stock pero no tiene demanda prevista.</p></section>
+      <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: no tiene demanda prevista en 12 meses (tenga stock o no).</p></section>
     <h2>Historial de cargas</h2>
     <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Por</th></tr></thead><tbody>
     ${loads.map(l => `<tr><td>${fdt(l.created)}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>

@@ -85,7 +85,7 @@ Hojas que usa la app (las demás se ignoran):
   - Bajo mínimo: por debajo del stock mínimo.
   - Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada.
   - Cubierto.
-  - Sin demanda: tiene stock pero no tiene demanda prevista.
+  - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
 - **ABC** por mandante con la previsión de los 12 próximos meses: A < 45 %, B < 80 %, C < 95 %, D resto; bajo pedido = NA.
 
 La lógica está en `app/core.py` (servidor) y su gemela de evaluación en `app/static/core.js` (navegador, para cambiar de escenario al instante). Si se cambia una, hay que cambiar la otra.

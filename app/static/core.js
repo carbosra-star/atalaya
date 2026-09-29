@@ -26,7 +26,7 @@
     const hasP = r.en.some(e => e.t === 'P' && e.m < hz);
     let sem = 'verde', why = 'Cubierto en el horizonte';
     const d12 = all.dem.reduce((s, x) => s + x, 0);
-    if (d12 <= 0 && r.st > 0) { sem = 'gris'; why = 'Sin demanda prevista'; }
+    if (d12 <= 0 && r.st >= 0) { sem = 'gris'; why = r.st > 0 ? 'Sin demanda prevista' : 'Sin demanda ni stock'; }
     else if (rot >= 0 && rot < hz) { sem = 'rojo'; why = (rot === 0 && r.at > r.st) ? 'Pedidos atrasados por encima del stock' : rot === 0 ? 'Rotura este mes' : 'Rotura en ' + rot + (rot === 1 ? ' mes' : ' meses'); }
     else if (bmin >= 0 && bmin < hz) { sem = 'naranja'; why = 'Por debajo del stock mínimo'; }
     else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = 'Depende de propuestas sin fijar'; }

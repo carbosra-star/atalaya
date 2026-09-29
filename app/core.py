@@ -373,8 +373,8 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL") -> dict:
     late_of = any(e["t"] == "OF" and e["late"] for e in r["en"])
     has_p = any(e["t"] == "P" and e["m"] < hz for e in r["en"])
     sem, why = "verde", "Cubierto en el horizonte"
-    if d12 <= 0 and r["st"] > 0:
-        sem, why = "gris", "Sin demanda prevista"
+    if d12 <= 0 and r["st"] >= 0:
+        sem, why = "gris", "Sin demanda prevista" if r["st"] > 0 else "Sin demanda ni stock"
     elif 0 <= rot < hz:
         sem = "rojo"
         if rot == 0 and r["at"] > r["st"]:
