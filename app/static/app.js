@@ -18,10 +18,14 @@ const SEMT = Object.fromEntries(SEM);
 const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, gris: 4 };
 const ESC = { OF: 'Solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };
 const ESC_TXT = { OF: 'solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };  // para mitad de frase
-const escLower = () => ESC_TXT[S.esc];
+const escLower = () => ESC_TXT[S.esc] + (S.pv === 'C' ? ' y previsión corregida' : '');
+const PV = { T: 'Tal cual', C: 'Corregida' };
+const pvKey = () => S.esc + (S.pv === 'C' ? '_C' : '');  // clave de la carga anterior evaluada
+const cobTxt = (v) => v >= 99 ? '—' : Math.max(0, v).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m';  // stock negativo: 0 m
 const ENT = { OF: 'OF', PF: 'Propuesta fijada', P: 'Propuesta' };
 
-const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL' };
+const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL',
+  pv: (() => { try { return localStorage.getItem('prev') === 'C' ? 'C' : 'T'; } catch (e) { return 'T'; } })() };
 
 // ---------------------------------------------------------------- API
 async function api(path, opt = {}) {
@@ -57,7 +61,7 @@ function restoText(r) {
   return `Mes en curso: quedan ${fmt(r.pv0r)} de la previsión (${fmt(p0)}), la menor entre lo que falta tras vender ${fmt(r.v0)} (${fmt(Math.max(0, p0 - r.v0))}) y lo que corresponde a ${d[0]} de ${d[1]} días naturales (${fmt(p0 * d[0] / d[1])}).`;
 }
 function recompute() {
-  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc };
+  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv };
   S.ev = S.ds ? S.ds.refs.map(r => ({ r, e: Cob.evaluate(r, cfg) })) : [];
   S.byK = {}; for (const x of S.ev) S.byK[x.r.k] = x;
 }
@@ -209,10 +213,12 @@ function strip(list, hrefFor, current) {
     <div class="legend">${SEM.map(([k, t]) => `<a class="s-${k}" href="${hrefFor(k)}" ${current === k ? 'aria-current="true"' : ''}><span class="d"></span><span class="n">${c[k] || 0}</span><span class="t">${t}</span></a>`).join('')}</div></section>`;
 }
 function scenarioCtl() {
-  return `<div class="fld"><span id="escL">Entradas que se cuentan</span><div class="seg" role="group" aria-labelledby="escL">${Object.entries(ESC).map(([k, t]) => `<button data-esc="${k}" aria-pressed="${S.esc === k}">${k === 'OF' ? 'Solo OF' : k === 'OFPF' ? '+ fijadas' : '+ todas las propuestas'}<span class="sr"> (${t})</span></button>`).join('')}</div></div>`;
+  return `<div class="fld"><span id="escL">Entradas que se cuentan</span><div class="seg" role="group" aria-labelledby="escL">${Object.entries(ESC).map(([k, t]) => `<button type="button" data-esc="${k}" aria-pressed="${S.esc === k}">${k === 'OF' ? 'Solo OF' : k === 'OFPF' ? '+ fijadas' : '+ todas las propuestas'}<span class="sr"> (${t})</span></button>`).join('')}</div></div>
+    <div class="fld"><span id="pvL">Previsión</span><div class="seg" role="group" aria-labelledby="pvL">${Object.entries(PV).map(([k, t]) => `<button type="button" data-pv="${k}" aria-pressed="${S.pv === k}">${t}</button>`).join('')}</div></div>`;
 }
 function bindScenario(root, rerender) {
   $$('[data-esc]', root).forEach(b => b.onclick = () => { S.esc = b.dataset.esc; localStorage.setItem('esc', S.esc); recompute(); updateChrome(); rerender(); announce('Escenario: ' + ESC[S.esc]); });
+  $$('[data-pv]', root).forEach(b => b.onclick = () => { S.pv = b.dataset.pv; try { localStorage.setItem('prev', S.pv); } catch (e) {} recompute(); updateChrome(); rerender(); announce('Previsión: ' + PV[S.pv]); });
 }
 function noData(main, title) {
   main.innerHTML = `<h1>${title}</h1><p class="lead">Todavía no hay datos cargados.${can('admin') ? ' Sube el MM_Supply desde <a href="#/datos">Datos</a>.' : ' Cuando se cargue el MM_Supply aparecerán aquí las coberturas.'}</p>`;
@@ -227,7 +233,7 @@ function thSort(label, key, cur, dir, cls = '') {
 async function pageHome(main) {
   if (!S.ds) return noData(main, 'Inicio');
   const cs = S.ev.filter(x => x.r.gp === 'Contra Stock');
-  const prev = S.ds.prev ? S.ds.prev.sem[S.esc] : null;
+  const prev = S.ds.prev ? (S.ds.prev.sem[pvKey()] || S.ds.prev.sem[S.esc]) : null;
   const into = prev ? cs.filter(x => x.e.sem === 'rojo' && prev[x.r.k] && prev[x.r.k] !== 'rojo') : [];
   const out = prev ? cs.filter(x => prev[x.r.k] === 'rojo' && x.e.sem !== 'rojo') : [];
   const urg = cs.filter(x => x.e.sem === 'rojo').sort((a, b) => a.e.rot - b.e.rot || b.e.d3 - a.e.d3).slice(0, 10);
@@ -252,7 +258,7 @@ async function pageHome(main) {
 // ---------------------------------------------------------------- Coberturas
 const LIST_GET = {
   sem: x => SEMORD[x.e.sem] * 1e9 - x.e.d3, k: x => x.r.k, ln: x => x.r.ln || 'zzz', abc: x => x.r.abc, st: x => x.r.st, mn: x => x.r.mn,
-  d3: x => x.e.d3, cob: x => x.e.cob, rot: x => x.e.rot < 0 ? 99 : x.e.rot, next: x => x.e.next ? x.e.next.d : 'z',
+  d3: x => x.e.d3, cob: x => x.e.cob, cobp: x => x.e.cobp, rot: x => x.e.rot < 0 ? 99 : x.e.rot, next: x => x.e.next ? x.e.next.d : 'z',
 };
 function listFilter(q) {
   const t = (q.get('q') || '').toLowerCase(), md = q.get('md') || '', ln = q.get('ln') || '', mc = q.get('mc') || '', abc = q.get('abc') || '', gp = q.has('gp') ? q.get('gp') : 'Contra Stock';
@@ -278,10 +284,10 @@ async function pageList(main) {
       <td class="art">${refLink(r)}${S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : ''}${openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''}<small>${esc(r.n)}</small></td>
       <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td><span class="abc">${esc(r.abc)}</span></td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>
-      <td class="r num">${e.cob >= 99 ? '—' : e.cob.toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m'}</td>
-      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
+      <td class="r num">${cobTxt(e.cob)}</td><td class="r num">${cobTxt(e.cobp)}</td>
+      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
     $('#more').hidden = rows.length <= limit; $('#more').textContent = `Mostrar ${Math.min(200, rows.length - limit)} más`;
-    $('#thead').innerHTML = `<tr>${thSort('Estado', 'sem', key, dir)}${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}</tr>`;
+    $('#thead').innerHTML = `<tr>${thSort('Estado', 'sem', key, dir)}${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Cob. prudente', 'cobp', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}</tr>`;
     $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd3', 'mn'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
     main._rows = rows;
   };
@@ -303,14 +309,14 @@ async function pageList(main) {
   const fl = $('#flt');
   fl.addEventListener('input', (ev) => { const n = ev.target.name; if (!n) return; if (n === 'q') { clearTimeout(fl.t); fl.t = setTimeout(() => { setQuery({ q: ev.target.value.trim() }); limit = 200; draw(); }, 200); } });
   fl.addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'q') return; setQuery({ [n]: n === 'gp' ? (ev.target.value || '') : ev.target.value }); if (n === 'gp' && !ev.target.value) { const { path, q: qq } = parseHash(); qq.set('gp', ''); history.replaceState(null, '', '#' + path + '?' + qq); } limit = 200; draw(); });
-  bindScenario(main, () => { $$('[data-esc]', main).forEach(b => b.setAttribute('aria-pressed', b.dataset.esc === S.esc)); draw(); });
+  bindScenario(main, () => { $$('[data-esc]', main).forEach(b => b.setAttribute('aria-pressed', b.dataset.esc === S.esc)); $$('[data-pv]', main).forEach(b => b.setAttribute('aria-pressed', b.dataset.pv === S.pv)); draw(); });
   $('#more').onclick = () => { limit += 200; draw(); };
   $('#csv').onclick = () => downloadCSV(main._rows || []);
   draw();
 }
 function downloadCSV(rows) {
-  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.d3), e.cob >= 99 ? '' : e.cob.toFixed(1).replace('.', ','), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.d3), e.cob >= 99 ? '' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp >= 99 ? '' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `coberturas_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
