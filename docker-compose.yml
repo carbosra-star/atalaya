@@ -1,0 +1,11 @@
+services:
+  supply:
+    build: .
+    image: bellochapplab/planificacion-supply:1.0
+    container_name: planificacion-supply
+    restart: unless-stopped
+    ports:
+      - "8085:8000"          # cambia 8085 por el puerto libre que uséis en el NAS
+    env_file: .env
+    volumes:
+      - ./data:/data         # base de datos (supply.db) y clave de sesión: incluir en las copias de seguridad

@@ -1,0 +1,12 @@
+# Estado y secretos: nunca al repositorio
+data/
+.env
+
+# Ficheros de datos de negocio
+*.xlsx
+*.xlsm
+
+# Python
+.venv/
+__pycache__/
+*.pyc
