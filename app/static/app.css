@@ -68,7 +68,7 @@ h3{font:600 15.5px/1.3 var(--font);margin:18px 0 8px}
 .user [role=menu]{position:absolute;right:0;top:calc(100% + 4px);background:var(--sheet);border:1px solid var(--rule);border-radius:8px;min-width:190px;padding:4px;box-shadow:0 12px 30px rgba(0,0,0,.14);z-index:10}
 .user [role=menuitem]{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:none;border-radius:6px;cursor:pointer;text-decoration:none;color:var(--ink)}
 .user [role=menuitem]:hover,.user [role=menuitem]:focus{background:var(--sel)}
-main{padding:22px 24px 60px;max-width:1360px;width:100%}
+main{padding:22px 24px 60px;width:100%}
 .crumbs{font-size:13.5px;margin-bottom:6px;color:var(--ink2)}
 .crumbs a{color:var(--ink2)}
 
@@ -89,6 +89,7 @@ main{padding:22px 24px 60px;max-width:1360px;width:100%}
 
 /* ---- Bloques */
 .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.grid2{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));align-items:start}
 .card{background:var(--sheet);border:1px solid var(--rule);border-radius:12px;padding:16px 18px}
 .card h2{margin-top:0;font-size:16px}
 .card ul{margin:0;padding-left:18px}
@@ -109,7 +110,7 @@ main{padding:22px 24px 60px;max-width:1360px;width:100%}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
 .toolbar{display:flex;align-items:center;gap:12px;margin:0 0 8px;flex-wrap:wrap}
 .toolbar .count{color:var(--ink2);font-size:14px}
-.tw{background:var(--sheet);border:1px solid var(--rule);border-radius:12px;overflow-x:auto}
+.tw{position:relative;background:var(--sheet);border:1px solid var(--rule);border-radius:12px;overflow-x:auto}
 table{border-collapse:collapse;width:100%}
 .tw>table{min-width:940px}
 th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--soft);vertical-align:top}

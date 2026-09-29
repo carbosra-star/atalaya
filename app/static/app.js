@@ -368,7 +368,8 @@ function downloadCSV(rows) {
 
 // ---------------------------------------------------------------- Ficha de referencia
 function chartSVG(r, e) {
-  const W = 760, Hh = 250, pl = 52, pr = 12, pt = 14, pb = 28, n = Cob.H;
+  // Se dibuja al ancho real (menos márgenes de main y de la caja) para que los textos no crezcan en pantallas anchas
+  const W = Math.max(560, ($('#main') ? $('#main').clientWidth : 800) - 80), Hh = 260, pl = 52, pr = 12, pt = 14, pb = 28, n = Cob.H;
   const st = e.all.stk, dm = e.all.dem, en = e.all.ent;
   const vals = [...st, ...dm, ...en, r.mn, r.st, 0], max = Math.max(...vals), min = Math.min(...vals, 0);
   const y = v => pt + (Hh - pt - pb) * (max - v) / ((max - min) || 1), bw = (W - pl - pr) / n, x = i => pl + bw * i + bw / 2;
@@ -512,16 +513,16 @@ async function pageData(main) {
   if (!can('admin')) return pageNotFound(main);
   const loads = await api('/api/loads');
   main.innerHTML = `<h1>Datos</h1><p class="lead">Sube el MM_Supply exportado de ABAS. Primero se comprueba y te enseña el resultado; después lo publicas para todos.</p>
-    <section class="card" style="max-width:760px"><h2>Cargar MM_Supply</h2>
+    <div class="grid2"><section class="card"><h2>Cargar MM_Supply</h2>
       <form class="form" id="upF" style="max-width:none">
         <label class="drop" id="drop">Arrastra aquí el fichero o haz clic para elegirlo<input type="file" name="file" accept=".xlsx,.xlsm" class="sr" id="upFile"></label>
         <p class="muted small" id="fname"></p>
         <div class="row"><label>Fecha de los datos<input type="date" name="fecha" value="${todayISO()}"></label><button class="btn" id="chk" type="submit">Comprobar fichero</button></div>
       </form>
       <div id="prev" aria-live="polite"></div></section>
-    <section class="card" style="max-width:760px;margin-top:14px"><h2>Criterios del semáforo</h2>
+    <section class="card"><h2>Criterios del semáforo</h2>
       <form class="form" id="cfgF"><label>Horizonte de alerta (meses)<input type="number" name="hz" min="1" max="6" value="${S.cfg.horizonte}"></label><div><button class="btn ghost">Guardar criterios</button></div></form>
-      <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: no tiene demanda prevista en 12 meses (tenga stock o no).</p></section>
+      <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: no tiene demanda prevista en 12 meses (tenga stock o no).</p></section></div>
     <h2>Historial de cargas</h2>
     <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Por</th></tr></thead><tbody>
     ${loads.map(l => `<tr><td>${fdt(l.created)}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>
