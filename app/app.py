@@ -10,6 +10,7 @@ import datetime as dt
 import gzip
 import json
 import os
+import re
 import secrets
 import sqlite3
 import tempfile
@@ -18,8 +19,10 @@ import zlib
 from collections import defaultdict
 from functools import wraps
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from flask import Flask, g, jsonify, request, send_from_directory, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import core
@@ -30,6 +33,9 @@ DB_PATH = DATA_DIR / "supply.db"
 STATIC = Path(__file__).parent / "static"
 KEEP_LOADS = int(os.environ.get("KEEP_LOADS", "30"))
 ROLES = ("admin", "planificador", "lector")
+TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Madrid"))
+REF_RE = re.compile(r"[0-9A-Za-z._-]{1,20}")
+ESCENARIOS = ("OF", "OFPF", "ALL")
 
 
 def _secret_key() -> str:
@@ -51,6 +57,8 @@ def _secret_key() -> str:
 
 
 app = Flask(__name__, static_folder=None)
+if os.environ.get("TRUST_PROXY") == "1":  # detrás del proxy inverso del NAS: la IP real viene en X-Forwarded-For
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config.update(
     SECRET_KEY=_secret_key(),
     SESSION_COOKIE_HTTPONLY=True,
@@ -81,7 +89,11 @@ CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 
 def now() -> str:
-    return dt.datetime.now().isoformat(timespec="seconds")
+    return dt.datetime.now(TZ).replace(tzinfo=None).isoformat(timespec="seconds")
+
+
+def today() -> dt.date:
+    return dt.datetime.now(TZ).date()
 
 
 def db() -> sqlite3.Connection:
@@ -145,13 +157,17 @@ def current_user():
     return u
 
 
-def need(*roles):
+def need(*roles, temp_ok=False):
+    """Exige sesión (y uno de los roles, si se indican). Con contraseña temporal
+    solo se permiten las rutas marcadas con temp_ok."""
     def deco(fn):
         @wraps(fn)
         def wrapper(*a, **kw):
             u = current_user()
             if not u:
                 return err("Inicia sesión para continuar", 401)
+            if u["must_change"] and not temp_ok:
+                return err("Cambia tu contraseña temporal para continuar", 403)
             if roles and u["role"] not in roles:
                 return err("Tu usuario no tiene permiso para esta acción", 403)
             g.user = u
@@ -191,7 +207,7 @@ _fails: dict[str, list[float]] = defaultdict(list)
 
 @app.post("/api/login")
 def login():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    ip = request.remote_addr or "?"
     t = time.time()
     _fails[ip] = [x for x in _fails[ip] if t - x < 300]
     if len(_fails[ip]) >= 8:
@@ -218,13 +234,13 @@ def logout():
 
 
 @app.get("/api/me")
-@need()
+@need(temp_ok=True)
 def me():
     return jsonify({**user_json(g.user), "config": get_config()})
 
 
 @app.post("/api/me/password")
-@need()
+@need(temp_ok=True)
 def change_password():
     b = request.get_json(silent=True) or {}
     u = db().execute("SELECT pwd FROM users WHERE id=?", (g.user["id"],)).fetchone()
@@ -253,8 +269,14 @@ def dataset():
     ds = json.loads(zlib.decompress(row["data"]))
     by = db().execute("SELECT name FROM users WHERE id=?", (row["user_id"],)).fetchone()
     ds["load"] = {"id": row["id"], "created": row["created"], "by": by["name"] if by else "", "filename": row["filename"]}
-    prev = db().execute("SELECT id,sem,created FROM loads WHERE id<? ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
-    ds["prev"] = {"id": prev["id"], "created": prev["created"], "sem": json.loads(prev["sem"])} if prev else None
+    prev = db().execute("SELECT id,created,data FROM loads WHERE id<? ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+    ds["prev"] = None
+    if prev:
+        # Se recalcula con el horizonte actual y los tres escenarios, para comparar con lo que ve el usuario
+        refs = json.loads(zlib.decompress(prev["data"]))["refs"]
+        hz = get_config().get("horizonte", 3)
+        ds["prev"] = {"id": prev["id"], "created": prev["created"],
+                      "sem": {e: {r["k"]: core.evaluate(r, hz, e)["sem"] for r in refs} for e in ESCENARIOS}}
     return jsonify(ds)
 
 
@@ -273,7 +295,7 @@ def upload():
     if not f or not f.filename.lower().endswith((".xlsx", ".xlsm")):
         return err("Sube el MM_Supply en formato Excel (.xlsx)")
     try:
-        hoy = dt.date.fromisoformat(request.form.get("fecha") or dt.date.today().isoformat())
+        hoy = dt.date.fromisoformat(request.form.get("fecha") or today().isoformat())
     except ValueError:
         return err("La fecha de los datos no es válida")
     dry = request.form.get("dry") == "1"
@@ -325,6 +347,8 @@ def config():
 @app.route("/api/notes/<ref>", methods=["GET", "POST"])
 @need()
 def notes(ref):
+    if not REF_RE.fullmatch(ref):
+        return err("La referencia no es válida")
     if request.method == "POST":
         if g.user["role"] == "lector":
             return err("Tu usuario es de solo lectura", 403)
@@ -343,6 +367,16 @@ def notes_index():
     return jsonify({r["ref"]: r["n"] for r in db().execute("SELECT ref, COUNT(*) AS n FROM notes GROUP BY ref")})
 
 
+def valid_date(v) -> bool:
+    if v is None:
+        return True
+    try:
+        dt.date.fromisoformat(v)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 ACTION_SQL = ("SELECT a.*, u.name AS created_by_name FROM actions a JOIN users u ON u.id=a.created_by ")
 
 
@@ -356,12 +390,11 @@ def actions():
         ref, text = (b.get("ref") or "").strip(), (b.get("text") or "").strip()
         if not ref or not text:
             return err("Indica la referencia y la acción")
+        if not REF_RE.fullmatch(ref):
+            return err("La referencia no es válida")
         due = b.get("due") or None
-        if due:
-            try:
-                dt.date.fromisoformat(due)
-            except ValueError:
-                return err("La fecha límite no es válida")
+        if not valid_date(due):
+            return err("La fecha límite no es válida")
         last = _load_row()
         db().execute("INSERT INTO actions(ref,text,owner,due,created_by,created,updated,load_id) VALUES(?,?,?,?,?,?,?,?)",
                      (ref, text[:2000], (b.get("owner") or "").strip()[:120], due, g.user["id"], now(), now(), last["id"] if last else None))
@@ -387,8 +420,11 @@ def action_update(aid):
     status = b.get("status", a["status"])
     if status not in ("abierta", "hecha", "descartada"):
         return err("Estado no válido")
+    due = b.get("due", a["due"]) or None
+    if not valid_date(due):
+        return err("La fecha límite no es válida")
     db().execute("UPDATE actions SET status=?, text=?, owner=?, due=?, updated=? WHERE id=?",
-                 (status, (b.get("text") or a["text"])[:2000], (b.get("owner", a["owner"]) or "")[:120], b.get("due", a["due"]) or None, now(), aid))
+                 (status, (b.get("text") or a["text"])[:2000], (b.get("owner", a["owner"]) or "")[:120], due, now(), aid))
     db().commit()
     return jsonify(dict(db().execute(ACTION_SQL + "WHERE a.id=?", (aid,)).fetchone()))
 

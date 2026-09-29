@@ -39,6 +39,10 @@ Si dejas `ADMIN_PASSWORD` vacío, se genera una contraseña temporal que aparece
 
 Si la publicáis con el proxy inverso del NAS y un certificado, pon `COOKIE_SECURE=1` en el `.env` para que la cookie de sesión solo viaje por HTTPS.
 
+Si todo el acceso pasa por ese proxy, pon también `TRUST_PROXY=1`: así el límite de intentos de acceso usa la IP real de cada usuario. Sin proxy déjalo a `0`, o cualquiera podría saltarse el límite falseando la cabecera `X-Forwarded-For`.
+
+Las fechas se guardan en hora de `APP_TZ` (por defecto `Europe/Madrid`), aunque el contenedor esté en UTC.
+
 ### Copias de seguridad
 
 Todo el estado está en la carpeta `./data`:
@@ -94,6 +98,7 @@ app/
   core.py         lectura del MM_Supply y cálculo de coberturas
   static/         aplicación web (index.html, app.js, app.css, core.js)
 tests/test_api.py prueba de extremo a extremo: DATA_DIR=/tmp/prueba python tests/test_api.py MM_Supply.xlsx
+                  (con Node.js instalado comprueba además que core.js y core.py dan el mismo semáforo)
 ```
 
 ## Pendiente para próximas versiones
