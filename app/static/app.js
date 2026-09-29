@@ -5,12 +5,19 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => (n == null || isNaN(n)) ? '–' : Math.round(n).toLocaleString('es-ES');
-const fdate = (iso, opt) => iso ? new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso).toLocaleDateString('es-ES', opt || { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+// Fechas siempre en números: 29/09/2026, 29/09 (corta), 29/09/2026 10:25 (con hora), 09/26 (mes)
+const pad = (n) => String(n).padStart(2, '0');
+const toDate = (iso) => new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso);
+const fdate = (iso, short) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + (short ? '' : '/' + d.getFullYear()); };
+const fdt = (iso) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return fdate(iso) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+const refHref = (k) => '#/ref/' + encodeURIComponent(k);
 const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'Pendiente de propuestas'], ['verde', 'Cubierto'], ['gris', 'Sin demanda']];
 const SEMT = Object.fromEntries(SEM);
 const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, gris: 4 };
 const ESC = { OF: 'Solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };
+const ESC_TXT = { OF: 'solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };  // para mitad de frase
+const escLower = () => ESC_TXT[S.esc];
 const ENT = { OF: 'OF', PF: 'Propuesta fijada', P: 'Propuesta' };
 
 const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL' };
@@ -31,9 +38,16 @@ function announce(t) { $('#live').textContent = t; }
 const can = (...roles) => S.me && roles.includes(S.me.role);
 
 // ---------------------------------------------------------------- datos
-function monthLabel(i, long) {
+function monthLabel(i) {
   if (!S.ds) return ''; const [y, m] = S.ds.meta.base.split('-').map(Number); const d = new Date(y, m - 1 + i, 1);
-  return MES[d.getMonth()] + (long || d.getMonth() === 0 || i === 0 ? ' ' + String(d.getFullYear()).slice(2) : '');
+  return pad(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2);
+}
+// "Previsión operativa: 09/26 de 2026Q3; 10/26 a 08/27 de 2026Q4. "
+function prevSrcText() {
+  const src = S.ds && S.ds.meta.prev_src; if (!src) return '';
+  const tramos = [];
+  src.forEach((v, i) => { const t = tramos[tramos.length - 1]; if (t && t.v === v) t.b = i; else tramos.push({ v, a: i, b: i }); });
+  return 'Previsión operativa: ' + tramos.map(t => (t.a === t.b ? monthLabel(t.a) : monthLabel(t.a) + ' a ' + monthLabel(t.b)) + ' ' + (t.v ? 'de ' + esc(t.v) : 'sin previsión')).join('; ') + '. ';
 }
 function recompute() {
   const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc };
@@ -51,9 +65,10 @@ const openActs = (k) => S.actions.filter(a => a.ref === k);
 // ---------------------------------------------------------------- router
 const go = (h) => { if (location.hash !== h) location.hash = h; else render(); };
 function parseHash() {
-  const h = decodeURIComponent(location.hash.replace(/^#/, '')) || '/';
-  const [path, qs] = h.split('?'); const q = new URLSearchParams(qs || '');
-  return { parts: path.split('/').filter(Boolean), q, path };
+  const h = location.hash.replace(/^#/, '') || '/';
+  const i = h.indexOf('?'); const path = i < 0 ? h : h.slice(0, i); const q = new URLSearchParams(i < 0 ? '' : h.slice(i + 1));
+  const dec = (p) => { try { return decodeURIComponent(p); } catch (e) { return p; } };
+  return { parts: path.split('/').filter(Boolean).map(dec), q, path };
 }
 function setQuery(patch) {
   const { path, q } = parseHash();
@@ -140,7 +155,7 @@ function shell() {
 function closeUserMenu() { const um = $('#userMenu'); if (um && !um.hidden) { um.hidden = true; $('#userBtn').setAttribute('aria-expanded', 'false'); } }
 function updateChrome() {
   const st = $('#stamp'); if (!st) return;
-  st.textContent = S.ds ? `Datos del ${fdate(S.ds.meta.hoy, { day: 'numeric', month: 'long' })} · previsión ${S.ds.meta.version}` : 'Sin datos cargados';
+  st.textContent = S.ds ? `Datos del ${fdate(S.ds.meta.hoy)} · previsión ${S.ds.meta.version}` : 'Sin datos cargados';
   const nr = S.ev.filter(x => x.e.sem === 'rojo' && x.r.gp === 'Contra Stock').length;
   const b = $('#bRojo'); b.hidden = !nr; b.textContent = nr; b.setAttribute('aria-label', nr + ' en rotura');
   const ba = $('#bAct'); ba.hidden = !S.actions.length; ba.textContent = S.actions.length; ba.setAttribute('aria-label', S.actions.length + ' acciones abiertas');
@@ -154,9 +169,9 @@ function markNav(key) {
 function setupSearch() {
   const inp = $('#gs'), ul = $('#gsList'); let items = [], act = -1;
   const draw = () => {
-    ul.innerHTML = items.map((x, i) => `<li role="option" id="gso${i}" aria-selected="${i === act}" data-k="${x.r.k}"><span class="pill s-${x.e.sem}"><span class="sr">${SEMT[x.e.sem]}</span></span><span><b>${x.r.k}</b> ${esc(x.r.n)}</span></li>`).join('') || '<li role="option" aria-disabled="true">Sin resultados</li>';
+    ul.innerHTML = items.map((x, i) => `<li role="option" id="gso${i}" aria-selected="${i === act}" data-k="${esc(x.r.k)}"><span class="pill s-${x.e.sem}"><span class="sr">${SEMT[x.e.sem]}</span></span><span><b>${esc(x.r.k)}</b> ${esc(x.r.n)}</span></li>`).join('') || '<li role="option" aria-disabled="true">Sin resultados</li>';
     ul.hidden = false; inp.setAttribute('aria-expanded', 'true'); inp.setAttribute('aria-activedescendant', act >= 0 ? 'gso' + act : '');
-    $$('li[data-k]', ul).forEach(li => li.onclick = () => { closeSearch(); go('#/ref/' + li.dataset.k); });
+    $$('li[data-k]', ul).forEach(li => li.onclick = () => { closeSearch(); go(refHref(li.dataset.k)); });
   };
   inp.oninput = () => {
     const q = inp.value.trim().toLowerCase(); act = -1;
@@ -169,7 +184,7 @@ function setupSearch() {
     if (ul.hidden) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); act = Math.min(items.length - 1, act + 1); draw(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); act = Math.max(0, act - 1); draw(); }
-    else if (e.key === 'Enter') { e.preventDefault(); const x = items[act >= 0 ? act : 0]; if (x) { closeSearch(); inp.value = ''; go('#/ref/' + x.r.k); } }
+    else if (e.key === 'Enter') { e.preventDefault(); const x = items[act >= 0 ? act : 0]; if (x) { closeSearch(); inp.value = ''; go(refHref(x.r.k)); } }
     else if (e.key === 'Escape') closeSearch();
   };
 }
@@ -177,9 +192,9 @@ function closeSearch() { const ul = $('#gsList'); if (ul && !ul.hidden) { ul.hid
 
 // ---------------------------------------------------------------- piezas comunes
 const pill = (sem, text) => `<span class="pill s-${sem}">${esc(text || SEMT[sem])}</span>`;
-const refLink = (r) => `<a href="#/ref/${r.k}">${r.k}</a>`;
-function nextEntry(e) { const n = e.next; return n ? `${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, { day: 'numeric', month: 'short' })}` : '<span class="muted">Sin entradas</span>'; }
-function rotCell(e) { return e.rot < 0 ? '<span class="muted">No en 12 meses</span>' : `<span class="${e.rot < (S.cfg.horizonte || 3) ? 'neg' : ''}">${monthLabel(e.rot, true)}</span>`; }
+const refLink = (r) => `<a href="${refHref(r.k)}">${esc(r.k)}</a>`;
+function nextEntry(e) { const n = e.next; return n ? `${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, true)}` : '<span class="muted">Sin entradas</span>'; }
+function rotCell(e) { return e.rot < 0 ? '<span class="muted">No en 12 meses</span>' : `<span class="${e.rot < (S.cfg.horizonte || 3) ? 'neg' : ''}">${monthLabel(e.rot)}</span>`; }
 function strip(list, hrefFor, current) {
   const c = {}; list.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1);
   return `<section class="strip" aria-label="Referencias por estado">
@@ -205,19 +220,19 @@ function thSort(label, key, cur, dir, cls = '') {
 async function pageHome(main) {
   if (!S.ds) return noData(main, 'Inicio');
   const cs = S.ev.filter(x => x.r.gp === 'Contra Stock');
-  const prev = S.ds.prev ? S.ds.prev.sem : null;
+  const prev = S.ds.prev ? S.ds.prev.sem[S.esc] : null;
   const into = prev ? cs.filter(x => x.e.sem === 'rojo' && prev[x.r.k] && prev[x.r.k] !== 'rojo') : [];
   const out = prev ? cs.filter(x => prev[x.r.k] === 'rojo' && x.e.sem !== 'rojo') : [];
   const urg = cs.filter(x => x.e.sem === 'rojo').sort((a, b) => a.e.rot - b.e.rot || b.e.d3 - a.e.d3).slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const late = S.actions.filter(a => a.due && a.due < today);
   const wo = cs.filter(x => (x.e.sem === 'rojo' || x.e.sem === 'naranja') && !openActs(x.r.k).length).length;
-  const li = (x) => `<li><a href="#/ref/${x.r.k}">${x.r.k}</a> ${esc(x.r.n)}</li>`;
-  main.innerHTML = `<h1>Semana del ${fdate(S.ds.meta.hoy, { day: 'numeric', month: 'long' })}</h1>
-    <p class="lead">Productos terminados contra stock, con ${ESC[S.esc].toLowerCase()}. Datos cargados el ${fdate(S.ds.load.created)}${S.ds.load.by ? ' por ' + esc(S.ds.load.by) : ''}.</p>
+  const li = (x) => `<li>${refLink(x.r)} ${esc(x.r.n)}</li>`;
+  main.innerHTML = `<h1>Semana del ${fdate(S.ds.meta.hoy)}</h1>
+    <p class="lead">Productos terminados contra stock, con ${escLower()}. Datos cargados el ${fdt(S.ds.load.created)}${S.ds.load.by ? ' por ' + esc(S.ds.load.by) : ''}.</p>
     ${strip(cs, k => '#/coberturas?sem=' + k)}
     <div class="grid">
-      <section class="card"><h2>Entran en rotura</h2>${prev ? `<p class="big">${into.length}</p><p class="muted small">Referencias que no estaban en rotura en la carga anterior (${fdate(S.ds.prev.created)}).</p>${into.length ? `<ul>${into.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
+      <section class="card"><h2>Entran en rotura</h2>${prev ? `<p class="big">${into.length}</p><p class="muted small">Referencias que no estaban en rotura en la carga anterior (${fdt(S.ds.prev.created)}).</p>${into.length ? `<ul>${into.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
       <section class="card"><h2>Salen de rotura</h2>${prev ? `<p class="big">${out.length}</p><p class="muted small">Estaban en rotura en la carga anterior y ya no.</p>${out.length ? `<ul>${out.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
       <section class="card"><h2>Acciones abiertas</h2><p class="big">${S.actions.length}</p><p class="muted small">${late.length ? `<span class="neg">${late.length} con fecha vencida</span> · ` : ''}${wo} referencias en rotura o bajo mínimo sin acción asignada.</p><p><a class="btn ghost sm" href="#/reunion">Ir a la reunión semanal</a></p></section>
     </div>
@@ -254,7 +269,7 @@ async function pageList(main) {
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
       <td>${pill(e.sem, e.why)}</td>
       <td class="art">${refLink(r)}${S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : ''}${openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''}<small>${esc(r.n)}</small></td>
-      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td><span class="abc">${r.abc}</span></td>
+      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td><span class="abc">${esc(r.abc)}</span></td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>
       <td class="r num">${e.cob >= 99 ? '—' : e.cob.toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m'}</td>
       <td>${rotCell(e)}</td><td>${nextEntry(e)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
@@ -288,7 +303,7 @@ async function pageList(main) {
 }
 function downloadCSV(rows) {
   const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda media 3 meses', 'Cobertura meses', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.d3), e.cob >= 99 ? '' : e.cob.toFixed(1).replace('.', ','), e.rot < 0 ? '' : monthLabel(e.rot, true), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? e.next.d : '']);
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.d3), e.cob >= 99 ? '' : e.cob.toFixed(1).replace('.', ','), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `coberturas_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -300,7 +315,7 @@ function chartSVG(r, e) {
   const st = e.all.stk, dm = e.all.dem, en = e.all.ent;
   const vals = [...st, ...dm, ...en, r.mn, r.st, 0], max = Math.max(...vals), min = Math.min(...vals, 0);
   const y = v => pt + (Hh - pt - pb) * (max - v) / ((max - min) || 1), bw = (W - pl - pr) / n, x = i => pl + bw * i + bw / 2;
-  let s = `<svg class="chart" viewBox="0 0 ${W} ${Hh}" role="img" aria-labelledby="chT chD"><title id="chT">Proyección de stock de ${esc(r.n)}</title><desc id="chD">Stock a fin de mes durante 12 meses: ${st.map((v, i) => monthLabel(i, true) + ' ' + fmt(v)).join(', ')}.</desc>`;
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${Hh}" role="img" aria-labelledby="chT chD"><title id="chT">Proyección de stock de ${esc(r.n)}</title><desc id="chD">Stock a fin de mes durante 12 meses: ${st.map((v, i) => monthLabel(i) + ' ' + fmt(v)).join(', ')}.</desc>`;
   for (let i = 0; i <= 4; i++) { const v = min + (max - min) * i / 4; s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--soft)"/><text x="${pl - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="var(--ink2)">${Math.abs(v) >= 1000 ? Math.round(v / 1000) + ' k' : Math.round(v)}</text>`; }
   for (let i = 0; i < n; i++) {
     s += `<rect x="${x(i) - bw * .34}" width="${bw * .3}" y="${y(Math.max(dm[i], 0))}" height="${Math.max(0, y(0) - y(dm[i]))}" fill="var(--gris)" opacity=".5"/>`;
@@ -321,17 +336,17 @@ async function pageRef(main, [k]) {
     const { r, e } = S.byK[k]; const n = Cob.H;
     const [notes, acts] = await Promise.all([api('/api/notes/' + encodeURIComponent(k)), api('/api/actions?ref=' + encodeURIComponent(k))]);
     const canW = can('admin', 'planificador');
-    main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${r.k}</p>
+    main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
-        <p class="meta">${r.k} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${r.abc} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="#/ref/${r.sc}">${r.sc}</a>` : ''}</p>
+        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${esc(r.abc)} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
         <p>${pill(e.sem, e.why)}</p></div>
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
         <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
         <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · lote ${fmt(r.lt)}` : ''}</div></div>
         <div class="kpi"><div class="v">${e.cob >= 99 ? '—' : e.cob.toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m'}</div><div class="l">Cobertura (demanda de 3 meses)</div></div>
-        <div class="kpi"><div class="v">${e.rot < 0 ? 'No' : monthLabel(e.rot, true)}</div><div class="l">Primera rotura</div></div></div>
-      <div class="chartbox">${chartSVG(r, e)}<p class="muted small">Línea: stock a fin de mes. Barras grises: demanda. Barras azules: entradas (${ESC[S.esc].toLowerCase()}). Línea discontinua: stock mínimo.</p></div>
+        <div class="kpi"><div class="v">${e.rot < 0 ? 'No' : monthLabel(e.rot)}</div><div class="l">Primera rotura</div></div></div>
+      <div class="chartbox">${chartSVG(r, e)}<p class="muted small">Línea: stock a fin de mes. Barras grises: demanda. Barras azules: entradas (${escLower()}). Línea discontinua: stock mínimo.</p></div>
       <h2>Mes a mes</h2>
       <div class="tw"><table class="mt"><caption class="sr">Proyección mes a mes</caption><thead><tr><th scope="col">Concepto</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
         <tr><th scope="row">Previsión</th>${r.pv.map((v, i) => `<td class="r num">${fmt(i === 0 ? r.pv0r : v)}</td>`).join('')}</tr>
@@ -340,17 +355,17 @@ async function pageRef(main, [k]) {
         <tr><th scope="row">Entradas</th>${e.all.ent.map(v => `<td class="r num">${v ? fmt(v) : ''}</td>`).join('')}</tr>
         <tr><th scope="row">Stock fin de mes</th>${e.all.stk.map(v => `<td class="r num ${v < 0 ? 'neg' : ''}"><b>${fmt(v)}</b></td>`).join('')}</tr>
       </tbody></table></div>
-      <p class="muted small">Mes en curso: previsión restante tras descontar ${fmt(r.v0)} unidades ya vendidas.${r.at ? ` Incluye ${fmt(r.at)} unidades de pedidos con fecha pasada sin servir.` : ''}</p>
+      <p class="muted small">${prevSrcText()}Mes en curso: previsión restante tras descontar ${fmt(r.v0)} unidades ya vendidas.${r.at ? ` Incluye ${fmt(r.at)} unidades de pedidos con fecha pasada sin servir.` : ''}</p>
       <div class="two">
         <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li><span class="tag">${ENT[v.t]}</span><span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${v.mq ? ' · ' + esc(v.mq) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">No hay OF ni propuestas en los próximos 12 meses.</p>'}
           <h2>Venta de los últimos 12 meses</h2><div class="tw"><table class="mt" style="min-width:0"><thead><tr>${r.vt.map((_, i) => `<th scope="col" class="r">${monthLabel(i - 12)}</th>`).join('')}</tr></thead><tbody><tr>${r.vt.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div></section>
         <section><h2>Acciones</h2>
-          ${acts.length ? acts.map(a => `<div class="act ${a.status !== 'abierta' ? 'done' : ''}"><div><div class="t">${esc(a.text)}</div><div class="st muted">${a.owner ? esc(a.owner) + ' · ' : ''}${a.due ? 'para el ' + fdate(a.due) + ' · ' : ''}${a.status}</div></div>
+          ${acts.length ? acts.map(a => `<div class="act ${a.status !== 'abierta' ? 'done' : ''}"><div><div class="t">${esc(a.text)}</div><div class="st muted">${a.owner ? esc(a.owner) + ' · ' : ''}${a.due ? 'para el ' + fdate(a.due) + ' · ' : ''}${esc(a.status)}</div></div>
             ${canW && a.status === 'abierta' ? `<div><button class="btn ghost sm" data-done="${a.id}">Hecha</button></div>` : '<div></div>'}</div>`).join('') : '<p class="muted">Sin acciones.</p>'}
           ${canW ? `<form class="form" id="actF" style="margin-top:10px"><label>Nueva acción<input name="text" required maxlength="2000" placeholder="Qué se va a hacer"></label>
             <div class="row"><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Añadir acción</button></div></form>` : ''}
           <h2>Notas</h2>
-          ${notes.map(nt => `<div class="note"><div>${esc(nt.text)}</div><div class="by">${esc(nt.by)} · ${new Date(nt.created).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div></div>`).join('') || '<p class="muted">Sin notas.</p>'}
+          ${notes.map(nt => `<div class="note"><div>${esc(nt.text)}</div><div class="by">${esc(nt.by)} · ${fdt(nt.created)}</div></div>`).join('') || '<p class="muted">Sin notas.</p>'}
           ${canW ? `<form class="form" id="noteF"><label>Nueva nota<textarea name="text" required maxlength="4000" placeholder="Qué se ha visto o decidido con esta referencia"></textarea></label><div><button class="btn">Guardar nota</button></div></form>` : ''}
         </section></div>`;
     bindScenario(main, draw);
@@ -391,7 +406,7 @@ async function pageLine(main, [ln]) {
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
       <tr><th scope="row">Demanda</th>${dem.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr>
       <tr><th scope="row">Entradas</th>${ent.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>
-    <p class="muted small">Entradas: ${ESC[S.esc].toLowerCase()}. Sin capacidad de la línea todavía: cuando esté ese dato se comparará aquí.</p>
+    <p class="muted small">Entradas: ${escLower()}. Sin capacidad de la línea todavía: cuando esté ese dato se comparará aquí.</p>
     <h2>Referencias</h2>
     <div class="tw"><table><thead><tr><th scope="col">Estado</th><th scope="col">Referencia</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th></tr></thead><tbody>
     ${rows.map(({ r, e }) => `<tr><td>${pill(e.sem, e.why)}</td><td class="art">${refLink(r)}<small>${esc(r.n)}</small></td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin referencias.</td></tr>'}
@@ -407,7 +422,7 @@ async function pageMeeting(main) {
   const canW = can('admin', 'planificador');
   const list = S.ev.filter(x => x.r.gp === 'Contra Stock' && semF.split(',').includes(x.e.sem) && (!onlyNo || !openActs(x.r.k).length))
     .sort((a, b) => SEMORD[a.e.sem] - SEMORD[b.e.sem] || (a.e.rot < 0 ? 99 : a.e.rot) - (b.e.rot < 0 ? 99 : b.e.rot) || b.e.d3 - a.e.d3);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   main.innerHTML = `<h1>Reunión semanal</h1><p class="lead">Referencias que necesitan una decisión y las acciones acordadas. Cada acción queda en la ficha de la referencia.</p>
     <form class="filters" onsubmit="return false">
       <label class="fld">Qué revisar<select id="mSem"><option value="rojo,naranja" ${semF === 'rojo,naranja' ? 'selected' : ''}>Rotura y bajo mínimo</option><option value="rojo" ${semF === 'rojo' ? 'selected' : ''}>Solo rotura</option><option value="rojo,naranja,amarillo" ${semF === 'rojo,naranja,amarillo' ? 'selected' : ''}>Rotura, bajo mínimo y pendientes de propuestas</option></select></label>
@@ -417,18 +432,18 @@ async function pageMeeting(main) {
     <div class="tw"><table><thead><tr><th scope="col">Estado</th><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción abierta</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
     ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr><td>${pill(e.sem, e.why)}</td><td class="art">${refLink(r)}<small>${esc(r.n)}</small></td><td>${esc(r.ln || '—')}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
       <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td>
-      ${canW ? `<td><button class="btn ghost sm" data-add="${r.k}" aria-label="Añadir acción a ${r.k}">Añadir acción</button></td>` : ''}</tr>
-      <tr hidden id="af-${r.k}"><td colspan="7"><form class="form" data-f="${r.k}" style="max-width:none"><div class="row"><label>Acción<input name="text" required maxlength="2000"></label><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Guardar</button></div></form></td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Nada pendiente con estos criterios.</td></tr>'}
+      ${canW ? `<td><button class="btn ghost sm" data-add="${esc(r.k)}" aria-label="Añadir acción a ${esc(r.k)}">Añadir acción</button></td>` : ''}</tr>
+      ${canW ? `<tr hidden id="af-${esc(r.k)}"><td colspan="7"><form class="form" data-f="${esc(r.k)}" style="max-width:none"><div class="row"><label>Acción<input name="text" required maxlength="2000"></label><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Guardar</button></div></form></td></tr>` : ''}`; }).join('') || '<tr><td colspan="7" class="empty">Nada pendiente con estos criterios.</td></tr>'}
     </tbody></table></div>
     <h2>Acciones abiertas (${S.actions.length})</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Acción</th><th scope="col">Responsable</th><th scope="col">Fecha límite</th><th scope="col">Creada</th>${canW ? '<th scope="col"><span class="sr">Estado</span></th>' : ''}</tr></thead><tbody>
-    ${S.actions.map(a => `<tr><td><a href="#/ref/${a.ref}">${a.ref}</a><br><span class="muted small">${esc((S.byK[a.ref] || { r: { n: '' } }).r.n)}</span></td><td>${esc(a.text)}</td><td>${esc(a.owner || '')}</td><td class="${a.due && a.due < today ? 'neg' : ''}">${a.due ? fdate(a.due) : ''}</td><td class="small muted">${fdate(a.created)} · ${esc(a.created_by_name)}</td>
+    ${S.actions.map(a => `<tr><td><a href="${refHref(a.ref)}">${esc(a.ref)}</a><br><span class="muted small">${esc((S.byK[a.ref] || { r: { n: '' } }).r.n)}</span></td><td>${esc(a.text)}</td><td>${esc(a.owner || '')}</td><td class="${a.due && a.due < today ? 'neg' : ''}">${a.due ? fdate(a.due) : ''}</td><td class="small muted">${fdate(a.created)} · ${esc(a.created_by_name)}</td>
       ${canW ? `<td><button class="btn ghost sm" data-st="hecha" data-id="${a.id}">Hecha</button> <button class="btn ghost sm" data-st="descartada" data-id="${a.id}">Descartar</button></td>` : ''}</tr>`).join('') || '<tr><td colspan="6" class="empty">No hay acciones abiertas.</td></tr>'}
     </tbody></table></div>`;
   $('#mSem').onchange = (e) => { setQuery({ sem: e.target.value }); pageMeeting(main); };
   $('#mSin').onchange = (e) => { setQuery({ sin: e.target.checked ? '1' : '' }); pageMeeting(main); };
   bindScenario(main, () => pageMeeting(main));
-  $$('[data-add]', main).forEach(b => b.onclick = () => { const tr = $('#af-' + b.dataset.add); tr.hidden = !tr.hidden; if (!tr.hidden) $('input', tr).focus(); });
+  $$('[data-add]', main).forEach(b => b.onclick = () => { const tr = document.getElementById('af-' + b.dataset.add); tr.hidden = !tr.hidden; if (!tr.hidden) $('input', tr).focus(); });
   $$('form[data-f]', main).forEach(f => f.onsubmit = async (ev) => { ev.preventDefault(); const fd = new FormData(f); try { await api('/api/actions', { method: 'POST', body: { ref: f.dataset.f, text: fd.get('text'), owner: fd.get('owner'), due: fd.get('due') } }); toast('Acción añadida'); pageMeeting(main); } catch (e) { toast(e.message); } });
   $$('[data-st]', main).forEach(b => b.onclick = async () => { try { await api('/api/actions/' + b.dataset.id, { method: 'PATCH', body: { status: b.dataset.st } }); toast(b.dataset.st === 'hecha' ? 'Acción marcada como hecha' : 'Acción descartada'); pageMeeting(main); } catch (e) { toast(e.message); } });
 }
@@ -442,7 +457,7 @@ async function pageData(main) {
       <form class="form" id="upF" style="max-width:none">
         <label class="drop" id="drop">Arrastra aquí el fichero o haz clic para elegirlo<input type="file" name="file" accept=".xlsx,.xlsm" class="sr" id="upFile"></label>
         <p class="muted small" id="fname"></p>
-        <div class="row"><label>Fecha de los datos<input type="date" name="fecha" value="${new Date().toISOString().slice(0, 10)}"></label><button class="btn" id="chk" type="submit">Comprobar fichero</button></div>
+        <div class="row"><label>Fecha de los datos<input type="date" name="fecha" value="${todayISO()}"></label><button class="btn" id="chk" type="submit">Comprobar fichero</button></div>
       </form>
       <div id="prev" aria-live="polite"></div></section>
     <section class="card" style="max-width:760px;margin-top:14px"><h2>Criterios del semáforo</h2>
@@ -450,7 +465,7 @@ async function pageData(main) {
       <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: tiene stock pero no tiene demanda prevista.</p></section>
     <h2>Historial de cargas</h2>
     <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Por</th></tr></thead><tbody>
-    ${loads.map(l => `<tr><td>${new Date(l.created).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>
+    ${loads.map(l => `<tr><td>${fdt(l.created)}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>
       <td class="small">${SEM.map(([k, t]) => l.counts[k] ? `<span class="pill s-${k}">${l.counts[k]}<span class="sr"> ${t}</span></span>` : '').join(' ')}</td><td>${esc(l.by || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Todavía no hay cargas.</td></tr>'}
     </tbody></table></div>`;
   const f = $('#upF'), inp = $('#upFile'), drop = $('#drop');
@@ -509,7 +524,7 @@ async function pageAccount(main) {
   $('#pwF').onsubmit = async (ev) => {
     ev.preventDefault(); const fd = new FormData(ev.target);
     if (fd.get('new') !== fd.get('new2')) { $('#pwM').className = 'msg err'; $('#pwM').textContent = 'Las dos contraseñas nuevas no coinciden.'; return; }
-    try { await api('/api/me/password', { method: 'POST', body: { current: fd.get('current'), new: fd.get('new') } }); const was = S.me.must_change; S.me.must_change = false; toast('Contraseña cambiada'); if (was) go('#/'); else { ev.target.reset(); $('#pwM').className = 'msg ok'; $('#pwM').textContent = 'Contraseña cambiada.'; } }
+    try { await api('/api/me/password', { method: 'POST', body: { current: fd.get('current'), new: fd.get('new') } }); const was = S.me.must_change; S.me.must_change = false; toast('Contraseña cambiada'); if (was) { await loadData(); updateChrome(); go('#/'); } else { ev.target.reset(); $('#pwM').className = 'msg ok'; $('#pwM').textContent = 'Contraseña cambiada.'; } }
     catch (e) { $('#pwM').className = 'msg err'; $('#pwM').textContent = e.message; }
   };
 }
@@ -537,6 +552,7 @@ function pageLogin() {
 
 async function boot() {
   const me = await api('/api/me'); S.me = me; S.cfg = me.config || S.cfg;
+  if (me.must_change) return;  // el servidor no da datos hasta cambiar la contraseña temporal
   $('#app').innerHTML = '<p class="boot">Cargando datos…</p>';
   await loadData();
 }

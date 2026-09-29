@@ -2,8 +2,9 @@
 (function (root) {
   const H = 12;
   // escenario: 'OF' | 'OFPF' (OF + propuestas fijadas) | 'ALL' (OF + todas las propuestas)
+  const counts = (t, esc) => t === 'OF' || (esc !== 'OF' && t === 'PF') || (esc === 'ALL' && t === 'P');
   function project(r, esc) {
-    const inc = (t) => t === 'OF' || (esc !== 'OF' && t === 'PF') || (esc === 'ALL' && t === 'P');
+    const inc = (t) => counts(t, esc);
     const dem = new Array(H), ent = new Array(H).fill(0), stk = new Array(H);
     for (let m = 0; m < H; m++) dem[m] = Math.max(m === 0 ? r.pv0r : r.pv[m], r.pd[m]);
     for (const e of r.en) if (inc(e.t)) ent[e.m] += e.q;
@@ -20,7 +21,7 @@
     const rotOF = firstBelow(of, 0), bminOF = r.mn > 0 ? firstBelow(of, r.mn) : -1;
     const d3 = all.dem.slice(0, 3).reduce((s, x) => s + x, 0) / 3;
     const cob = d3 > 0 ? r.st / d3 : (r.st > 0 ? 99 : 0);
-    const next = r.en.filter(e => e.t === 'OF' || e.t === 'PF' || (cfg.escenario === 'ALL' && e.t === 'P')).sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
+    const next = r.en.filter(e => counts(e.t, cfg.escenario || 'ALL')).sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
     const lateOF = r.en.some(e => e.t === 'OF' && e.late);
     const hasP = r.en.some(e => e.t === 'P' && e.m < hz);
     let sem = 'verde', why = 'Cubierto en el horizonte';
