@@ -79,17 +79,17 @@ import datetime as dt  # noqa: E402
 hoy = dt.date(2026, 9, 29)
 
 
-def art(n, alta=None, inact=False, estado="Producto terminado", gp="Contra Stock", lote=0, mn=0, fina=None):
-    return dict(name=n, estado=estado, inact=inact, alta=alta, fina=fina, gp=gp, lote=lote, min=mn)
+def art(n, alta=None, inact=False, estado="Producto terminado", gp="Contra Stock", lote=0, mn=0, fina=None, ext=False, suc=""):
+    return dict(name=n, estado=estado, inact=inact, alta=alta, fina=fina, gp=gp, lote=lote, min=mn, ext=ext, suc=suc)
 
 
 A = {
     "L1": art("Lanz. listo", alta=dt.date(2026, 5, 1), lote=1000, mn=500),   # en la app, todo preparado
-    "L2": art("Lanz. vacío", alta=dt.date(2026, 8, 1)),                        # sin nada todavía
+    "L2": art("Lanz. vacío", alta=dt.date(2026, 8, 1), ext=True, suc="L1"),   # sin nada todavía; a extinguir con sucesor activo
     "L3": art("Alta antigua", alta=dt.date(2025, 11, 1)),                      # 11 meses: no es lanzamiento
     "F1": art("Futura", alta=dt.date(2024, 1, 1)),                             # previsión solo más allá de 12 meses
-    "F2": art("Venta vieja", alta=dt.date(2023, 1, 1)),                        # última venta hace 15 meses
-    "F3": art("Previsión pasada", alta=dt.date(2023, 1, 1)),                   # solo previsión de meses pasados
+    "F2": art("Venta vieja", alta=dt.date(2023, 1, 1), ext=True, suc="I1"),   # última venta hace 15 meses; sucesor inactivo
+    "F3": art("Previsión pasada", alta=dt.date(2023, 1, 1), ext=True, suc="ZZ"),  # solo previsión pasada; sucesor inexistente
     "I1": art("Inactiva con stock", inact=True, fina=dt.date(2026, 3, 2)),
     "I2": art("Inactiva sin stock", inact=True),
     "S1": art("Semielaborado", estado="Semielaborado"),
@@ -122,6 +122,13 @@ pf3 = core.porfolio(A, refs_n, hoy, 2026, 8, prev={"L1": "Lanz. listo", "V1": "V
 check("entran: alta nueva", {x["k"]: x["m"] for x in pf3["cambios"]["entran"]} == {"L2": "alta"})
 pf4 = core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **dict(sig, PFUTV={"L2"}))
 check("lanzamiento con previsión solo más allá de 12 meses: previsión ✓", next(x for x in pf4["lanz"] if x["k"] == "L2")["pv"])
+ex = {x["k"]: (x["ext"], x["sc"]) for x in pf["lanz"] + pf["fuera"] + pf["inact"]}
+check("a extinguir con sucesor activo", ex["L2"] == (True, "L1"), ex["L2"])
+check("a extinguir con sucesor inactivo: sin sucesor", ex["F2"] == (True, ""), ex["F2"])
+check("a extinguir con sucesor que no existe: sin sucesor", ex["F3"] == (True, ""), ex["F3"])
+check("no a extinguir", ex["L1"] == (False, "") and ex["I1"] == (False, ""), (ex["L1"], ex["I1"]))
+check("altas y bajas también dicen si están a extinguir", all("ext" in x and "sc" in x for x in pf["cambios"]["entran"] + pf["cambios"]["salen"]))
+check("sucesor válido", core.sucesor(A, "L2") == "L1" and core.sucesor(A, "F2") == "" and core.sucesor(A, "F3") == "" and core.sucesor(A, "L1") == "")
 check("sin carga anterior no hay cambios", core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **sig)["cambios"] is None)
 
 # ABC por venta: 12 meses cerrados; lanzamientos con venta anualizada (3-11 meses) o previsión (< 3 meses)

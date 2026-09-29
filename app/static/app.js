@@ -624,6 +624,9 @@ const CATSM = { nada: 'Sin ningún dato', venta_antigua: 'Solo venta de hace má
 const pfRef = (k, n) => `<td class="art" title="${esc(k + ' ' + n)}">${S.byK[k] ? refLink({ k }) : `<b>${esc(k)}</b>`} <span class="nm">${esc(n)}</span></td>`;
 const chk = (v) => v == null ? '<span class="muted">—</span>' : v ? '<span class="ok">✓<span class="sr"> sí</span></span>' : '<span class="no">✗<span class="sr"> no</span></span>';
 const pfTabla = (rows, cols, empty, fit = true) => `<div class="tw"><table${fit ? ' class="fit"' : ''}><thead><tr>${cols.map(c => `<th scope="col"${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+// Columnas comunes de Porfolio: ABC (solo en seguimiento) y a extinguir con su sucesor si está activo
+const pfAbc = (k) => `<td>${S.byK[k] ? abcRef(S.byK[k].r) : '<span class="muted">—</span>'}</td>`;
+const pfExt = (x) => `<td class="nowrap">${x.ext ? `Sí${x.sc ? ` · sucesor ${S.byK[x.sc] ? refLink({ k: x.sc }) : `<b>${esc(x.sc)}</b>`}` : ''}` : '<span class="muted">—</span>'}</td>`;
 const lanzCompleto = (x) => x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en;
 
 // Bloques: cada uno sabe pintar su tabla y es a la vez sección desplegable y vista de detalle
@@ -633,8 +636,8 @@ const PF_BLOQUES = {
     lead: () => 'Referencias que entran y salen del seguimiento' + (S.ds.prev ? ` desde la carga anterior (${fdt(S.ds.prev.created)})` : '') + ', con el motivo.',
     html: (pf) => {
       if (!pf.cambios) return '<p class="muted">Se verá a partir de la próxima carga: esta es la primera con la sección Porfolio.</p>';
-      const tb = (xs) => pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="nowrap">${MOTIVO[x.m] || esc(x.m)}</td></tr>`).join(''), [['Referencia'], ['Motivo']], 'Ninguna.');
-      return `<div class="two"><section><h3>Entran (${pf.cambios.entran.length})</h3>${tb(pf.cambios.entran)}</section><section><h3>Salen (${pf.cambios.salen.length})</h3>${tb(pf.cambios.salen)}</section></div>`;
+      const tb = (xs) => pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="nowrap">${MOTIVO[x.m] || esc(x.m)}</td>${pfExt(x)}</tr>`).join(''), [['Referencia'], ['ABC'], ['Motivo'], ['A extinguir']], 'Ninguna.');
+      return `<h3>Entran (${pf.cambios.entran.length})</h3>${tb(pf.cambios.entran)}<h3>Salen (${pf.cambios.salen.length})</h3>${tb(pf.cambios.salen)}`;
     },
   },
   lanzamientos: {
@@ -643,31 +646,31 @@ const PF_BLOQUES = {
     html: (pf, q) => {
       const pend = q.get('pend') === '1', xs = pf.lanz.filter(x => !pend || !lanzCompleto(x));
       return `<form class="filters" onsubmit="return false"><label class="fld" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-pend ${pend ? 'checked' : ''}> Solo con algo pendiente (${pf.lanz.filter(x => !lanzCompleto(x)).length})</label></form>` +
-        pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td>${S.byK[x.k] ? abcRef(S.byK[x.k].r) : '<span class="muted">—</span>'}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td></tr>`).join(''),
-          [['Referencia'], ['Alta'], ['Planificación'], ['ABC'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c']], 'Ningún lanzamiento con estos criterios.', false);
+        pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td>${pfExt(x)}</tr>`).join(''),
+          [['Referencia'], ['ABC'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c'], ['A extinguir']], 'Ningún lanzamiento con estos criterios.', false);
     },
   },
   'sin-movimiento': {
     t: 'Sin movimiento', n: (pf) => fmt(pf.fuera.length),
     lead: () => 'PT activos en el maestro sin stock, previsión, pedidos, OF, propuestas ni venta reciente, y que no son lanzamientos: candidatos a inactivar en ABAS.',
-    html: (pf) => pfTabla(pf.fuera.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td></tr>`).join(''), [['Referencia'], ['Alta'], ['Qué tiene']], 'Ninguno.'),
+    html: (pf) => pfTabla(pf.fuera.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td>${pfExt(x)}</tr>`).join(''), [['Referencia'], ['ABC'], ['Alta'], ['Qué tiene'], ['A extinguir']], 'Ninguno.'),
   },
   inactivos: {
     t: 'Inactivos con stock', n: (pf) => fmt(pf.inact.length),
     lead: () => 'Inactivos en el maestro que todavía tienen stock: no salen en el seguimiento.',
-    html: (pf) => pfTabla(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}<td class="r num">${fmt(x.st)}</td><td class="num">${fdate(x.fina)}</td></tr>`).join(''), [['Referencia'], ['Stock', 'r'], ['Inactivo desde']], 'Ninguno.'),
+    html: (pf) => pfTabla(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="r num">${fmt(x.st)}</td><td class="num">${fdate(x.fina)}</td>${pfExt(x)}</tr>`).join(''), [['Referencia'], ['ABC'], ['Stock', 'r'], ['Inactivo desde'], ['A extinguir']], 'Ninguno.'),
   },
   activos: {
     t: 'PT activos', n: (pf) => fmt(pf.res.activos), soloVista: true,
     lead: () => 'Todos los productos terminados activos del maestro: los que están en seguimiento y los que no, con el motivo.',
     html: (pf, q) => {
       const ver = q.get('ver') || '';
-      const rows = [...S.ds.refs.map(r => ({ k: r.k, n: r.n, alta: r.al || '', gp: r.gp, seg: true, m: '' })), ...pf.fuera.map(x => ({ k: x.k, n: x.n, alta: x.alta, gp: x.gp || '', seg: false, m: CATSM[x.cat] || x.cat }))]
+      const rows = [...S.ds.refs.map(r => ({ k: r.k, n: r.n, alta: r.al || '', gp: r.gp, seg: true, m: '', ext: r.ext, sc: r.sc })), ...pf.fuera.map(x => ({ k: x.k, n: x.n, alta: x.alta, gp: x.gp || '', seg: false, m: CATSM[x.cat] || x.cat, ext: x.ext, sc: x.sc }))]
         .filter(x => !ver || (ver === 'seg') === x.seg).sort((a, b) => a.k < b.k ? -1 : 1);
       const op = (v, t) => `<option value="${v}" ${ver === v ? 'selected' : ''}>${t}</option>`;
       return `<form class="filters" onsubmit="return false"><label class="fld">Mostrar<select data-ver>${op('', 'Todos')}${op('seg', 'En seguimiento')}${op('fuera', 'Sin movimiento')}</select></label></form><p class="muted small">${fmt(rows.length)} referencias</p>` +
-        pfTabla(rows.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${x.alta ? fdate(x.alta) : '<span class="muted">—</span>'}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.seg)}</td><td class="nowrap">${x.seg ? '' : esc(x.m)}</td></tr>`).join(''),
-          [['Referencia'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Motivo si no está']], 'Ninguna.');
+        pfTabla(rows.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="num">${x.alta ? fdate(x.alta) : '<span class="muted">—</span>'}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.seg)}</td><td class="nowrap">${x.seg ? '' : esc(x.m)}</td>${pfExt(x)}</tr>`).join(''),
+          [['Referencia'], ['ABC'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Motivo si no está'], ['A extinguir']], 'Ninguna.');
     },
   },
 };

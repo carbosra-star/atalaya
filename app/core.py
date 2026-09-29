@@ -246,12 +246,19 @@ def _hace_meses(d: dt.date, n: int) -> dt.date:
     return dt.date(y, m + 1, min(d.day, calendar.monthrange(y, m + 1)[1]))
 
 
+def sucesor(A: dict, k: str) -> str:
+    """Sucesor de un artículo solo si existe en el maestro y no está de baja (inactivo)."""
+    s = A.get(k, {}).get("suc", "")
+    return s if s and s in A and not A[s]["inact"] else ""
+
+
 def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int, *, ST, PREV, PFUT, PPAS, VL, LIN, E, TLY,
              PFUTV=frozenset(), prev: dict | None = None) -> dict:
     """Vista de porfolio: resumen del maestro, lanzamientos con su preparación, PT activos sin
     movimiento, inactivos con stock y altas/bajas frente a la carga anterior (prev = {código: nombre})."""
     en_app = {r["k"]: r for r in refs}
     pt = {k: a for k, a in A.items() if a["estado"] == "Producto terminado"}
+    ex = lambda k: dict(ext=bool(A.get(k, {}).get("ext")), sc=sucesor(A, k))  # noqa: E731  a extinguir y sucesor válido
     act = {k: a for k, a in pt.items() if not a["inact"]}
     iso = lambda d: d.isoformat() if d else ""  # noqa: E731
 
@@ -266,7 +273,7 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         cs = (r["gp"] if r else a["gp"]) == "Contra Stock"
         lanz.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), app=bool(r), gp=a["gp"],
                          pv=any(x > 0 for x in PREV.get(k, [])) or k in PFUTV, ln=bool(r["ln"] if r else LIN.get(k)),
-                         mn=(mn > 0) if cs else None, lt=lt > 0, en=bool(E.get(k))))
+                         mn=(mn > 0) if cs else None, lt=lt > 0, en=bool(E.get(k)), **ex(k)))
     lanz.sort(key=lambda x: x["alta"], reverse=True)
 
     fuera = []
@@ -274,19 +281,19 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         if k in en_app:
             continue
         cat = "prev_futura" if k in PFUT else "venta_antigua" if k in VL else "prev_pasada" if k in PPAS else "nada"
-        fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), gp=a["gp"], cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else ""))
+        fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), gp=a["gp"], cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else "", **ex(k)))
     fuera.sort(key=lambda x: (x["cat"], x["alta"]))
 
-    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), fina=iso(a["fina"])) for k, a in pt.items()
+    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), fina=iso(a["fina"]), **ex(k)) for k, a in pt.items()
                     if a["inact"] and ST.get(k, 0.0) > 0), key=lambda x: -x["st"])
 
     cambios = None
     if prev is not None:
         alta_desde = _hace_meses(today, ALTA_MESES)
-        entran = [dict(k=k, n=r["n"], m="alta" if A[k]["alta"] and A[k]["alta"] >= alta_desde else "vuelve")
+        entran = [dict(k=k, n=r["n"], m="alta" if A[k]["alta"] and A[k]["alta"] >= alta_desde else "vuelve", **ex(k))
                   for k, r in en_app.items() if k not in prev]
         salen = [dict(k=k, n=n, m="no_maestro" if k not in A else "no_pt" if A[k]["estado"] != "Producto terminado"
-                      else "inactiva" if A[k]["inact"] else "sin_mov") for k, n in prev.items() if k not in en_app]
+                      else "inactiva" if A[k]["inact"] else "sin_mov", **ex(k)) for k, n in prev.items() if k not in en_app]
         cambios = dict(entran=sorted(entran, key=lambda x: x["k"]), salen=sorted(salen, key=lambda x: x["k"]))
 
     return dict(res=dict(maestro=len(pt), activos=len(act), seguimiento=len(en_app), fuera=len(fuera)),
@@ -495,7 +502,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         prev = [round(x) for x in pv] if pv else [0] * H
         v0 = vt[12] if vt else 0.0
         refs.append(dict(
-            k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"], al=a["alta"].isoformat() if a["alta"] else "", fv=FV.get(k),
+            k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=sucesor(A, k), al=a["alta"].isoformat() if a["alta"] else "", fv=FV.get(k),
             st=round(st), mn=round(mn), lt=round(lote), pr=round(a["precio"], 2),
             pv=prev, pv0r=_resto(prev[0], v0, dias_quedan, dias_mes), hp=[round(x) for x in HP.get(k, [0.0] * 12)], pd=[round(x) for x in pd] if pd else [0] * H,
             at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),
