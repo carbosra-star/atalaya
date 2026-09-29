@@ -21,7 +21,7 @@ const ESC_TXT = { OF: 'solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y tod
 const escLower = () => ESC_TXT[S.esc] + (S.pv === 'C' ? ' y previsión corregida' : '');
 const PV = { T: 'Tal cual', C: 'Corregida' };
 const pvKey = () => S.esc + (S.pv === 'C' ? '_C' : '');  // clave de la carga anterior evaluada
-const cobTxt = (v) => v == null || v >= 99 ? '—' : Math.max(0, v).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m';  // stock negativo: 0 m
+const cobTxt = (v) => v == null || v >= 99 ? '—' : Math.max(0, v).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m';  // stock negativo: 0 m
 const ENT = { OF: 'OF', PF: 'Propuesta fijada', P: 'Propuesta' };
 
 const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL',
@@ -220,11 +220,35 @@ function closeSearch() { const ul = $('#gsList'); if (ul && !ul.hidden) { ul.hid
 
 // ---------------------------------------------------------------- piezas comunes
 const pill = (sem, text) => `<span class="pill s-${sem}">${esc(text || SEMT[sem])}</span>`;
+// Estado corto para las tablas: el mes de rotura ya está en su columna y el motivo completo va en el title
+function semCorto(e) {
+  if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : 'Rotura';
+  if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : 'Propuestas';
+  return { naranja: 'Bajo mínimo', verde: 'Cubierto', gris: 'Sin demanda' }[e.sem];
+}
+const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${semCorto(e)}<span class="sr"> (${esc(e.why)})</span></span>`;
+// ABC: una sola tinta de más a menos intensa (A → D), NA con borde discontinuo
+const abcTag = (c) => `<span class="abc abc-${esc(c)}" title="${esc(ABC_TXT[c] || '')}">${esc(c)}</span>`;
+const ABC_TXT = { A: 'hasta el 45 % del volumen previsto', B: 'hasta el 80 %', C: 'hasta el 95 %', D: 'resto', NA: 'bajo pedido' };
+// Cobertura con barra 0–6 meses: tramo oscuro = prudente, claro = hasta la cobertura normal, raya = horizonte
+const COB_MAX = 6;
+function cobCell(e) {
+  if (e.cob >= 99) return '<td class="r num cobc"><span class="muted">—</span></td>';
+  const w = (v) => Math.max(0, Math.min(v, COB_MAX)) / COB_MAX * 100, hz = S.cfg.horizonte || 3;
+  const tip = `Cobertura ${cobTxt(e.cob)}` + (e.cobp == null ? '' : ` · prudente ${cobTxt(e.cobp)}`);
+  return `<td class="r num cobc" title="${tip}"><span class="cbar" aria-hidden="true"><span class="cbn" style="width:${w(e.cob)}%"></span>${e.cobp == null ? '' : `<span class="cbp" style="width:${w(e.cobp)}%"></span>`}<span class="cbh" style="left:${w(hz)}%"></span></span>` +
+    `<span class="cobv">${cobTxt(e.cob)}</span>${e.cobp == null ? '' : ` <span class="cobp">${cobTxt(e.cobp).replace(' m', '')}</span>`}<span class="sr">${e.cobp == null ? '' : ', prudente ' + cobTxt(e.cobp)}</span></td>`;
+}
+function leyendaCob(rows) {
+  const n = {}; rows.forEach(({ r }) => n[r.abc] = (n[r.abc] || 0) + 1);
+  return `<span class="lg"><b>ABC</b> · previsión 12 meses ${['A', 'B', 'C', 'D', 'NA'].map(c => `<span class="lgi">${abcTag(c)} ${fmt(n[c] || 0)} <span class="muted">${ABC_TXT[c]}</span></span>`).join('')}</span>
+    <span class="lg"><b>Cobertura</b> <span class="lgi"><span class="sw cbp"></span> prudente</span><span class="lgi"><span class="sw cbn"></span> normal</span><span class="lgi"><span class="sw cbh"></span> horizonte (${S.cfg.horizonte || 3} m)</span><span class="muted">barra hasta ${COB_MAX} meses</span></span>`;
+}
 const refLink = (r) => `<a href="${refHref(r.k)}">${esc(r.k)}</a>`;
 // Celda de referencia: código y nombre en la misma línea (extra: marcas de notas y acciones)
 const refCell = (r, extra = '') => `<td class="art" title="${esc(r.k + ' ' + r.n)}">${refLink(r)} ${extra}<span class="nm">${esc(r.n)}</span></td>`;
-function nextEntry(e) { const n = e.next; return n ? `${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, true)}` : '<span class="muted">Sin entradas</span>'; }
-function rotCell(e) { return e.rot < 0 ? '<span class="muted">No en 12 meses</span>' : `<span class="${e.rot < (S.cfg.horizonte || 3) ? 'neg' : ''}">${monthLabel(e.rot)}</span>`; }
+function nextEntry(e) { const n = e.next; return n ? `<span class="nowrap">${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, true)}</span>` : '<span class="muted">Sin entradas</span>'; }
+function rotCell(e) { return e.rot < 0 ? '<span class="muted" title="Sin rotura en 12 meses">—<span class="sr"> sin rotura en 12 meses</span></span>' : `<span class="${e.rot < (S.cfg.horizonte || 3) ? 'neg' : ''}">${monthLabel(e.rot)}</span>`; }
 function strip(list, hrefFor, current) {
   const c = {}; list.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1);
   return `<section class="strip" aria-label="Referencias por estado">
@@ -270,7 +294,7 @@ async function pageHome(main) {
     </div>
     <h2>Las 10 más urgentes</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción</th><th scope="col">Estado</th></tr></thead><tbody>
-    ${urg.map(({ r, e }) => `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td><td>${pill(e.sem, e.why)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
+    ${urg.map(({ r, e }) => `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -297,15 +321,16 @@ async function pageList(main) {
     const qsNoSem = new URLSearchParams(q); qsNoSem.delete('sem');
     $('#stripBox').innerHTML = strip(f(true), k => { const p = new URLSearchParams(qsNoSem); if (q.get('sem') !== k) p.set('sem', k); return '#/coberturas' + (p.toString() ? '?' + p : ''); }, q.get('sem'));
     $('#count').textContent = fmt(rows.length) + ' referencias';
+    $('#leyenda').innerHTML = leyendaCob(rows);
     const tb = $('#tbl tbody');
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
       ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
-      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td><span class="abc">${esc(r.abc)}</span></td>
+      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td>${abcTag(r.abc)}</td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>
-      <td class="r num">${cobTxt(e.cob)}</td><td class="r num">${cobTxt(e.cobp)}</td>
-      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pill(e.sem, e.why)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
+      ${cobCell(e)}
+      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
     $('#more').hidden = rows.length <= limit; $('#more').textContent = `Mostrar ${Math.min(200, rows.length - limit)} más`;
-    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Cob. prudente', 'cobp', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
+    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
     $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd3', 'mn'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
     main._rows = rows;
   };
@@ -322,6 +347,7 @@ async function pageList(main) {
       ${scenarioCtl()}
     </form>
     <div class="toolbar"><span class="count" id="count" aria-live="polite"></span><button class="btn ghost sm" id="csv">Descargar lista (CSV)</button></div>
+    <div class="leyenda" id="leyenda"></div>
     <div class="tw"><table id="tbl"><caption class="sr">Referencias y su cobertura</caption><thead id="thead"></thead><tbody></tbody></table></div>
     <button class="btn ghost more" id="more" hidden></button>`;
   const fl = $('#flt');
@@ -369,7 +395,7 @@ async function pageRef(main, [k]) {
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
-        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${esc(r.abc)} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
+        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${abcTag(r.abc)} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
         <p>${pill(e.sem, e.why)}</p></div>
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
@@ -442,7 +468,7 @@ async function pageLine(main, [ln]) {
     <p class="muted small">Entradas: ${ESC_TXT[S.esc]}${S.pv === 'C' ? '; demanda con previsión corregida' : ''}. Sin capacidad de la línea todavía: cuando esté ese dato se comparará aquí.</p>
     <h2>Referencias</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Estado</th></tr></thead><tbody>
-    ${rows.map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pill(e.sem, e.why)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin referencias.</td></tr>'}
+    ${rows.map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin referencias.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -464,7 +490,7 @@ async function pageMeeting(main) {
     <h2>Por decidir (${list.length})</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción abierta</th><th scope="col">Estado</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
     ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
-      <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td><td>${pill(e.sem, e.why)}</td>
+      <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td><td>${pillShort(e)}</td>
       ${canW ? `<td><button class="btn ghost sm" data-add="${esc(r.k)}" aria-label="Añadir acción a ${esc(r.k)}">Añadir acción</button></td>` : ''}</tr>
       ${canW ? `<tr hidden id="af-${esc(r.k)}"><td colspan="7"><form class="form" data-f="${esc(r.k)}" style="max-width:none"><div class="row"><label>Acción<input name="text" required maxlength="2000"></label><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Guardar</button></div></form></td></tr>` : ''}`; }).join('') || '<tr><td colspan="7" class="empty">Nada pendiente con estos criterios.</td></tr>'}
     </tbody></table></div>
