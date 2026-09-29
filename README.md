@@ -70,7 +70,7 @@ Hojas que usa la app (las demás se ignoran):
 | MM_Prev | Previsión operativa: cada mes sale de la versión IDPrev más reciente que lo cubre |
 | MM_PedVentas | Pedidos pendientes con fecha de envío |
 | MM_OF | OF abiertas (fecha fin `tterm`) |
-| MM_PROP | Propuestas del MRP (fecha `wtterm`, fijada si `fixterm`); las que ya tienen nº de OF se descartan para no contarlas dos veces |
+| MM_PROP | Propuestas del MRP (fecha `wtterm`, fijada si `fix`); las que ya tienen nº de OF se descartan para no contarlas dos veces |
 | MM_Maq | Línea (grupo de máquina) de cada referencia |
 | MM_Vtas | Venta mensual, para descontar lo ya vendido en el mes en curso y mostrar el histórico |
 

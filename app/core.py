@@ -274,7 +274,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         E.setdefault(k, []).append(dict(t="OF", q=round(q), m=mi, d=d.isoformat() if d else "", late=bool(d and d < today),
                                         id=_norm(_get(r, jn)), mq=_norm(_get(r, js))))
     tr = _Table(rows["MM_PROP"], "nummer", "MM_PROP")
-    jc, j9, jw, jqp, jf = tr.col("nummer"), tr.col("num9"), tr.col("wtterm"), tr.col("mge"), tr.col("fixterm")
+    jc, j9, jw, jqp, jf = tr.col("nummer"), tr.col("num9"), tr.col("wtterm"), tr.col("mge"), tr.col("fix")
     for r in tr.data:
         k = _code(_get(r, jc))
         if not k or _norm(_get(r, j9)):  # con nº de OF: ya está en MM_OF
