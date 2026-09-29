@@ -106,7 +106,7 @@ function setQuery(patch) {
 window.addEventListener('hashchange', render);
 
 const ROUTES = {
-  '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, reunion: pageMeeting,
+  '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, reunion: pageMeeting, porfolio: pagePortfolio,
   datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon,
 };
 async function render() {
@@ -142,6 +142,7 @@ function shell() {
         <a role="listitem" href="#/" data-nav="">Inicio</a>
         <a role="listitem" href="#/coberturas" data-nav="coberturas">Coberturas <span class="badge r" id="bRojo" hidden></span></a>
         <a role="listitem" href="#/lineas" data-nav="lineas">Líneas</a>
+        <a role="listitem" href="#/porfolio" data-nav="porfolio">Porfolio</a>
         <a role="listitem" href="#/reunion" data-nav="reunion">Reunión semanal <span class="badge" id="bAct" hidden></span></a>
       </div>
       <div class="nav-g" id="g2">Parámetros y previsión</div>
@@ -537,7 +538,7 @@ async function pageData(main) {
     try {
       const r = await send(true); if (!r) return; const p = r.preview;
       $('#prev').innerHTML = `<div class="notice"><p><b>Fichero correcto.</b> Previsión ${esc(p.version)}, ${p.n} referencias de PT activas, datos del ${fdate(p.hoy)}.</p>
-        <p>${SEM.map(([k, t]) => `${t}: <b>${p.counts[k] || 0}</b>`).join(' · ')}</p>${p.warn.length ? `<p class="msg err">${p.warn.map(esc).join('<br>')}</p>` : ''}
+        <p>${SEM.map(([k, t]) => `${t}: <b>${p.counts[k] || 0}</b>`).join(' · ')}</p>${p.cambios ? `<p>Frente a la carga anterior: entran <b>${p.cambios.entran}</b> · salen <b>${p.cambios.salen}</b> referencias (detalle en <a href="#/porfolio">Porfolio</a>).</p>` : ''}${p.warn.length ? `<p class="msg err">${p.warn.map(esc).join('<br>')}</p>` : ''}
         <button class="btn" id="pubB">Publicar para todos</button></div>`;
       $('#pubB').onclick = async () => { $('#pubB').disabled = true; try { await send(false); await loadData(); updateChrome(); toast('Datos publicados'); pageData(main); } catch (e) { $('#prev').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; } };
     } catch (e) { $('#prev').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
@@ -588,6 +589,38 @@ const SOON = {
   'desviacion': ['Desviación de previsiones', 'Acierto y sesgo de cada versión de previsión frente a la venta real, por referencia, marca y mandante, y cuánto mejora cada revisión trimestral.'],
   'consolidador': ['Consolidador de previsiones', 'Validación de la previsión de controlling contra el maestro (extinguir, sucesores, inactivos, lanzamientos) y generación del fichero de carga para ABAS y Power BI.'],
 };
+// ---------------------------------------------------------------- Porfolio
+const MOTIVO = { alta: 'Alta nueva', vuelve: 'Vuelve a tener movimiento', inactiva: 'Inactivada en el maestro', no_pt: 'Ya no es producto terminado', sin_mov: 'Se ha quedado sin movimiento', no_maestro: 'Ya no está en el maestro' };
+const CATSM = { nada: 'Sin ningún dato', venta_antigua: 'Solo venta de hace más de 13 meses', prev_futura: 'Previsión solo más allá de 12 meses', prev_pasada: 'Solo previsión de meses pasados' };
+// Referencia de porfolio: enlaza a la ficha solo si está en seguimiento
+const pfRef = (k, n) => `<td class="art" title="${esc(k + ' ' + n)}">${S.byK[k] ? refLink({ k }) : `<b>${esc(k)}</b>`} <span class="nm">${esc(n)}</span></td>`;
+const chk = (v) => v == null ? '<span class="muted">—</span>' : v ? '<span class="ok">✓<span class="sr"> sí</span></span>' : '<span class="no">✗<span class="sr"> no</span></span>';
+async function pagePortfolio(main) {
+  if (!S.ds) return noData(main, 'Porfolio');
+  const pf = S.ds.porfolio;
+  if (!pf) { main.innerHTML = '<h1>Porfolio</h1><p class="lead">Esta carga es anterior a la sección Porfolio. Vuelve a cargar el MM_Supply desde Datos para verla.</p>'; return; }
+  const { q } = parseHash(), pend = q.get('pend') === '1';
+  const lz = pf.lanz.filter(x => !pend || !(x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en));
+  const cb = pf.cambios, t = (rows, cols, empty, fit = true) => `<div class="tw"><table${fit ? ' class="fit"' : ''}><thead><tr>${cols.map(c => `<th scope="col"${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+  const cambiosT = (xs) => t(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="nowrap">${MOTIVO[x.m] || esc(x.m)}</td></tr>`).join(''), [['Referencia'], ['Motivo']], 'Ninguna.');
+  main.innerHTML = `<h1>Porfolio</h1><p class="lead">Productos terminados del maestro de artículos: qué entra y sale del seguimiento, cómo van los lanzamientos y qué conviene limpiar en ABAS.</p>
+    <div class="kpis"><div class="kpi"><div class="v">${fmt(pf.res.maestro)}</div><div class="l">PT en el maestro</div></div><div class="kpi"><div class="v">${fmt(pf.res.activos)}</div><div class="l">PT activos</div></div>
+      <div class="kpi"><div class="v">${fmt(pf.res.seguimiento)}</div><div class="l">En seguimiento (activos con movimiento)</div></div><div class="kpi"><div class="v">${fmt(pf.res.fuera)}</div><div class="l">Activos sin movimiento</div></div></div>
+    <h2>Altas y bajas${S.ds.prev ? ` desde la carga anterior (${fdt(S.ds.prev.created)})` : ''}</h2>
+    ${cb ? `<div class="two"><section><h3>Entran (${cb.entran.length})</h3>${cambiosT(cb.entran)}</section><section><h3>Salen (${cb.salen.length})</h3>${cambiosT(cb.salen)}</section></div>`
+      : '<p class="muted">Se verá a partir de la próxima carga: esta es la primera con la sección Porfolio.</p>'}
+    <h2>Lanzamientos (${pf.lanz.length})</h2>
+    <p class="muted small">PT activos dados de alta en los últimos ${pf.cfg.lanz} meses y lo que tienen preparado. El stock mínimo solo se pide a los contra stock.</p>
+    <form class="filters" onsubmit="return false"><label class="fld" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="pfPend" ${pend ? 'checked' : ''}> Solo con algo pendiente (${pf.lanz.filter(x => !(x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en)).length})</label></form>
+    ${t(lz.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td></tr>`).join(''),
+      [['Referencia'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c']], 'Ningún lanzamiento con estos criterios.', false)}
+    <h2>Limpieza del maestro</h2>
+    <div class="two"><section><h3>PT activos sin movimiento (${pf.fuera.length})</h3><p class="muted small">Activos en el maestro pero sin stock, previsión, pedidos, OF, propuestas ni venta reciente: candidatos a inactivar, o lanzamientos que aún no tienen nada.</p>
+      ${t(pf.fuera.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td></tr>`).join(''), [['Referencia'], ['Alta'], ['Qué tiene']], 'Ninguno.')}</section>
+      <section><h3>Inactivos con stock (${pf.inact.length})</h3><p class="muted small">Inactivos en el maestro que todavía tienen stock: no salen en el seguimiento.</p>
+      ${t(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}<td class="r num">${fmt(x.st)}</td><td class="num">${fdate(x.fina)}</td></tr>`).join(''), [['Referencia'], ['Stock', 'r'], ['Inactivo desde']], 'Ninguno.')}</section></div>`;
+  $('#pfPend').onchange = (e) => { setQuery({ pend: e.target.checked ? '1' : '' }); pagePortfolio(main); };
+}
 async function pageSoon(main, [k]) { const s = SOON[k] || ['Próximamente', '']; main.innerHTML = `<h1>${s[0]}</h1><p class="lead">${s[1]}</p><p class="muted">Este módulo está en preparación.</p>`; }
 async function pageNotFound(main) { main.innerHTML = '<h1>Página no encontrada</h1><p class="lead">La dirección no corresponde a ninguna sección. Vuelve al <a href="#/">inicio</a>.</p>'; }
 

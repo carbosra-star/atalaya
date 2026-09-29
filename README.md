@@ -11,6 +11,7 @@ Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
 | Coberturas | Todos | Lista filtrable y ordenable de referencias (mandante, línea, marca, ABC, planificación, estado), descarga en CSV |
 | Ficha de referencia | Todos | Proyección de stock a 12 meses, tabla mes a mes, entradas (OF y propuestas), venta de 12 meses, acciones y notas |
 | Líneas | Todos | Estado por grupo de máquina y página de cada línea con su demanda y entradas |
+| Porfolio | Todos | Resumen del maestro, altas y bajas frente a la carga anterior (con su motivo), lanzamientos de los últimos 9 meses con lo que tienen preparado, PT activos sin movimiento e inactivos con stock |
 | Reunión semanal | Todos (editan planificador y administrador) | Referencias que necesitan decisión y acciones abiertas con responsable y fecha |
 | Datos | Administrador | Carga del MM_Supply (comprobar → publicar), historial de cargas y criterios del semáforo |
 | Usuarios | Administrador | Alta de usuarios, roles, activación y contraseñas temporales |
@@ -90,6 +91,8 @@ Hojas que usa la app (las demás se ignoran):
   - Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada.
   - Cubierto.
   - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
+- **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento: stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses. Las altas y bajas se detectan solas en cada carga.
+- **Porfolio**: un alta es "nueva" si tiene menos de 4 meses; los lanzamientos son las altas de los últimos 9 meses.
 - **ABC** por mandante con la previsión de los 12 próximos meses: A < 45 %, B < 80 %, C < 95 %, D resto; bajo pedido = NA.
 
 La lógica está en `app/core.py` (servidor) y su gemela de evaluación en `app/static/core.js` (navegador, para cambiar de escenario al instante). Si se cambia una, hay que cambiar la otra.

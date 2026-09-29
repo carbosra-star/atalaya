@@ -105,6 +105,7 @@ main{padding:22px 24px 60px;width:100%}
 .fld{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--ink2)}
 .fld select,.fld input{padding:7px 9px;border:1px solid var(--rule);border-radius:7px;background:var(--sheet);color:var(--ink);min-width:130px}
 .fld input[type=search]{min-width:220px}
+.fld input[type=checkbox]{min-width:0;padding:0}
 .seg{align-self:flex-start;display:inline-flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden;background:var(--sheet)}
 .seg button{border:0;background:none;padding:7px 11px;cursor:pointer;color:var(--ink2)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
@@ -113,6 +114,7 @@ main{padding:22px 24px 60px;width:100%}
 .tw{position:relative;background:var(--sheet);border:1px solid var(--rule);border-radius:12px;overflow-x:auto}
 table{border-collapse:collapse;width:100%}
 .tw>table{min-width:940px}
+.tw>table.fit{min-width:0}
 th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--soft);vertical-align:top}
 thead th{font-weight:600;font-size:13px;color:var(--ink2);background:var(--sheet);white-space:nowrap}
 th button.sort{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;display:inline-flex;gap:4px;align-items:center}
@@ -135,6 +137,8 @@ td.cobc,.nowrap{white-space:nowrap}
 .leyenda .lg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
 .leyenda .lgi{display:inline-flex;align-items:center;gap:5px}
 .neg{color:var(--rojo);font-weight:600}
+.ok{color:var(--verde);font-weight:700}.no{color:var(--rojo);font-weight:700}
+th.c,td.c{text-align:center}
 .note-dot{font-size:12px;color:var(--link);margin-right:6px;white-space:nowrap}
 .empty{padding:36px;text-align:center;color:var(--ink2)}
 .more{display:block;margin:12px auto 0}
@@ -166,6 +170,7 @@ td.cobc,.nowrap{white-space:nowrap}
 .mt th,.mt td{padding:5px 8px}
 .mt th:first-child,.mt td:first-child{position:sticky;left:0;background:var(--sheet)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.two>*{min-width:0}  /* que las tablas anchas desplacen dentro de su caja en lugar de ensanchar la columna */
 .list{list-style:none;margin:0;padding:0}
 .list li{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--soft)}
 .tag{font:600 12px var(--narrow);border-radius:4px;padding:1px 7px;border:1px solid var(--rule);white-space:nowrap}
