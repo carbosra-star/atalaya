@@ -63,5 +63,12 @@ m = ref("m", hp=[100] * 12, vt=[90] * 12, pv=[300] + [100] * 11)
 core.acierto([m], 2, 30)
 check("resto del mes con previsión corregida", m["pv0rc"] == 18, m["pv0rc"])
 
+# Evaluación con previsión corregida y cargas antiguas sin pvc
+base = dict(st=500, mn=0, at=0, en=[], pd=[0] * 12, pv=[100] * 12, pv0r=100)
+nueva = dict(base, pvc=[50] * 12, pv0rc=50)
+check("tal cual rompe en el mes 5", core.evaluate(nueva, 6, "ALL", "T")["rot"] == 5)
+check("corregida rompe en el mes 10", core.evaluate(nueva, 6, "ALL", "C")["rot"] == 10)
+check("carga antigua: corregida = tal cual", core.evaluate(base, 6, "ALL", "C") == core.evaluate(base, 6, "ALL", "T"))
+
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

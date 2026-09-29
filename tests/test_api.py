@@ -50,7 +50,7 @@ check("segunda publicación", upload(c, False).json.get("ok"))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
 check("previsión operativa: todos los meses tienen versión", all(ds["meta"]["prev_src"]), ds["meta"]["prev_src"])
-check("carga anterior evaluada en los tres escenarios", ds["prev"] and set(ds["prev"]["sem"]) == {"OF", "OFPF", "ALL"})
+check("carga anterior evaluada en las seis combinaciones", ds["prev"] and set(ds["prev"]["sem"]) == {"OF", "OFPF", "ALL", "OF_C", "OFPF_C", "ALL_C"})
 
 # Validaciones de acciones
 r = c.post("/api/actions", json={"ref": "<img src=x onerror=alert(1)>", "text": "x"}, headers=H)
@@ -81,13 +81,14 @@ check("cambiar X-Forwarded-For no evita el bloqueo", r.status_code == 429)
 # Paridad core.py / static/core.js
 node = shutil.which("node")
 if node:
-    out = {f"{e}{h}": {r["k"]: core.evaluate(r, h, e)["sem"] for r in ds["refs"]} for e in ("OF", "OFPF", "ALL") for h in (1, 3, 6)}
+    out = {f"{e}{p}{h}": {r["k"]: core.evaluate(r, h, e, p)["sem"] for r in ds["refs"]}
+           for e in ("OF", "OFPF", "ALL") for p in ("T", "C") for h in (1, 3, 6)}
     with tempfile.TemporaryDirectory() as tmp:
         fj = os.path.join(tmp, "d.json")
         json.dump({"refs": ds["refs"], "py": out}, open(fj, "w"))
         js = ("global.window={};require(process.argv[1]);const d=require(process.argv[2]);let n=0;"
-              "for(const e of ['OF','OFPF','ALL'])for(const h of [1,3,6])for(const r of d.refs)"
-              "if(window.Cob.evaluate(r,{horizonte:h,escenario:e}).sem!==d.py[e+h][r.k])n++;console.log(n)")
+              "for(const e of ['OF','OFPF','ALL'])for(const p of ['T','C'])for(const h of [1,3,6])for(const r of d.refs)"
+              "if(window.Cob.evaluate(r,{horizonte:h,escenario:e,prevision:p}).sem!==d.py[e+p+h][r.k])n++;console.log(n)")
         diff = subprocess.check_output([node, "-e", js, os.path.join(ROOT, "static", "core.js"), fj], text=True).strip()
     check("core.js evalúa igual que core.py", diff == "0", f"{diff} diferencias")
 else:

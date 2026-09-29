@@ -276,7 +276,8 @@ def dataset():
         refs = json.loads(zlib.decompress(prev["data"]))["refs"]
         hz = get_config().get("horizonte", 3)
         ds["prev"] = {"id": prev["id"], "created": prev["created"],
-                      "sem": {e: {r["k"]: core.evaluate(r, hz, e)["sem"] for r in refs} for e in ESCENARIOS}}
+                      "sem": {e + ("_C" if p == "C" else ""): {r["k"]: core.evaluate(r, hz, e, p)["sem"] for r in refs}
+                              for e in ESCENARIOS for p in ("T", "C")}}
     return jsonify(ds)
 
 

@@ -400,11 +400,13 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
 
 
 # ---------------------------------------------------------------- evaluación
-def project(r: dict, esc: str):
+def project(r: dict, esc: str, pv: str = "T"):
+    """pv: "T" previsión tal cual, "C" corregida por el sesgo (si la carga la trae)."""
     def inc(t):
         return t == "OF" or (esc != "OF" and t == "PF") or (esc == "ALL" and t == "P")
 
-    dem = [max(r["pv0r"] if m == 0 else r["pv"][m], r["pd"][m]) for m in range(H)]
+    p, p0 = (r["pvc"], r["pv0rc"]) if pv == "C" and "pvc" in r else (r["pv"], r["pv0r"])
+    dem = [max(p0 if m == 0 else p[m], r["pd"][m]) for m in range(H)]
     ent = [0] * H
     for e in r["en"]:
         if inc(e["t"]):
@@ -416,9 +418,9 @@ def project(r: dict, esc: str):
     return {"dem": dem, "ent": ent, "stk": stk}
 
 
-def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL") -> dict:
+def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str = "T") -> dict:
     hz = horizonte
-    allp, ofp = project(r, escenario), project(r, "OF")
+    allp, ofp = project(r, escenario, prevision), project(r, "OF", prevision)
 
     def first_below(p, lim):
         for m in range(H):
