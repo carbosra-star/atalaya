@@ -4,7 +4,8 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = (n) => (n == null || isNaN(n)) ? '–' : Math.round(n).toLocaleString('es-ES');
+// Enteros con punto de miles siempre (toLocaleString no agrupa 4 cifras: 5341 → 5.341)
+const fmt = (n) => (n == null || isNaN(n)) ? '–' : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 // Fechas siempre en números: 29/09/2026, 29/09 (corta), 29/09/2026 10:25 (con hora), 09/26 (mes)
 const pad = (n) => String(n).padStart(2, '0');
 const toDate = (iso) => new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso);
@@ -48,6 +49,12 @@ function prevSrcText() {
   const tramos = [];
   src.forEach((v, i) => { const t = tramos[tramos.length - 1]; if (t && t.v === v) t.b = i; else tramos.push({ v, a: i, b: i }); });
   return 'Previsión operativa: ' + tramos.map(t => (t.a === t.b ? monthLabel(t.a) : monthLabel(t.a) + ' a ' + monthLabel(t.b)) + ' ' + (t.v ? 'de ' + esc(t.v) : 'sin previsión')).join('; ') + '. ';
+}
+// Cómo se ha calculado la previsión que queda del mes en curso
+function restoText(r) {
+  const d = S.ds.meta.dias, p0 = r.pv[0];
+  if (!d) return `Mes en curso: previsión restante tras descontar ${fmt(r.v0)} unidades ya vendidas.`;
+  return `Mes en curso: quedan ${fmt(r.pv0r)} de la previsión (${fmt(p0)}), la menor entre lo que falta tras vender ${fmt(r.v0)} (${fmt(Math.max(0, p0 - r.v0))}) y lo que corresponde a ${d[0]} de ${d[1]} días naturales (${fmt(p0 * d[0] / d[1])}).`;
 }
 function recompute() {
   const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc };
@@ -264,7 +271,7 @@ async function pageList(main) {
     const rows = sortTable(f(false), key, dir, LIST_GET);
     const qsNoSem = new URLSearchParams(q); qsNoSem.delete('sem');
     $('#stripBox').innerHTML = strip(f(true), k => { const p = new URLSearchParams(qsNoSem); if (q.get('sem') !== k) p.set('sem', k); return '#/coberturas' + (p.toString() ? '?' + p : ''); }, q.get('sem'));
-    $('#count').textContent = rows.length.toLocaleString('es-ES') + ' referencias';
+    $('#count').textContent = fmt(rows.length) + ' referencias';
     const tb = $('#tbl tbody');
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
       <td>${pill(e.sem, e.why)}</td>
@@ -355,7 +362,7 @@ async function pageRef(main, [k]) {
         <tr><th scope="row">Entradas</th>${e.all.ent.map(v => `<td class="r num">${v ? fmt(v) : ''}</td>`).join('')}</tr>
         <tr><th scope="row">Stock fin de mes</th>${e.all.stk.map(v => `<td class="r num ${v < 0 ? 'neg' : ''}"><b>${fmt(v)}</b></td>`).join('')}</tr>
       </tbody></table></div>
-      <p class="muted small">${prevSrcText()}Mes en curso: previsión restante tras descontar ${fmt(r.v0)} unidades ya vendidas.${r.at ? ` Incluye ${fmt(r.at)} unidades de pedidos con fecha pasada sin servir.` : ''}</p>
+      <p class="muted small">${prevSrcText()}${restoText(r)}${r.at ? ` Incluye ${fmt(r.at)} unidades de pedidos con fecha pasada sin servir.` : ''}</p>
       <div class="two">
         <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li><span class="tag">${ENT[v.t]}</span><span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${v.mq ? ' · ' + esc(v.mq) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">No hay OF ni propuestas en los próximos 12 meses.</p>'}
           <h2>Venta de los últimos 12 meses</h2><div class="tw"><table class="mt" style="min-width:0"><thead><tr>${r.vt.map((_, i) => `<th scope="col" class="r">${monthLabel(i - 12)}</th>`).join('')}</tr></thead><tbody><tr>${r.vt.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div></section>

@@ -77,7 +77,7 @@ Hojas que usa la app (las demás se ignoran):
 ## Lógica de cálculo
 
 - **Previsión operativa**: para cada mes se usa la versión más reciente que tenga ese mes (por ejemplo, el mes en curso de 2026Q3 y los siguientes de 2026Q4).
-- **Demanda del mes** = la mayor entre la previsión y los pedidos de ese mes (como consume ABAS). En el mes en curso se descuenta lo ya vendido; los pedidos con fecha pasada se suman al mes en curso.
+- **Demanda del mes** = la mayor entre la previsión y los pedidos de ese mes (como consume ABAS). En el mes en curso cuenta la menor entre (previsión − lo ya vendido) y la parte proporcional de los días naturales que quedan, hoy incluido; los pedidos con fecha pasada se suman al mes en curso.
 - **Entradas** según el escenario elegido: solo OF, OF y propuestas fijadas, u OF y todas las propuestas.
 - **Stock proyectado** a fin de mes = stock anterior − demanda + entradas.
 - **Semáforo** (horizonte configurable, 3 meses por defecto):
@@ -110,6 +110,5 @@ tests/test_api.py prueba de extremo a extremo: DATA_DIR=/tmp/prueba python tests
 ## Deuda técnica y decisiones provisionales
 
 - **Previsión operativa (provisional)**: hoy se coge, mes a mes, la versión más reciente que cubre ese mes. El objetivo es montar una previsión operativa eligiendo explícitamente qué meses se toman de cada iteración.
-- **Resto de previsión del mes en curso**: se calcula como previsión del mes − venta ya hecha, sin tener en cuenta los días que quedan. A final de mes puede inflar la demanda si la venta va por debajo de la previsión.
 - **Cantidad de las OF**: se usa `mge` de MM_OF. Pendiente de confirmar que es la cantidad pendiente (no la total) o de recibir esa columna en el MM_Supply.
 - **OF con fecha pasada**: se mantienen en amarillo ("OF con fecha pasada") a propósito, aunque muchas sean OF en curso o terminadas sin cerrar.

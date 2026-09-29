@@ -9,6 +9,7 @@ escenario sin volver a pedir datos al servidor).
 """
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import re
 
@@ -299,6 +300,14 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
             if _norm(_get(r, 3)):
                 LNAME[g] = _norm(_get(r, 3))
 
+    # Resto de previsión del mes en curso: la menor entre lo que falta para llegar a la
+    # previsión y la parte proporcional de los días naturales que quedan (hoy incluido)
+    dias_mes = calendar.monthrange(today.year, today.month)[1]
+    dias_quedan = dias_mes - today.day + 1
+
+    def resto_mes(p0: float, vendido: float) -> int:
+        return max(0, min(round(p0 - max(0.0, vendido)), round(p0 * dias_quedan / dias_mes)))
+
     # Universo: PT activos con alguna señal
     refs = []
     for k, a in A.items():
@@ -314,7 +323,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         refs.append(dict(
             k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"],
             st=round(st), mn=round(mn), lt=round(lote), pr=round(a["precio"], 2),
-            pv=prev, pv0r=max(0, prev[0] - max(0, round(v0))), pd=[round(x) for x in pd] if pd else [0] * H,
+            pv=prev, pv0r=resto_mes(prev[0], v0), pd=[round(x) for x in pd] if pd else [0] * H,
             at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),
             vt=[round(x) for x in vt[:12]] if vt else [0] * 12, v0=round(v0),
         ))
@@ -334,7 +343,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         r.setdefault("abc", "D")
 
     refs.sort(key=lambda r: r["k"])
-    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, n=len(refs), lineas=LNAME, warn=warn)
+    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn)
     return {"meta": meta, "refs": refs}
 
 
