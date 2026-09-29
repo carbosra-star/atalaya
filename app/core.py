@@ -15,6 +15,7 @@ import re
 
 H = 12  # horizonte en meses
 HMIN, FMIN, FMAX = 6, 0.5, 1.5  # acierto: meses mínimos de historia y límites del factor de sesgo
+LANZ_MESES, ALTA_MESES = 9, 4  # porfolio: ventana de lanzamientos y antigüedad máxima de un "alta nueva"
 SHEETS = ["MM_Art", "MM_TLY", "MM_Stocks", "MM_Vtas", "MM_PedVentas", "MM_Prev", "MM_PROP", "MM_OF", "MM_Maq"]
 MESES = {"ene": 0, "feb": 1, "mar": 2, "abr": 3, "may": 4, "jun": 5, "jul": 6, "ago": 7, "sep": 8, "oct": 9, "nov": 10, "dic": 11}
 
@@ -196,7 +197,60 @@ def acierto(refs: list[dict], dq: int, dm: int) -> None:
                  pvc=[round(x * fc) for x in r["pv"]], pv0rc=_resto(r["pv"][0] * fc, r["v0"], dq, dm))
 
 
-def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
+def _hace_meses(d: dt.date, n: int) -> dt.date:
+    y, m = divmod(d.year * 12 + d.month - 1 - n, 12)
+    return dt.date(y, m + 1, min(d.day, calendar.monthrange(y, m + 1)[1]))
+
+
+def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int, *, ST, PREV, PFUT, PPAS, VL, LIN, E, TLY,
+             prev: dict | None = None) -> dict:
+    """Vista de porfolio: resumen del maestro, lanzamientos con su preparación, PT activos sin
+    movimiento, inactivos con stock y altas/bajas frente a la carga anterior (prev = {código: nombre})."""
+    en_app = {r["k"]: r for r in refs}
+    pt = {k: a for k, a in A.items() if a["estado"] == "Producto terminado"}
+    act = {k: a for k, a in pt.items() if not a["inact"]}
+    iso = lambda d: d.isoformat() if d else ""  # noqa: E731
+
+    lanz, desde = [], _hace_meses(today, LANZ_MESES)
+    for k, a in act.items():
+        if not a["alta"] or a["alta"] < desde:
+            continue
+        r = en_app.get(k)
+        yun = (r["md"] == "Yunsey") if r else k in TLY
+        mn = r["mn"] if r else (TLY[k][1] if yun else a["min"])
+        lt = r["lt"] if r else (TLY[k][0] if yun else a["lote"])
+        cs = (r["gp"] if r else a["gp"]) == "Contra Stock"
+        lanz.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), app=bool(r), gp=a["gp"],
+                         pv=any(x > 0 for x in PREV.get(k, [])), ln=bool(r["ln"] if r else LIN.get(k)),
+                         mn=(mn > 0) if cs else None, lt=lt > 0, en=bool(E.get(k))))
+    lanz.sort(key=lambda x: x["alta"], reverse=True)
+
+    fuera = []
+    for k, a in act.items():
+        if k in en_app:
+            continue
+        cat = "prev_futura" if k in PFUT else "venta_antigua" if k in VL else "prev_pasada" if k in PPAS else "nada"
+        fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else ""))
+    fuera.sort(key=lambda x: (x["cat"], x["alta"]))
+
+    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), fina=iso(a["fina"])) for k, a in pt.items()
+                    if a["inact"] and ST.get(k, 0.0) > 0), key=lambda x: -x["st"])
+
+    cambios = None
+    if prev is not None:
+        alta_desde = _hace_meses(today, ALTA_MESES)
+        entran = [dict(k=k, n=r["n"], m="alta" if A[k]["alta"] and A[k]["alta"] >= alta_desde else "vuelve")
+                  for k, r in en_app.items() if k not in prev]
+        salen = [dict(k=k, n=n, m="no_maestro" if k not in A else "no_pt" if A[k]["estado"] != "Producto terminado"
+                      else "inactiva" if A[k]["inact"] else "sin_mov") for k, n in prev.items() if k not in en_app]
+        cambios = dict(entran=sorted(entran, key=lambda x: x["k"]), salen=sorted(salen, key=lambda x: x["k"]))
+
+    return dict(res=dict(maestro=len(pt), activos=len(act), seguimiento=len(en_app), fuera=len(fuera)),
+                lanz=lanz, fuera=fuera, inact=inact, cambios=cambios, cfg=dict(lanz=LANZ_MESES, alta=ALTA_MESES))
+
+
+def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = None) -> dict:
+    """anterior: {código: nombre} de la carga anterior, para las altas y bajas del porfolio."""
     base_y, base_m = today.year, today.month - 1
 
     def midx(d: dt.date) -> int:
@@ -208,6 +262,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     ta = _Table(rows["MM_Art"], "Nº Artículo", "MM_Art")
     c = {n: ta.col(n) for n in ["Nº Artículo", "Artículo", "yceestado", "ybinactivo", "yartextin", "ymarca", "ycefamilia",
                                   "Grupo Planificacion", "T.Lote", "Precio Mixto", "Codigo Sucesor"]}
+    jalta, jina = ta.opt("yfechaalta"), ta.opt("yfechaina")
     jmin = ta.opt("mindest")  # stock mínimo (Mindestbestand); minbsmge es la cantidad mínima de pedido
     if jmin is None:
         warn.append('MM_Art no trae la columna "mindest": las referencias de Belloch quedan sin stock mínimo')
@@ -222,6 +277,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
             marca=_norm(_get(r, c["ymarca"])) or _norm(_get(r, c["ycefamilia"])),
             gp=_norm(_get(r, c["Grupo Planificacion"])), lote=_num(_get(r, c["T.Lote"])), min=_num(_get(r, jmin)),
             precio=_num(_get(r, c["Precio Mixto"])), suc=_code(_get(r, c["Codigo Sucesor"])),
+            alta=_date(_get(r, jalta)), fina=_date(_get(r, jina)),
         )
     if not A:
         raise DataError("MM_Art no tiene artículos")
@@ -270,7 +326,10 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     HP: dict[str, list[float]] = {}  # previsión vigente de los 12 meses cerrados
     PREV: dict[str, list[float]] = {}
     MAND: dict[str, str] = {}
+    PFUT, PPAS = set(), set()  # previsión > 0 solo más allá del horizonte / en meses pasados
     for v, k, mi, r in pr:
+        if _num(_get(r, iQ)) > 0:
+            (PFUT if mi >= H else PPAS if mi < 0 else set()).add(k)
         if -12 <= mi < 0 and hsrc[mi + 12] == v:
             HP.setdefault(k, [0.0] * 12)[mi + 12] += _num(_get(r, iQ))
         if not (0 <= mi < H and src[mi] == v):
@@ -293,14 +352,18 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         if mm is not None and cy:
             vcols.append((j, (cy - base_y) * 12 + (mm - base_m)))
     VT: dict[str, list[float]] = {}
+    VL: dict[str, int] = {}  # último mes con venta (índice respecto al mes en curso), en toda la hoja
     for r in tv.data:
         k = _code(_get(r, 0))
         if not k or k == "Total general":
             continue
         a = [0.0] * 13
         for j, mi in vcols:
+            q = _num(_get(r, j))
             if -12 <= mi <= 0:
-                a[mi + 12] += _num(_get(r, j))
+                a[mi + 12] += q
+            if q > 0 and mi <= 0:
+                VL[k] = max(VL.get(k, mi), mi)
         VT[k] = a
 
     # Pedidos pendientes
@@ -404,7 +467,8 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
 
     refs.sort(key=lambda r: r["k"])
     meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn)
-    return {"meta": meta, "refs": refs}
+    pf = porfolio(A, refs, today, base_y, base_m, ST=ST, PREV=PREV, PFUT=PFUT, PPAS=PPAS - PFUT, VL=VL, LIN=LIN, E=E, TLY=TLY, prev=anterior)
+    return {"meta": meta, "refs": refs, "porfolio": pf}
 
 
 # ---------------------------------------------------------------- evaluación

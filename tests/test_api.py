@@ -49,6 +49,14 @@ check("primera publicación", upload(c, False).json.get("ok"))
 check("segunda publicación", upload(c, False).json.get("ok"))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
+pf = ds.get("porfolio") or {}
+check("porfolio: resumen del maestro", pf.get("res", {}).get("seguimiento") == len(ds["refs"]) and pf["res"]["fuera"] == len(pf["fuera"]), pf.get("res"))
+check("porfolio: 69 PT activos sin movimiento y 6 inactivos con stock", len(pf.get("fuera", [])) == 69 and len(pf.get("inact", [])) == 6,
+      (len(pf.get("fuera", [])), len(pf.get("inact", []))))
+check("porfolio: lanzamientos de los últimos 9 meses", len(pf.get("lanz", [])) > 0 and all(x["alta"] >= "2025-12-29" for x in pf["lanz"]), len(pf.get("lanz", [])))
+check("porfolio: misma carga dos veces, sin altas ni bajas", pf.get("cambios") == {"entran": [], "salen": []}, pf.get("cambios"))
+r = upload(c, True)
+check("la comprobación del fichero resume altas y bajas", r.json["preview"].get("cambios") == {"entran": 0, "salen": 0}, r.json["preview"].get("cambios"))
 bel = [r for r in ds["refs"] if r["md"] == "Belloch" and r["gp"] == "Contra Stock"]
 check("stock mínimo de Belloch desde mindest del maestro", sum(r["mn"] > 0 for r in bel) > len(bel) // 3, f'{sum(r["mn"] > 0 for r in bel)} de {len(bel)}')
 laca = next((r for r in ds["refs"] if r["k"] == "010010001200"), None)

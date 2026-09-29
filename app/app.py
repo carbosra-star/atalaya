@@ -300,11 +300,13 @@ def upload():
     except ValueError:
         return err("La fecha de los datos no es válida")
     dry = request.form.get("dry") == "1"
+    last = _load_row()  # carga anterior, para las altas y bajas del porfolio
+    prev = {r["k"]: r["n"] for r in json.loads(zlib.decompress(last["data"]))["refs"]} if last else None
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         f.save(tmp.name)
         path = tmp.name
     try:
-        ds = core.parse(core.read_workbook(path), hoy)
+        ds = core.parse(core.read_workbook(path), hoy, prev)
     except core.DataError as e:
         return err(str(e))
     except Exception as e:  # fichero corrupto u otro formato
@@ -317,6 +319,9 @@ def upload():
     for s in sem.values():
         counts[s] += 1
     summary = {"version": ds["meta"]["version"], "hoy": ds["meta"]["hoy"], "n": ds["meta"]["n"], "counts": counts, "warn": ds["meta"]["warn"]}
+    cb = ds["porfolio"]["cambios"]
+    if cb is not None:
+        summary["cambios"] = {"entran": len(cb["entran"]), "salen": len(cb["salen"])}
     if dry:
         return jsonify({"preview": summary})
     blob = zlib.compress(json.dumps(ds, separators=(",", ":")).encode(), 6)
