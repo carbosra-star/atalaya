@@ -79,6 +79,7 @@ Hojas que usa la app (las demás se ignoran):
 - **Previsión operativa**: para cada mes se usa la versión más reciente que tenga ese mes (por ejemplo, el mes en curso de 2026Q3 y los siguientes de 2026Q4).
 - **Demanda del mes** = la mayor entre la previsión y los pedidos de ese mes (como consume ABAS). En el mes en curso cuenta la menor entre (previsión − lo ya vendido) y la parte proporcional de los días naturales que quedan, hoy incluido; los pedidos con fecha pasada se suman al mes en curso.
 - **Entradas** según el escenario elegido: solo OF, OF y propuestas fijadas, u OF y todas las propuestas.
+- **Demanda/mes y cobertura**: la demanda/mes es la media de los 3 próximos meses completos (sin el mes en curso); la cobertura es stock de hoy ÷ demanda/mes.
 - **Stock proyectado** a fin de mes = stock anterior − demanda + entradas.
 - **Semáforo** (horizonte configurable, 3 meses por defecto):
   - Rotura: stock proyectado por debajo de 0 dentro del horizonte.

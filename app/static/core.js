@@ -19,7 +19,8 @@
     const firstBelow = (p, lim) => { for (let m = 0; m < H; m++) if (p.stk[m] < lim) return m; return -1; };
     const rot = firstBelow(all, 0), bmin = r.mn > 0 ? firstBelow(all, r.mn) : -1;
     const rotOF = firstBelow(of, 0), bminOF = r.mn > 0 ? firstBelow(of, r.mn) : -1;
-    const d3 = all.dem.slice(0, 3).reduce((s, x) => s + x, 0) / 3;
+    // Demanda/mes: media de los 3 próximos meses completos (sin el mes en curso, que solo trae lo que queda)
+    const d3 = all.dem.slice(1, 4).reduce((s, x) => s + x, 0) / 3;
     const cob = d3 > 0 ? r.st / d3 : (r.st > 0 ? 99 : 0);
     const next = r.en.filter(e => counts(e.t, cfg.escenario || 'ALL')).sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
     const lateOF = r.en.some(e => e.t === 'OF' && e.late);

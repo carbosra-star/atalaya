@@ -309,7 +309,7 @@ async function pageList(main) {
   draw();
 }
 function downloadCSV(rows) {
-  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda media 3 meses', 'Cobertura meses', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
+  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
   const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.d3), e.cob >= 99 ? '' : e.cob.toFixed(1).replace('.', ','), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -351,7 +351,7 @@ async function pageRef(main, [k]) {
       <div class="kpis">
         <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
         <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · lote ${fmt(r.lt)}` : ''}</div></div>
-        <div class="kpi"><div class="v">${e.cob >= 99 ? '—' : e.cob.toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m'}</div><div class="l">Cobertura (demanda de 3 meses)</div></div>
+        <div class="kpi"><div class="v">${e.cob >= 99 ? '—' : e.cob.toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' m'}</div><div class="l">Cobertura (3 próximos meses completos)</div></div>
         <div class="kpi"><div class="v">${e.rot < 0 ? 'No' : monthLabel(e.rot)}</div><div class="l">Primera rotura</div></div></div>
       <div class="chartbox">${chartSVG(r, e)}<p class="muted small">Línea: stock a fin de mes. Barras grises: demanda. Barras azules: entradas (${escLower()}). Línea discontinua: stock mínimo.</p></div>
       <h2>Mes a mes</h2>
