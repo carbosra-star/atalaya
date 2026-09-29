@@ -14,6 +14,7 @@ import datetime as dt
 import re
 
 H = 12  # horizonte en meses
+HMIN, FMIN, FMAX = 6, 0.5, 1.5  # acierto: meses mínimos de historia y límites del factor de sesgo
 SHEETS = ["MM_Art", "MM_TLY", "MM_Stocks", "MM_Vtas", "MM_PedVentas", "MM_Prev", "MM_PROP", "MM_OF", "MM_Maq"]
 MESES = {"ene": 0, "feb": 1, "mar": 2, "abr": 3, "may": 4, "jun": 5, "jul": 6, "ago": 7, "sep": 8, "oct": 9, "nov": 10, "dic": 11}
 
@@ -141,6 +142,55 @@ def _ym(y: int, m0: int) -> str:
     return f"{m0 % 12 + 1:02d}/{y + m0 // 12}"
 
 
+def _resto(p0: float, vendido: float, dq: int, dm: int) -> int:
+    """Resto de previsión del mes en curso: la menor entre lo que falta para llegar a la
+    previsión y la parte proporcional de los dq días naturales que quedan de dm."""
+    return max(0, min(round(p0 - max(0.0, vendido)), round(p0 * dq / dm)))
+
+
+def vigentes(cover: dict[str, set[int]], base_y: int, base_m: int, n: int = 12) -> list[str]:
+    """Versión vigente de cada mes cerrado (-n..-1): la más reciente que cubre el mes y cuyo
+    trimestre empezó en o antes de él (2026Q2 cubre enero, pero enero se toma de 2026Q1)."""
+    def inicio(v: str) -> int:
+        return (int(v[:4]) - base_y) * 12 + 3 * (int(v[5]) - 1) - base_m
+
+    return [next((v for v in sorted(cover, reverse=True) if m in cover[v] and inicio(v) <= m), "") for m in range(-n, 0)]
+
+
+def acierto(refs: list[dict], dq: int, dm: int) -> None:
+    """Factor de sesgo (venta ÷ previsión vigente) y error medio de los 12 meses cerrados,
+    propios con HMIN meses de historia o, si no, de su grupo mandante × ABC."""
+    def err(v, p):
+        return sum(abs(a - b) for a, b in zip(v, p))
+
+    grp: dict[tuple, list[float]] = {}
+    for r in refs:
+        r["hm"] = sum(1 for x in r["hp"] if x > 0)
+        if r["hm"] >= HMIN:
+            g = grp.setdefault((r["md"], r["abc"]), [0.0, 0.0, 0.0])
+            g[0] += sum(r["vt"])
+            g[1] += sum(r["hp"])
+            g[2] += err(r["vt"], r["hp"])
+    for r in refs:
+        g = grp.get((r["md"], r["abc"]))
+        sv, sp = sum(r["vt"]), sum(r["hp"])
+        if r["hm"] >= HMIN and sp > 0:
+            fc, fo = sv / sp, "ref"
+        elif g and g[1] > 0:
+            fc, fo = g[0] / g[1], "grupo"
+        else:
+            fc, fo = 1.0, "sin"
+        if r["hm"] >= HMIN and sv > 0:
+            er, eo = err(r["vt"], r["hp"]) / sv, "ref"
+        elif g and g[0] > 0:
+            er, eo = g[2] / g[0], "grupo"
+        else:
+            er, eo = None, "sin"
+        fc = round(min(FMAX, max(FMIN, fc)), 3)
+        r.update(fc=fc, fo=fo, er=None if er is None else round(er, 3), eo=eo,
+                 pvc=[round(x * fc) for x in r["pv"]], pv0rc=_resto(r["pv"][0] * fc, r["v0"], dq, dm))
+
+
 def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     base_y, base_m = today.year, today.month - 1
 
@@ -208,9 +258,13 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     src = [next((v for v in sorted(cover, reverse=True) if m in cover[v]), "") for m in range(H)]
     if ver and not all(src):
         warn.append("Hay meses sin previsión en ninguna versión: " + ", ".join(_ym(base_y, base_m + m) for m in range(H) if not src[m]))
+    hsrc = vigentes(cover, base_y, base_m)
+    HP: dict[str, list[float]] = {}  # previsión vigente de los 12 meses cerrados
     PREV: dict[str, list[float]] = {}
     MAND: dict[str, str] = {}
     for v, k, mi, r in pr:
+        if -12 <= mi < 0 and hsrc[mi + 12] == v:
+            HP.setdefault(k, [0.0] * 12)[mi + 12] += _num(_get(r, iQ))
         if not (0 <= mi < H and src[mi] == v):
             continue
         PREV.setdefault(k, [0.0] * H)[mi] += _num(_get(r, iQ))
@@ -305,9 +359,6 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     dias_mes = calendar.monthrange(today.year, today.month)[1]
     dias_quedan = dias_mes - today.day + 1
 
-    def resto_mes(p0: float, vendido: float) -> int:
-        return max(0, min(round(p0 - max(0.0, vendido)), round(p0 * dias_quedan / dias_mes)))
-
     # Universo: PT activos con alguna señal
     refs = []
     for k, a in A.items():
@@ -323,7 +374,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         refs.append(dict(
             k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=a["suc"],
             st=round(st), mn=round(mn), lt=round(lote), pr=round(a["precio"], 2),
-            pv=prev, pv0r=resto_mes(prev[0], v0), pd=[round(x) for x in pd] if pd else [0] * H,
+            pv=prev, pv0r=_resto(prev[0], v0, dias_quedan, dias_mes), hp=[round(x) for x in HP.get(k, [0.0] * 12)], pd=[round(x) for x in pd] if pd else [0] * H,
             at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),
             vt=[round(x) for x in vt[:12]] if vt else [0] * 12, v0=round(v0),
         ))
@@ -341,9 +392,10 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         if r["gp"] == "Bajo Pedido":
             r["abc"] = "NA"
         r.setdefault("abc", "D")
+    acierto(refs, dias_quedan, dias_mes)
 
     refs.sort(key=lambda r: r["k"])
-    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn)
+    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn)
     return {"meta": meta, "refs": refs}
 
 

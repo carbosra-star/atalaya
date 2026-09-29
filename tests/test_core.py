@@ -1,0 +1,67 @@
+"""Pruebas de la lógica de acierto de la previsión, con datos inventados (sin Excel).
+
+Uso:  python tests/test_core.py
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app"))
+import core  # noqa: E402
+
+fails = 0
+
+
+def check(name, cond, detail=""):
+    global fails
+    print(("OK   " if cond else "FALLO"), name, detail)
+    if not cond:
+        fails += 1
+
+
+def ref(k, md="Belloch", abc="A", hp=None, vt=None, pv=None, v0=0):
+    return dict(k=k, md=md, abc=abc, hp=hp or [0] * 12, vt=vt or [0] * 12, pv=pv or [100] * 12, v0=v0)
+
+
+# Previsión vigente: base 09/2026 (base_m = 8). Mes -8 = 01/2026, -4 = 05/2026, -1 = 08/2026
+cover = {"2026Q1": set(range(-8, 4)), "2026Q2": set(range(-8, 4)), "2026Q3": set(range(-2, 4)), "2025Q4": set(range(-11, 4))}
+v = core.vigentes(cover, 2026, 8)
+check("01/26 sale de 2026Q1 aunque 2026Q2 lo cubra", v[-8 + 12] == "2026Q1", v)
+check("05/26 sale de 2026Q2", v[-4 + 12] == "2026Q2")
+check("08/26 sale de 2026Q3", v[-1 + 12] == "2026Q3")
+check("09/25 sin versión vigente", v[0] == "", v[0])
+
+# Factor propio, con límites
+a = ref("a", hp=[100] * 12, vt=[90] * 12)
+b = ref("b", hp=[100] * 12, vt=[300] * 12)
+c = ref("c", hp=[100] * 12, vt=[10] * 12)
+core.acierto([a, b, c], 30, 30)
+check("factor propio 0,90", a["fc"] == 0.9 and a["fo"] == "ref", (a["fc"], a["fo"]))
+check("factor limitado a 1,5", b["fc"] == 1.5)
+check("factor limitado a 0,5", c["fc"] == 0.5)
+check("error propio 120 / 1080", abs(a["er"] - round(120 / 1080, 3)) < 1e-9 and a["eo"] == "ref", a["er"])
+check("previsión corregida", a["pvc"] == [90] * 12 and a["pv0rc"] == 90, (a["pvc"][:2], a["pv0rc"]))
+
+# Pocos meses: factor y error del grupo (mandante, ABC)
+g1 = ref("g1", hp=[100] * 12, vt=[80] * 12)
+g2 = ref("g2", hp=[100] * 12, vt=[120] * 12)
+nuevo = ref("n", hp=[0] * 9 + [100] * 3, vt=[0] * 9 + [500] * 3)
+otro = ref("o", md="Yunsey", hp=[0] * 12, vt=[50] * 12)
+core.acierto([g1, g2, nuevo, otro], 30, 30)
+check("con 3 meses usa el grupo", nuevo["fo"] == "grupo" and nuevo["fc"] == 1.0 and nuevo["hm"] == 3, (nuevo["fc"], nuevo["fo"]))
+check("error del grupo", nuevo["eo"] == "grupo" and abs(nuevo["er"] - 0.2) < 1e-9, nuevo["er"])
+check("grupo sin historia: factor 1 y sin error", otro["fc"] == 1.0 and otro["fo"] == "sin" and otro["er"] is None and otro["eo"] == "sin")
+
+# Historia sin venta y venta negativa
+s = ref("s", hp=[100] * 12, vt=[0] * 12)
+d = ref("d", hp=[100] * 12, vt=[100] * 11 + [-50])
+core.acierto([g1, s, d], 30, 30)
+check("sin venta: factor 0,5 y error del grupo", s["fc"] == 0.5 and s["eo"] == "grupo", (s["fc"], s["eo"]))
+check("venta negativa: error con valor absoluto", abs(d["er"] - round(150 / 1050, 3)) < 1e-9, d["er"])
+
+# Resto del mes en curso corregido: 2 de 30 días, previsión 300 × 0,9 = 270, vendido 0 → 18
+m = ref("m", hp=[100] * 12, vt=[90] * 12, pv=[300] + [100] * 11)
+core.acierto([m], 2, 30)
+check("resto del mes con previsión corregida", m["pv0rc"] == 18, m["pv0rc"])
+
+print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
+sys.exit(1 if fails else 0)
