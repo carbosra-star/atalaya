@@ -135,6 +135,11 @@ def _get(r, j):
 
 
 # ---------------------------------------------------------------- parseo
+def _ym(y: int, m0: int) -> str:
+    """Mes m0 (base 0, puede pasar de 11) del año y, como 'MM/AAAA'."""
+    return f"{m0 % 12 + 1:02d}/{y + m0 // 12}"
+
+
 def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     base_y, base_m = today.year, today.month - 1
 
@@ -180,28 +185,35 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         if k:
             ST[k] = ST.get(k, 0.0) + _num(_get(r, jq))
 
-    # Previsión: la versión más reciente
+    # Previsión operativa: cada mes sale de la versión más reciente que lo cubre
+    # (p. ej. el mes en curso de 2026Q3 y los siguientes de 2026Q4).
     tp = _Table(rows["MM_Prev"], "IDPrev", "MM_Prev")
     iR, iV, iQ, iF, iM = tp.col("Referencia"), tp.col("IDPrev"), tp.col("Valor"), tp.col("Fecha"), tp.opt("Mandante")
-    ver = ""
+    pr = []  # (versión, ref, mes, fila)
+    cover: dict[str, set[int]] = {}
     for r in tp.data:
         v = _norm(_get(r, iV))
-        if re.fullmatch(r"\d{4}Q\d", v) and v > ver:
-            ver = v
-    if not ver:
-        warn.append("MM_Prev no tiene ninguna versión de previsión")
-    PREV: dict[str, list[float]] = {}
-    MAND: dict[str, str] = {}
-    for r in tp.data:
-        if _norm(_get(r, iV)) != ver:
+        if not re.fullmatch(r"\d{4}Q\d", v):
             continue
         k, d = _code(_get(r, iR)), _date(_get(r, iF))
         if not k or not d:
             continue
         mi = midx(d)
-        if 0 <= mi < H:
-            PREV.setdefault(k, [0.0] * H)[mi] += _num(_get(r, iQ))
-        if iM is not None and _get(r, iM):
+        cover.setdefault(v, set()).add(mi)
+        pr.append((v, k, mi, r))
+    ver = max(cover, default="")
+    if not ver:
+        warn.append("MM_Prev no tiene ninguna versión de previsión")
+    src = [next((v for v in sorted(cover, reverse=True) if m in cover[v]), "") for m in range(H)]
+    if ver and not all(src):
+        warn.append("Hay meses sin previsión en ninguna versión: " + ", ".join(_ym(base_y, base_m + m) for m in range(H) if not src[m]))
+    PREV: dict[str, list[float]] = {}
+    MAND: dict[str, str] = {}
+    for v, k, mi, r in pr:
+        if not (0 <= mi < H and src[mi] == v):
+            continue
+        PREV.setdefault(k, [0.0] * H)[mi] += _num(_get(r, iQ))
+        if iM is not None and _get(r, iM) and (k not in MAND or v == ver):
             MAND[k] = _norm(_get(r, iM))
 
     # Ventas (tabla dinámica con años en la fila superior)
@@ -262,7 +274,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         E.setdefault(k, []).append(dict(t="OF", q=round(q), m=mi, d=d.isoformat() if d else "", late=bool(d and d < today),
                                         id=_norm(_get(r, jn)), mq=_norm(_get(r, js))))
     tr = _Table(rows["MM_PROP"], "nummer", "MM_PROP")
-    jc, j9, jw, jqp, jf = tr.col("nummer"), tr.col("num9"), tr.col("wtterm"), tr.col("mge"), tr.col("fix")
+    jc, j9, jw, jqp, jf = tr.col("nummer"), tr.col("num9"), tr.col("wtterm"), tr.col("mge"), tr.col("fixterm")
     for r in tr.data:
         k = _code(_get(r, jc))
         if not k or _norm(_get(r, j9)):  # con nº de OF: ya está en MM_OF
@@ -322,7 +334,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
         r.setdefault("abc", "D")
 
     refs.sort(key=lambda r: r["k"])
-    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, n=len(refs), lineas=LNAME, warn=warn)
+    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, n=len(refs), lineas=LNAME, warn=warn)
     return {"meta": meta, "refs": refs}
 
 
