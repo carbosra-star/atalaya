@@ -93,7 +93,7 @@ Hojas que usa la app (las demás se ignoran):
   - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
 - **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento (stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses), los que tienen previsión más allá de 12 meses en la versión vigente y todos los lanzamientos (altas de los últimos 9 meses), aunque todavía no tengan nada. Las altas y bajas se detectan solas en cada carga.
 - **Porfolio**: un alta es "nueva" si tiene menos de 4 meses; los lanzamientos son las altas de los últimos 9 meses.
-- **ABC** por mandante con la previsión de los 12 próximos meses: A < 45 %, B < 80 %, C < 95 %, D resto; bajo pedido = NA.
+- **ABC** por mandante con Pareto sobre la venta en unidades de los 12 meses cerrados (cortes configurables en Datos, por defecto A < 45 %, B < 80 %, C < 95 %, D resto; la referencia que cruza un corte se queda en su clase); bajo pedido = NA. Con menos de 12 meses desde la primera venta se anualiza la venta media y con menos de 3 se usa la previsión de 12 meses: en ambos casos el ABC es provisional (*). Por mandante y clase se configuran también la frecuencia de fabricación y el % de SS, para el futuro módulo de stock mínimo y lotes.
 
 La lógica está en `app/core.py` (servidor) y su gemela de evaluación en `app/static/core.js` (navegador, para cambiar de escenario al instante). Si se cambia una, hay que cambiar la otra.
 

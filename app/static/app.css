@@ -125,6 +125,8 @@ details.blk[open]>summary h2::before{transform:rotate(90deg)}
 table{border-collapse:collapse;width:100%}
 .tw>table{min-width:940px}
 .tw>table.fit{min-width:0}
+table.abcp input{padding:5px 7px;border:1px solid var(--rule);border-radius:6px;background:var(--sheet);color:var(--ink);text-align:right}
+table.abcp th[scope=row]{white-space:nowrap;font-weight:500}
 th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--soft);vertical-align:top}
 thead th{font-weight:600;font-size:13px;color:var(--ink2);background:var(--sheet);white-space:nowrap}
 th button.sort{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;display:inline-flex;gap:4px;align-items:center}

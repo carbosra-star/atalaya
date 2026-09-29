@@ -229,8 +229,18 @@ function semCorto(e) {
 }
 const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${semCorto(e)}<span class="sr"> (${esc(e.why)})</span></span>`;
 // ABC: una sola tinta de más a menos intensa (A → D), NA con borde discontinuo
-const abcTag = (c) => `<span class="abc abc-${esc(c)}" title="${esc(ABC_TXT[c] || '')}">${esc(c)}</span>`;
-const ABC_TXT = { A: 'hasta el 45 % del volumen previsto', B: 'hasta el 80 %', C: 'hasta el 95 %', D: 'resto', NA: 'bajo pedido' };
+// ABC por venta: el asterisco marca un ABC provisional (lanzamiento con menos de 12 meses de venta)
+const ABC_CL = ['A', 'B', 'C', 'D'];
+const abcCfg = () => (S.cfg && S.cfg.abc) || { cortes: [45, 80, 95], freq: {}, ss: {} };
+function abcTxt(c) { const k = abcCfg().cortes; return { A: `hasta el ${k[0]} % de la venta`, B: `hasta el ${k[1]} %`, C: `hasta el ${k[2]} %`, D: 'resto', NA: 'bajo pedido' }[c] || ''; }
+const abcTag = (c, prov) => `<span class="abc abc-${esc(c)}" title="${esc(abcTxt(c) + (prov ? ' · provisional' : ''))}">${esc(c)}${prov ? '*' : ''}</span>`;
+const abcRef = (r) => abcTag(r.abc, r.abcp && r.abc !== 'NA');
+function abcDetalle(r) {
+  if (r.abc === 'NA') return '';
+  const f = (abcCfg().freq[r.md] || [])[ABC_CL.indexOf(r.abc)];
+  const prov = r.abcx === 'anual' ? `provisional: ${r.abcn} meses de venta, anualizada` : r.abcx === 'prev' ? (r.abcn ? `provisional: por previsión (${r.abcn} ${r.abcn === 1 ? 'mes' : 'meses'} de venta)` : 'provisional: sin venta todavía, por previsión') : '';
+  return [prov, f ? `${String(f).replace('.', ',')} ${f === 1 ? 'fabricación' : 'fabricaciones'} al año` : ''].filter(Boolean).map(esc).join(' · ');
+}
 // Cobertura normal y prudente en una celda: "1,1 m · 0,8 m"
 function cobCell(e) {
   if (e.cob >= 99) return '<td class="r num"><span class="muted">—</span></td>';
@@ -238,7 +248,8 @@ function cobCell(e) {
 }
 function leyendaCob(rows) {
   const n = {}; rows.forEach(({ r }) => n[r.abc] = (n[r.abc] || 0) + 1);
-  return `<span class="lg"><b>ABC</b> · previsión 12 meses ${['A', 'B', 'C', 'D', 'NA'].map(c => `<span class="lgi">${abcTag(c)} ${fmt(n[c] || 0)} <span class="muted">${ABC_TXT[c]}</span></span>`).join('')}</span>`;
+  const np = rows.filter(({ r }) => r.abcp && r.abc !== 'NA').length;
+  return `<span class="lg"><b>ABC</b> · venta 12 meses ${['A', 'B', 'C', 'D', 'NA'].map(c => `<span class="lgi">${abcTag(c)} ${fmt(n[c] || 0)} <span class="muted">${abcTxt(c)}</span></span>`).join('')}${np ? `<span class="lgi muted">* provisional: ${fmt(np)} con menos de 12 meses de venta</span>` : ''}</span>`;
 }
 const refLink = (r) => `<a href="${refHref(r.k)}">${esc(r.k)}</a>`;
 // Celda de referencia: código y nombre en la misma línea (extra: marcas de notas y acciones)
@@ -321,7 +332,7 @@ async function pageList(main) {
     const tb = $('#tbl tbody');
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
       ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
-      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td>${abcTag(r.abc)}</td>
+      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td>${abcRef(r)}</td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>
       ${cobCell(e)}
       <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
@@ -392,7 +403,7 @@ async function pageRef(main, [k]) {
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
-        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${abcTag(r.abc)} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
+        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
         <p>${pill(e.sem, e.why)}</p></div>
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
@@ -505,6 +516,16 @@ async function pageMeeting(main) {
 }
 
 // ---------------------------------------------------------------- Datos (admin)
+function abcForm() {
+  const a = abcCfg(), inp = (name, v, w = 64) => `<input name="${name}" value="${esc(String(v).replace('.', ','))}" inputmode="decimal" style="width:${w}px">`;
+  const fila = (md, pre, lbl) => `<tr><th scope="row">${md} · ${lbl}</th>${ABC_CL.map((c, i) => `<td>${inp(`${pre}_${md}_${c}`, ((a[pre === 'fr' ? 'freq' : 'ss'][md]) || [])[i] ?? '')}</td>`).join('')}</tr>`;
+  return `<form class="form" id="abcF" style="max-width:none"><p class="muted small" style="margin:0">Pareto por mandante sobre la venta de los 12 meses cerrados. Los lanzamientos (menos de 12 meses de venta) usan la venta anualizada, o la previsión si tienen menos de 3 meses, y su ABC es provisional. Al guardar se recalcula el ABC de la carga vigente.</p>
+    <div class="row">${[0, 1, 2].map(i => `<label>Corte ${ABC_CL[i]} (% acumulado de venta)<input type="number" name="corte${i}" min="1" max="99" value="${a.cortes[i]}"></label>`).join('')}</div>
+    <div class="tw"><table class="fit abcp"><thead><tr><th scope="col">Por clase</th>${ABC_CL.map(c => `<th scope="col">${abcTag(c)}</th>`).join('')}</tr></thead><tbody>
+      ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% SS')).join('')}</tbody></table></div>
+    <p class="muted small" style="margin:0">La frecuencia y el % de SS se usarán para calcular lote y stock mínimo en el módulo Stock mínimo y lotes.</p>
+    <div><button class="btn ghost">Guardar parámetros del ABC</button></div></form>`;
+}
 async function pageData(main) {
   if (!can('admin')) return pageNotFound(main);
   const loads = await api('/api/loads');
@@ -518,7 +539,8 @@ async function pageData(main) {
       <div id="prev" aria-live="polite"></div></section>
     <section class="card"><h2>Criterios del semáforo</h2>
       <form class="form" id="cfgF"><label>Horizonte de alerta (meses)<input type="number" name="hz" min="1" max="6" value="${S.cfg.horizonte}"></label><div><button class="btn ghost">Guardar criterios</button></div></form>
-      <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: no tiene demanda prevista en 12 meses (tenga stock o no).</p></section></div>
+      <p class="muted small">Rotura: el stock proyectado cae por debajo de 0 dentro del horizonte. Bajo mínimo: cae por debajo del stock mínimo. Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada. Sin demanda: no tiene demanda prevista en 12 meses (tenga stock o no).</p></section>
+    <section class="card"><h2>ABC y fabricación</h2>${abcForm()}</section></div>
     <h2>Historial de cargas</h2>
     <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Por</th></tr></thead><tbody>
     ${loads.map(l => `<tr><td>${fdt(l.created)}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>
@@ -543,6 +565,12 @@ async function pageData(main) {
       $('#pubB').onclick = async () => { $('#pubB').disabled = true; try { await send(false); await loadData(); updateChrome(); toast('Datos publicados'); pageData(main); } catch (e) { $('#prev').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; } };
     } catch (e) { $('#prev').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
     b.disabled = false;
+  };
+  $('#abcF').onsubmit = async (ev) => {
+    ev.preventDefault(); const f = ev.target, n = (x) => Number(String(x).replace(',', '.'));
+    const por = (pre) => Object.fromEntries(['Belloch', 'Yunsey'].map(md => [md, ABC_CL.map(c => n(f[`${pre}_${md}_${c}`].value))]));
+    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), freq: por('fr'), ss: por('ss') } };
+    try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros del ABC guardados'); } catch (e) { toast(e.message); }
   };
   $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(ev.target.hz.value, 10) } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
 }
@@ -615,8 +643,8 @@ const PF_BLOQUES = {
     html: (pf, q) => {
       const pend = q.get('pend') === '1', xs = pf.lanz.filter(x => !pend || !lanzCompleto(x));
       return `<form class="filters" onsubmit="return false"><label class="fld" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-pend ${pend ? 'checked' : ''}> Solo con algo pendiente (${pf.lanz.filter(x => !lanzCompleto(x)).length})</label></form>` +
-        pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td></tr>`).join(''),
-          [['Referencia'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c']], 'Ningún lanzamiento con estos criterios.', false);
+        pfTabla(xs.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${esc(x.gp || '—')}</td><td>${S.byK[x.k] ? abcRef(S.byK[x.k].r) : '<span class="muted">—</span>'}</td><td class="c">${chk(x.app)}</td><td class="c">${chk(x.pv)}</td><td class="c">${chk(x.ln)}</td><td class="c">${chk(x.mn)}</td><td class="c">${chk(x.lt)}</td><td class="c">${chk(x.en)}</td></tr>`).join(''),
+          [['Referencia'], ['Alta'], ['Planificación'], ['ABC'], ['En seguimiento', 'c'], ['Previsión', 'c'], ['Línea', 'c'], ['Stock mínimo', 'c'], ['Lote', 'c'], ['OF o propuesta', 'c']], 'Ningún lanzamiento con estos criterios.', false);
     },
   },
   'sin-movimiento': {
