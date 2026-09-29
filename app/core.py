@@ -158,26 +158,31 @@ def vigentes(cover: dict[str, set[int]], base_y: int, base_m: int, n: int = 12) 
 
 
 def acierto(refs: list[dict], dq: int, dm: int) -> None:
-    """Factor de sesgo (venta ÷ previsión vigente) y error medio de los 12 meses cerrados,
-    propios con HMIN meses de historia o, si no, de su grupo mandante × ABC."""
+    """Factor de sesgo (venta ÷ previsión vigente, en los meses que tenían previsión) y error
+    medio de los 12 meses cerrados, propios con HMIN meses de historia o, si no, de su grupo
+    mandante × ABC."""
     def err(v, p):
         return sum(abs(a - b) for a, b in zip(v, p))
+
+    def venta_con_prev(r):  # el factor compara mes con mes: solo la venta de los meses que tenían previsión
+        return sum(v for v, p in zip(r["vt"], r["hp"]) if p > 0)
 
     grp: dict[tuple, list[float]] = {}
     for r in refs:
         r["hm"] = sum(1 for x in r["hp"] if x > 0)
         if r["hm"] >= HMIN:
-            g = grp.setdefault((r["md"], r["abc"]), [0.0, 0.0, 0.0])
+            g = grp.setdefault((r["md"], r["abc"]), [0.0, 0.0, 0.0, 0.0])
             g[0] += sum(r["vt"])
             g[1] += sum(r["hp"])
             g[2] += err(r["vt"], r["hp"])
+            g[3] += venta_con_prev(r)
     for r in refs:
         g = grp.get((r["md"], r["abc"]))
         sv, sp = sum(r["vt"]), sum(r["hp"])
         if r["hm"] >= HMIN and sp > 0:
-            fc, fo = sv / sp, "ref"
+            fc, fo = venta_con_prev(r) / sp, "ref"
         elif g and g[1] > 0:
-            fc, fo = g[0] / g[1], "grupo"
+            fc, fo = g[3] / g[1], "grupo"
         else:
             fc, fo = 1.0, "sin"
         if r["hm"] >= HMIN and sv > 0:

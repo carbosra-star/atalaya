@@ -57,7 +57,7 @@ la misma para todas las referencias). **Por referencia** se añaden al dataset:
 
 **Reglas del factor**
 
-- Con `hm ≥ 6` y Σ previsión > 0: `fc = Σ venta ÷ Σ previsión`, `fo = "ref"`.
+- Con `hm ≥ 6` y Σ previsión > 0: `fc = Σ venta ÷ Σ previsión`, sumando la venta solo de los meses con previsión (corregido en la revisión final: comparar mes con mes), `fo = "ref"`.
 - Si no: factor del grupo (mandante, ABC) = Σ venta ÷ Σ previsión de las
   referencias del grupo con `hm ≥ 6`; `fo = "grupo"`.
 - Si el grupo no tiene ninguna referencia con `hm ≥ 6`: `fc = 1`, `fo = "sin"`.

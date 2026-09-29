@@ -63,6 +63,17 @@ m = ref("m", hp=[100] * 12, vt=[90] * 12, pv=[300] + [100] * 11)
 core.acierto([m], 2, 30)
 check("resto del mes con previsión corregida", m["pv0rc"] == 18, m["pv0rc"])
 
+# El factor compara solo los meses que tenían previsión (la venta de un mes sin previsión, p. ej. un
+# lanzamiento, no infla el factor); el error sí cuenta todos los meses
+lz = ref("lz", hp=[0] * 6 + [100] * 6, vt=[100] * 6 + [90] * 6)
+core.acierto([lz], 30, 30)
+check("factor solo con meses con previsión", lz["fc"] == 0.9, lz["fc"])
+check("error con todos los meses", abs(lz["er"] - round((600 + 60) / 1140, 3)) < 1e-9, lz["er"])
+gz1 = ref("gz1", abc="B", hp=[0] * 6 + [100] * 6, vt=[100] * 6 + [80] * 6)
+gz2 = ref("gz2", abc="B", hp=[0] * 12, vt=[50] * 12)
+core.acierto([gz1, gz2], 30, 30)
+check("factor del grupo solo con meses con previsión", gz2["fo"] == "grupo" and gz2["fc"] == 0.8, gz2["fc"])
+
 # Evaluación con previsión corregida y cargas antiguas sin pvc
 base = dict(st=500, mn=0, at=0, en=[], pd=[0] * 12, pv=[100] * 12, pv0r=100)
 nueva = dict(base, pvc=[50] * 12, pv0rc=50)
