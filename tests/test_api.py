@@ -24,8 +24,8 @@ H = {"X-Requested-With": "supply-app"}
 data = open(sys.argv[1], "rb").read()
 
 
-def upload(c, dry):
-    return c.post("/api/upload", data={"file": (io.BytesIO(data), "MM_Supply.xlsx"), "dry": "1" if dry else "0"},
+def upload(c, dry, fecha=""):
+    return c.post("/api/upload", data={"file": (io.BytesIO(data), "MM_Supply.xlsx"), "dry": "1" if dry else "0", "fecha": fecha},
                   headers=H, content_type="multipart/form-data")
 
 
@@ -45,8 +45,11 @@ check("login del administrador", c.post("/api/login", json={"username": "admin",
 # Carga de datos
 r = upload(c, True)
 check("comprobación del fichero", r.status_code == 200, r.json.get("preview") if r.json else r.status_code)
-check("primera publicación", upload(c, False).json.get("ok"))
-check("segunda publicación", upload(c, False).json.get("ok"))
+check("publicación con datos de la semana anterior", upload(c, False, "2026-09-22").json.get("ok"))
+check("publicación con datos de hoy", upload(c, False).json.get("ok"))
+r = upload(c, True)
+check("la comprobación avisa de que sustituye la carga del mismo día", bool(r.json["preview"].get("sustituye")), r.json["preview"].get("sustituye"))
+check("republicar el mismo día sustituye la carga", upload(c, False).json.get("ok") and len(c.get("/api/loads").json) == 2, len(c.get("/api/loads").json))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
 pf = ds.get("porfolio") or {}
@@ -60,7 +63,7 @@ check("los lanzamientos siempre están en seguimiento", pf.get("lanz") and all(x
 ilu = [k for k in ("501541932400", "501545112400", "501540227240", "501548402400") if k in {r["k"] for r in ds["refs"]}]
 check("tonos nuevos de ILUSIONYST en seguimiento (con y sin previsión)", len(ilu) == 4, ilu)
 check("porfolio: lanzamientos de los últimos 9 meses", len(pf.get("lanz", [])) > 0 and all(x["alta"] >= "2025-12-29" for x in pf["lanz"]), len(pf.get("lanz", [])))
-check("porfolio: misma carga dos veces, sin altas ni bajas", pf.get("cambios") == {"entran": [], "salen": []}, pf.get("cambios"))
+check("porfolio: mismo Excel que la semana anterior, sin altas ni bajas", pf.get("cambios") == {"entran": [], "salen": []}, pf.get("cambios"))
 r = upload(c, True)
 check("la comprobación del fichero resume altas y bajas", r.json["preview"].get("cambios") == {"entran": 0, "salen": 0}, r.json["preview"].get("cambios"))
 bel = [r for r in ds["refs"] if r["md"] == "Belloch" and r["gp"] == "Contra Stock"]
@@ -68,6 +71,7 @@ check("stock mínimo de Belloch desde mindest del maestro", sum(r["mn"] > 0 for 
 laca = next((r for r in ds["refs"] if r["k"] == "010010001200"), None)
 check("la laca 010010001200 tiene stock mínimo 20.000", laca is not None and laca["mn"] == 20000, laca and laca["mn"])
 check("previsión operativa: todos los meses tienen versión", all(ds["meta"]["prev_src"]), ds["meta"]["prev_src"])
+check("se compara con la carga de la fecha anterior", ds["prev"] and ds["prev"].get("hoy") == "2026-09-22", ds["prev"] and ds["prev"].get("hoy"))
 check("carga anterior evaluada en las seis combinaciones", ds["prev"] and set(ds["prev"]["sem"]) == {"OF", "OFPF", "ALL", "OF_C", "OFPF_C", "ALL_C"})
 
 # Validaciones de acciones

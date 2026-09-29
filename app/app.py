@@ -258,7 +258,8 @@ def change_password():
 
 # ---------------------------------------------------------------- datos
 def _load_row(load_id=None):
-    q = "SELECT * FROM loads WHERE id=?" if load_id else "SELECT * FROM loads ORDER BY id DESC LIMIT 1"
+    # Hay una carga por fecha de datos; la vigente es la de fecha más reciente
+    q = "SELECT * FROM loads WHERE id=?" if load_id else "SELECT * FROM loads ORDER BY hoy DESC, id DESC LIMIT 1"
     return db().execute(q, (load_id,) if load_id else ()).fetchone()
 
 
@@ -271,13 +272,13 @@ def dataset():
     ds = json.loads(zlib.decompress(row["data"]))
     by = db().execute("SELECT name FROM users WHERE id=?", (row["user_id"],)).fetchone()
     ds["load"] = {"id": row["id"], "created": row["created"], "by": by["name"] if by else "", "filename": row["filename"]}
-    prev = db().execute("SELECT id,created,data FROM loads WHERE id<? ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+    prev = db().execute("SELECT id,created,hoy,data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (row["hoy"],)).fetchone()
     ds["prev"] = None
     if prev:
         # Se recalcula con el horizonte actual y los tres escenarios, para comparar con lo que ve el usuario
         refs = json.loads(zlib.decompress(prev["data"]))["refs"]
         hz = get_config().get("horizonte", 3)
-        ds["prev"] = {"id": prev["id"], "created": prev["created"],
+        ds["prev"] = {"id": prev["id"], "created": prev["created"], "hoy": prev["hoy"],
                       "sem": {e + ("_C" if p == "C" else ""): {r["k"]: core.evaluate(r, hz, e, p)["sem"] for r in refs}
                               for e in ESCENARIOS for p in ("T", "C")}}
     return jsonify(ds)
@@ -287,7 +288,7 @@ def dataset():
 @need()
 def loads():
     rows = db().execute("SELECT l.id,l.created,l.filename,l.version,l.hoy,l.n,l.counts,u.name AS by FROM loads l "
-                        "LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC").fetchall()
+                        "LEFT JOIN users u ON u.id=l.user_id ORDER BY l.hoy DESC, l.id DESC").fetchall()
     return jsonify([{**dict(r), "counts": json.loads(r["counts"])} for r in rows])
 
 
@@ -302,8 +303,10 @@ def upload():
     except ValueError:
         return err("La fecha de los datos no es válida")
     dry = request.form.get("dry") == "1"
-    last = _load_row()  # carga anterior, para las altas y bajas del porfolio
+    # Altas y bajas del porfolio frente a la última carga de una fecha anterior (la del mismo día se sustituye)
+    last = db().execute("SELECT data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (hoy.isoformat(),)).fetchone()
     prev = {r["k"]: r["n"] for r in json.loads(zlib.decompress(last["data"]))["refs"]} if last else None
+    mismo = db().execute("SELECT created FROM loads WHERE hoy=? ORDER BY id DESC LIMIT 1", (hoy.isoformat(),)).fetchone()
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         f.save(tmp.name)
         path = tmp.name
@@ -324,13 +327,16 @@ def upload():
     cb = ds["porfolio"]["cambios"]
     if cb is not None:
         summary["cambios"] = {"entran": len(cb["entran"]), "salen": len(cb["salen"])}
+    if mismo:
+        summary["sustituye"] = mismo["created"]
     if dry:
         return jsonify({"preview": summary})
     blob = zlib.compress(json.dumps(ds, separators=(",", ":")).encode(), 6)
+    db().execute("DELETE FROM loads WHERE hoy=?", (ds["meta"]["hoy"],))  # una carga por fecha de datos
     cur = db().execute("INSERT INTO loads(created,user_id,filename,version,base,hoy,n,counts,sem,data) VALUES(?,?,?,?,?,?,?,?,?,?)",
                        (now(), g.user["id"], f.filename, ds["meta"]["version"], ds["meta"]["base"], ds["meta"]["hoy"], ds["meta"]["n"],
                         json.dumps(counts), json.dumps(sem), blob))
-    db().execute("DELETE FROM loads WHERE id NOT IN (SELECT id FROM loads ORDER BY id DESC LIMIT ?)", (KEEP_LOADS,))
+    db().execute("DELETE FROM loads WHERE id NOT IN (SELECT id FROM loads ORDER BY hoy DESC, id DESC LIMIT ?)", (KEEP_LOADS,))
     db().commit()
     return jsonify({"ok": True, "id": cur.lastrowid, "summary": summary})
 

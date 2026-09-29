@@ -538,7 +538,7 @@ async function pageData(main) {
     try {
       const r = await send(true); if (!r) return; const p = r.preview;
       $('#prev').innerHTML = `<div class="notice"><p><b>Fichero correcto.</b> Previsión ${esc(p.version)}, ${p.n} referencias de PT activas, datos del ${fdate(p.hoy)}.</p>
-        <p>${SEM.map(([k, t]) => `${t}: <b>${p.counts[k] || 0}</b>`).join(' · ')}</p>${p.cambios ? `<p>Frente a la carga anterior: entran <b>${p.cambios.entran}</b> · salen <b>${p.cambios.salen}</b> referencias (detalle en <a href="#/porfolio">Porfolio</a>).</p>` : ''}${p.warn.length ? `<p class="msg err">${p.warn.map(esc).join('<br>')}</p>` : ''}
+        <p>${SEM.map(([k, t]) => `${t}: <b>${p.counts[k] || 0}</b>`).join(' · ')}</p>${p.sustituye ? `<p><b>Sustituirá la carga del ${fdate(p.hoy)}</b> publicada el ${fdt(p.sustituye)}: hay una carga por fecha de datos.</p>` : ''}${p.cambios ? `<p>Frente a la carga anterior: entran <b>${p.cambios.entran}</b> · salen <b>${p.cambios.salen}</b> referencias (detalle en <a href="#/porfolio">Porfolio</a>).</p>` : ''}${p.warn.length ? `<p class="msg err">${p.warn.map(esc).join('<br>')}</p>` : ''}
         <button class="btn" id="pubB">Publicar para todos</button></div>`;
       $('#pubB').onclick = async () => { $('#pubB').disabled = true; try { await send(false); await loadData(); updateChrome(); toast('Datos publicados'); pageData(main); } catch (e) { $('#prev').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; } };
     } catch (e) { $('#prev').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
