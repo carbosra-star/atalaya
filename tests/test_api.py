@@ -49,6 +49,10 @@ check("primera publicación", upload(c, False).json.get("ok"))
 check("segunda publicación", upload(c, False).json.get("ok"))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
+bel = [r for r in ds["refs"] if r["md"] == "Belloch" and r["gp"] == "Contra Stock"]
+check("stock mínimo de Belloch desde mindest del maestro", sum(r["mn"] > 0 for r in bel) > len(bel) // 3, f'{sum(r["mn"] > 0 for r in bel)} de {len(bel)}')
+laca = next((r for r in ds["refs"] if r["k"] == "010010001200"), None)
+check("la laca 010010001200 tiene stock mínimo 20.000", laca is not None and laca["mn"] == 20000, laca and laca["mn"])
 check("previsión operativa: todos los meses tienen versión", all(ds["meta"]["prev_src"]), ds["meta"]["prev_src"])
 check("carga anterior evaluada en las seis combinaciones", ds["prev"] and set(ds["prev"]["sem"]) == {"OF", "OFPF", "ALL", "OF_C", "OFPF_C", "ALL_C"})
 

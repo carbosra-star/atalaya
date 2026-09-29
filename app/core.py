@@ -207,7 +207,10 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
     # Maestro
     ta = _Table(rows["MM_Art"], "Nº Artículo", "MM_Art")
     c = {n: ta.col(n) for n in ["Nº Artículo", "Artículo", "yceestado", "ybinactivo", "yartextin", "ymarca", "ycefamilia",
-                                  "Grupo Planificacion", "T.Lote", "minbsmge", "Precio Mixto", "Codigo Sucesor"]}
+                                  "Grupo Planificacion", "T.Lote", "Precio Mixto", "Codigo Sucesor"]}
+    jmin = ta.opt("mindest")  # stock mínimo (Mindestbestand); minbsmge es la cantidad mínima de pedido
+    if jmin is None:
+        warn.append('MM_Art no trae la columna "mindest": las referencias de Belloch quedan sin stock mínimo')
     A = {}
     for r in ta.data:
         k = _code(_get(r, c["Nº Artículo"]))
@@ -217,7 +220,7 @@ def parse(rows: dict[str, list[list]], today: dt.date) -> dict:
             name=_norm(_get(r, c["Artículo"])), estado=_norm(_get(r, c["yceestado"])),
             inact=_norm(_get(r, c["ybinactivo"])) == "Sí", ext=_norm(_get(r, c["yartextin"])) == "Sí",
             marca=_norm(_get(r, c["ymarca"])) or _norm(_get(r, c["ycefamilia"])),
-            gp=_norm(_get(r, c["Grupo Planificacion"])), lote=_num(_get(r, c["T.Lote"])), min=_num(_get(r, c["minbsmge"])),
+            gp=_norm(_get(r, c["Grupo Planificacion"])), lote=_num(_get(r, c["T.Lote"])), min=_num(_get(r, jmin)),
             precio=_num(_get(r, c["Precio Mixto"])), suc=_code(_get(r, c["Codigo Sucesor"])),
         )
     if not A:

@@ -64,7 +64,7 @@ Hojas que usa la app (las demás se ignoran):
 
 | Hoja | Uso |
 |---|---|
-| MM_Art | PT activos, estado, grupo de planificación, marca, lote, stock mínimo (Belloch), sucesor |
+| MM_Art | PT activos, estado, grupo de planificación, marca, lote, stock mínimo de Belloch (`mindest`), sucesor |
 | MM_TLY | Lote y stock mínimo de Yunsey |
 | MM_Stocks | Stock actual, suma de ambos mandantes |
 | MM_Prev | Previsión operativa: cada mes sale de la versión IDPrev más reciente que lo cubre |
