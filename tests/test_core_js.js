@@ -12,5 +12,10 @@ check('cobertura prudente con previsión corregida y error', Math.abs(evaluate(n
 check('error por encima del 100 % se limita', Math.abs(evaluate({ ...nueva, er: 3 }, cfg).cobp - 300 / 100) < 1e-9);
 check('carga antigua sin previsión corregida: sin cobertura prudente', evaluate(base, cfg).cobp === null, evaluate(base, cfg).cobp);
 
+// Sin demanda en los 3 próximos meses no hay nada que cubrir: cobertura "sin dato" (99 → '—'), tenga stock o no
+const sinDem = { ...nueva, st: 0, pv: new Array(12).fill(0), pv0r: 0, pvc: new Array(12).fill(0), pv0rc: 0 };
+check('sin stock ni demanda: cobertura sin dato', evaluate(sinDem, cfg).cob === 99, evaluate(sinDem, cfg).cob);
+check('sin stock ni demanda: cobertura prudente sin dato', evaluate(sinDem, cfg).cobp === 99, evaluate(sinDem, cfg).cobp);
+
 console.log(fails ? `\n${fails} comprobaciones fallidas` : '\nTodo correcto');
 process.exit(fails ? 1 : 0);
