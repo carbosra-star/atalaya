@@ -221,6 +221,8 @@ function closeSearch() { const ul = $('#gsList'); if (ul && !ul.hidden) { ul.hid
 // ---------------------------------------------------------------- piezas comunes
 const pill = (sem, text) => `<span class="pill s-${sem}">${esc(text || SEMT[sem])}</span>`;
 const refLink = (r) => `<a href="${refHref(r.k)}">${esc(r.k)}</a>`;
+// Celda de referencia: código y nombre en la misma línea (extra: marcas de notas y acciones)
+const refCell = (r, extra = '') => `<td class="art" title="${esc(r.k + ' ' + r.n)}">${refLink(r)} ${extra}<span class="nm">${esc(r.n)}</span></td>`;
 function nextEntry(e) { const n = e.next; return n ? `${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, true)}` : '<span class="muted">Sin entradas</span>'; }
 function rotCell(e) { return e.rot < 0 ? '<span class="muted">No en 12 meses</span>' : `<span class="${e.rot < (S.cfg.horizonte || 3) ? 'neg' : ''}">${monthLabel(e.rot)}</span>`; }
 function strip(list, hrefFor, current) {
@@ -267,8 +269,8 @@ async function pageHome(main) {
       <section class="card"><h2>Acciones abiertas</h2><p class="big">${S.actions.length}</p><p class="muted small">${late.length ? `<span class="neg">${late.length} con fecha vencida</span> · ` : ''}${wo} referencias en rotura o bajo mínimo sin acción asignada.</p><p><a class="btn ghost sm" href="#/reunion">Ir a la reunión semanal</a></p></section>
     </div>
     <h2>Las 10 más urgentes</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Estado</th><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción</th></tr></thead><tbody>
-    ${urg.map(({ r, e }) => `<tr><td>${pill(e.sem, e.why)}</td><td class="art">${refLink(r)}<small>${esc(r.n)}</small></td><td>${esc(r.ln || '—')}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
+    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción</th><th scope="col">Estado</th></tr></thead><tbody>
+    ${urg.map(({ r, e }) => `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td><td>${pill(e.sem, e.why)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -297,14 +299,13 @@ async function pageList(main) {
     $('#count').textContent = fmt(rows.length) + ' referencias';
     const tb = $('#tbl tbody');
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
-      <td>${pill(e.sem, e.why)}</td>
-      <td class="art">${refLink(r)}${S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : ''}${openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''}<small>${esc(r.n)}</small></td>
+      ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
       <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td><span class="abc">${esc(r.abc)}</span></td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>
       <td class="r num">${cobTxt(e.cob)}</td><td class="r num">${cobTxt(e.cobp)}</td>
-      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
+      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pill(e.sem, e.why)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
     $('#more').hidden = rows.length <= limit; $('#more').textContent = `Mostrar ${Math.min(200, rows.length - limit)} más`;
-    $('#thead').innerHTML = `<tr>${thSort('Estado', 'sem', key, dir)}${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Cob. prudente', 'cobp', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}</tr>`;
+    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Cob. prudente', 'cobp', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
     $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd3', 'mn'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
     main._rows = rows;
   };
@@ -419,7 +420,7 @@ async function pageLines(main) {
   main.innerHTML = `<h1>Líneas</h1><p class="lead">Referencias contra stock agrupadas por grupo de máquina, ordenadas por número de roturas.</p>
     <form onsubmit="return false" class="filters">${scenarioCtl()}</form>
     <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">Pendiente de propuestas</th></tr></thead><tbody>
-    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(k)}</a><small>${esc(L[k] || (k === '—' ? 'Sin línea asignada' : ''))}</small></td><td class="r num">${xs.length}</td>
+    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(k)}</a> <span class="nm">${esc(L[k] || (k === '—' ? 'Sin línea asignada' : ''))}</span></td><td class="r num">${xs.length}</td>
       <td><div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div></td>
       <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>`).join('')}
     </tbody></table></div>`;
@@ -440,8 +441,8 @@ async function pageLine(main, [ln]) {
       <tr><th scope="row">Entradas</th>${ent.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>
     <p class="muted small">Entradas: ${ESC_TXT[S.esc]}${S.pv === 'C' ? '; demanda con previsión corregida' : ''}. Sin capacidad de la línea todavía: cuando esté ese dato se comparará aquí.</p>
     <h2>Referencias</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Estado</th><th scope="col">Referencia</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th></tr></thead><tbody>
-    ${rows.map(({ r, e }) => `<tr><td>${pill(e.sem, e.why)}</td><td class="art">${refLink(r)}<small>${esc(r.n)}</small></td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin referencias.</td></tr>'}
+    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Estado</th></tr></thead><tbody>
+    ${rows.map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pill(e.sem, e.why)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin referencias.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -461,15 +462,15 @@ async function pageMeeting(main) {
       <label class="fld" style="flex-direction:row;align-items:center;gap:6px;padding-bottom:8px"><input type="checkbox" id="mSin" ${onlyNo ? 'checked' : ''}> Solo sin acción abierta</label>
       ${scenarioCtl()}</form>
     <h2>Por decidir (${list.length})</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Estado</th><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción abierta</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
-    ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr><td>${pill(e.sem, e.why)}</td><td class="art">${refLink(r)}<small>${esc(r.n)}</small></td><td>${esc(r.ln || '—')}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
-      <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td>
+    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción abierta</th><th scope="col">Estado</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
+    ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
+      <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td><td>${pill(e.sem, e.why)}</td>
       ${canW ? `<td><button class="btn ghost sm" data-add="${esc(r.k)}" aria-label="Añadir acción a ${esc(r.k)}">Añadir acción</button></td>` : ''}</tr>
       ${canW ? `<tr hidden id="af-${esc(r.k)}"><td colspan="7"><form class="form" data-f="${esc(r.k)}" style="max-width:none"><div class="row"><label>Acción<input name="text" required maxlength="2000"></label><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Guardar</button></div></form></td></tr>` : ''}`; }).join('') || '<tr><td colspan="7" class="empty">Nada pendiente con estos criterios.</td></tr>'}
     </tbody></table></div>
     <h2>Acciones abiertas (${S.actions.length})</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Acción</th><th scope="col">Responsable</th><th scope="col">Fecha límite</th><th scope="col">Creada</th>${canW ? '<th scope="col"><span class="sr">Estado</span></th>' : ''}</tr></thead><tbody>
-    ${S.actions.map(a => `<tr><td><a href="${refHref(a.ref)}">${esc(a.ref)}</a><br><span class="muted small">${esc((S.byK[a.ref] || { r: { n: '' } }).r.n)}</span></td><td>${esc(a.text)}</td><td>${esc(a.owner || '')}</td><td class="${a.due && a.due < today ? 'neg' : ''}">${a.due ? fdate(a.due) : ''}</td><td class="small muted">${fdate(a.created)} · ${esc(a.created_by_name)}</td>
+    ${S.actions.map(a => `<tr><td class="art" title="${esc((S.byK[a.ref] || { r: { n: '' } }).r.n)}"><a href="${refHref(a.ref)}">${esc(a.ref)}</a> <span class="nm">${esc((S.byK[a.ref] || { r: { n: '' } }).r.n)}</span></td><td>${esc(a.text)}</td><td>${esc(a.owner || '')}</td><td class="${a.due && a.due < today ? 'neg' : ''}">${a.due ? fdate(a.due) : ''}</td><td class="small muted">${fdate(a.created)} · ${esc(a.created_by_name)}</td>
       ${canW ? `<td><button class="btn ghost sm" data-st="hecha" data-id="${a.id}">Hecha</button> <button class="btn ghost sm" data-st="descartada" data-id="${a.id}">Descartar</button></td>` : ''}</tr>`).join('') || '<tr><td colspan="6" class="empty">No hay acciones abiertas.</td></tr>'}
     </tbody></table></div>`;
   $('#mSem').onchange = (e) => { setQuery({ sem: e.target.value }); pageMeeting(main); };

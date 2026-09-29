@@ -117,11 +117,15 @@ th[aria-sort] button.sort{color:var(--ink)}
 td.num,.num{font-variant-numeric:tabular-nums;white-space:nowrap}
 td.art a{font-weight:600;text-decoration:none}
 td.art a:hover{text-decoration:underline}
-td.art small{display:block;color:var(--ink2);font-size:13px;max-width:44ch}
+/* Código y nombre en una línea: la columna se queda el espacio libre y el nombre largo se corta con … (completo en title) */
+td.art{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;max-width:0;min-width:260px}
+td.art .nm{color:var(--ink2);font-size:13.5px}
+td .pill{white-space:normal;min-width:190px;max-width:230px}
+#tbl th,#tbl td{padding-left:8px;padding-right:8px}  /* Coberturas: 11 columnas */
 tbody tr:hover{background:var(--soft)}
 .abc{font:600 13px var(--narrow);border:1px solid var(--rule);border-radius:4px;padding:0 6px}
 .neg{color:var(--rojo);font-weight:600}
-.note-dot{font-size:12px;color:var(--link);margin-left:6px;white-space:nowrap}
+.note-dot{font-size:12px;color:var(--link);margin-right:6px;white-space:nowrap}
 .empty{padding:36px;text-align:center;color:var(--ink2)}
 .more{display:block;margin:12px auto 0}
 
