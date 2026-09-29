@@ -3,7 +3,7 @@
   --rojo:#B83227; --naranja:#C86A12; --amarillo:#A88410; --verde:#327A4C; --gris:#7C8791;
   --rojoBg:#F7E1DE; --naranjaBg:#FBE8D6; --amarilloBg:#F6EDCB; --verdeBg:#DCEEE2; --grisBg:#E6E9EC;
   --focus:#1F63A8; --sel:#E3ECF5; --link:#1F5E9C;
-  --abcA:#1F4E7A; --abcAt:#FFFFFF; --abcB:#3A6E9F; --abcBt:#FFFFFF; --abcC:#C9DBEE; --abcD:#3A6E9F; --cbP:#1F5E9C; --cbN:#9DBCDB;
+  --abcA:#1F4E7A; --abcAt:#FFFFFF; --abcB:#3A6E9F; --abcBt:#FFFFFF; --abcC:#C9DBEE; --abcD:#3A6E9F;
   --font:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Roboto,Arial,sans-serif;
   --narrow:"Segoe UI Semibold","Arial Narrow","Roboto Condensed","Helvetica Neue",Arial,sans-serif;
   box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); color-scheme:light;
@@ -13,13 +13,13 @@
   --rojo:#F07466; --naranja:#F0A052; --amarillo:#E3C24D; --verde:#6CC08A; --gris:#94A0AA;
   --rojoBg:#3A1E1B; --naranjaBg:#3A2A17; --amarilloBg:#353018; --verdeBg:#183324; --grisBg:#262E35;
   --focus:#7CB6F0; --sel:#22364A; --link:#8CC2F5;
-  --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; --cbP:#8CC2F5; --cbN:#3B5B7C; color-scheme:dark;}}
+  --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --paper:#12181E; --sheet:#1A222A; --ink:#E6EBEF; --ink2:#A3B0BB; --rule:#2D3842; --soft:#212B34; --side:#0D1318; --sideInk:#E6EBEF; --sideMute:#8697A5;
   --rojo:#F07466; --naranja:#F0A052; --amarillo:#E3C24D; --verde:#6CC08A; --gris:#94A0AA;
   --rojoBg:#3A1E1B; --naranjaBg:#3A2A17; --amarilloBg:#353018; --verdeBg:#183324; --grisBg:#262E35;
   --focus:#7CB6F0; --sel:#22364A; --link:#8CC2F5;
-  --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; --cbP:#8CC2F5; --cbN:#3B5B7C; color-scheme:dark;}
+  --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; color-scheme:dark;}
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 html,body{height:100%}
@@ -129,18 +129,11 @@ tbody tr:hover{background:var(--soft)}
 .abc{font:600 12.5px/1.5 var(--narrow);border:1.5px solid transparent;border-radius:4px;padding:0 6px;display:inline-block;min-width:26px;text-align:center}
 .abc-A{background:var(--abcA);color:var(--abcAt)}.abc-B{background:var(--abcB);color:var(--abcBt)}.abc-C{background:var(--abcC);color:var(--ink)}
 .abc-D{border-color:var(--abcD);color:var(--ink)}.abc-NA{border:1.5px dashed var(--gris);color:var(--ink2)}
-/* Cobertura: barra 0–6 meses con tramo prudente, tramo normal y raya de horizonte */
 td.cobc,.nowrap{white-space:nowrap}
-.cbar{position:relative;display:inline-block;width:64px;height:8px;border-radius:4px;background:var(--soft);vertical-align:middle;margin-right:8px}
-.cbar .cbn,.cbar .cbp{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
-.cbar .cbn{background:var(--cbN)}.cbar .cbp{background:var(--cbP);box-shadow:2px 0 0 var(--sheet)}
-.cbar .cbh{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--ink2)}
-.cobv{display:inline-block;min-width:42px}.cobp{color:var(--ink2);font-size:12.5px}
+.cobp{color:var(--ink2)}
 .leyenda{display:flex;flex-wrap:wrap;gap:6px 26px;margin:0 0 10px;font-size:13px;color:var(--ink)}
 .leyenda .lg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
 .leyenda .lgi{display:inline-flex;align-items:center;gap:5px}
-.leyenda .sw{display:inline-block;width:14px;height:8px;border-radius:4px}.leyenda .sw.cbp{background:var(--cbP)}.leyenda .sw.cbn{background:var(--cbN)}
-.leyenda .sw.cbh{width:2px;height:14px;border-radius:0;background:var(--ink2)}
 .neg{color:var(--rojo);font-weight:600}
 .note-dot{font-size:12px;color:var(--link);margin-right:6px;white-space:nowrap}
 .empty{padding:36px;text-align:center;color:var(--ink2)}

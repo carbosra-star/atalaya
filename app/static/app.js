@@ -230,19 +230,14 @@ const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${
 // ABC: una sola tinta de más a menos intensa (A → D), NA con borde discontinuo
 const abcTag = (c) => `<span class="abc abc-${esc(c)}" title="${esc(ABC_TXT[c] || '')}">${esc(c)}</span>`;
 const ABC_TXT = { A: 'hasta el 45 % del volumen previsto', B: 'hasta el 80 %', C: 'hasta el 95 %', D: 'resto', NA: 'bajo pedido' };
-// Cobertura con barra 0–6 meses: tramo oscuro = prudente, claro = hasta la cobertura normal, raya = horizonte
-const COB_MAX = 6;
+// Cobertura normal y prudente en una celda: "1,1 m · 0,8 m"
 function cobCell(e) {
-  if (e.cob >= 99) return '<td class="r num cobc"><span class="muted">—</span></td>';
-  const w = (v) => Math.max(0, Math.min(v, COB_MAX)) / COB_MAX * 100, hz = S.cfg.horizonte || 3;
-  const tip = `Cobertura ${cobTxt(e.cob)}` + (e.cobp == null ? '' : ` · prudente ${cobTxt(e.cobp)}`);
-  return `<td class="r num cobc" title="${tip}"><span class="cbar" aria-hidden="true"><span class="cbn" style="width:${w(e.cob)}%"></span>${e.cobp == null ? '' : `<span class="cbp" style="width:${w(e.cobp)}%"></span>`}<span class="cbh" style="left:${w(hz)}%"></span></span>` +
-    `<span class="cobv">${cobTxt(e.cob)}</span>${e.cobp == null ? '' : ` <span class="cobp">${cobTxt(e.cobp).replace(' m', '')}</span>`}<span class="sr">${e.cobp == null ? '' : ', prudente ' + cobTxt(e.cobp)}</span></td>`;
+  if (e.cob >= 99) return '<td class="r num"><span class="muted">—</span></td>';
+  return `<td class="r num cobc">${cobTxt(e.cob)}${e.cobp == null ? '' : ` <span class="cobp">· ${cobTxt(e.cobp)}</span>`}</td>`;
 }
 function leyendaCob(rows) {
   const n = {}; rows.forEach(({ r }) => n[r.abc] = (n[r.abc] || 0) + 1);
-  return `<span class="lg"><b>ABC</b> · previsión 12 meses ${['A', 'B', 'C', 'D', 'NA'].map(c => `<span class="lgi">${abcTag(c)} ${fmt(n[c] || 0)} <span class="muted">${ABC_TXT[c]}</span></span>`).join('')}</span>
-    <span class="lg"><b>Cobertura</b> <span class="lgi"><span class="sw cbp"></span> prudente</span><span class="lgi"><span class="sw cbn"></span> normal</span><span class="lgi"><span class="sw cbh"></span> horizonte (${S.cfg.horizonte || 3} m)</span><span class="muted">barra hasta ${COB_MAX} meses</span></span>`;
+  return `<span class="lg"><b>ABC</b> · previsión 12 meses ${['A', 'B', 'C', 'D', 'NA'].map(c => `<span class="lgi">${abcTag(c)} ${fmt(n[c] || 0)} <span class="muted">${ABC_TXT[c]}</span></span>`).join('')}</span>`;
 }
 const refLink = (r) => `<a href="${refHref(r.k)}">${esc(r.k)}</a>`;
 // Celda de referencia: código y nombre en la misma línea (extra: marcas de notas y acciones)
@@ -330,7 +325,7 @@ async function pageList(main) {
       ${cobCell(e)}
       <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="10" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
     $('#more').hidden = rows.length <= limit; $('#more').textContent = `Mostrar ${Math.min(200, rows.length - limit)} más`;
-    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura', 'cob', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
+    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura · prudente', 'cob', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
     $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd3', 'mn'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
     main._rows = rows;
   };
