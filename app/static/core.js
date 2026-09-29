@@ -26,7 +26,7 @@
     const cob = d3 > 0 ? r.st / d3 : (r.st > 0 ? 99 : 0);
     // Cobertura prudente (informativa): demanda corregida de los 3 próximos meses más el error medio, con tope del 100 %
     const dc = project(r, 'ALL', 'C').dem.slice(1, 4).reduce((s, x) => s + x, 0) / 3 * (1 + Math.min(r.er == null ? 0 : r.er, 1));
-    const cobp = dc > 0 ? r.st / dc : (r.st > 0 ? 99 : 0);
+    const cobp = !r.pvc ? null : dc > 0 ? r.st / dc : (r.st > 0 ? 99 : 0);  // null: carga antigua sin previsión corregida
     const next = r.en.filter(e => counts(e.t, cfg.escenario || 'ALL')).sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
     const lateOF = r.en.some(e => e.t === 'OF' && e.late);
     const hasP = r.en.some(e => e.t === 'P' && e.m < hz);
