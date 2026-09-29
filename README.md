@@ -91,7 +91,7 @@ Hojas que usa la app (las demás se ignoran):
   - Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada.
   - Cubierto.
   - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
-- **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento: stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses. Las altas y bajas se detectan solas en cada carga.
+- **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento (stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses), los que tienen previsión más allá de 12 meses en la versión vigente y todos los lanzamientos (altas de los últimos 9 meses), aunque todavía no tengan nada. Las altas y bajas se detectan solas en cada carga.
 - **Porfolio**: un alta es "nueva" si tiene menos de 4 meses; los lanzamientos son las altas de los últimos 9 meses.
 - **ABC** por mandante con la previsión de los 12 próximos meses: A < 45 %, B < 80 %, C < 95 %, D resto; bajo pedido = NA.
 

@@ -51,8 +51,13 @@ ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
 pf = ds.get("porfolio") or {}
 check("porfolio: resumen del maestro", pf.get("res", {}).get("seguimiento") == len(ds["refs"]) and pf["res"]["fuera"] == len(pf["fuera"]), pf.get("res"))
-check("porfolio: 69 PT activos sin movimiento y 6 inactivos con stock", len(pf.get("fuera", [])) == 69 and len(pf.get("inact", [])) == 6,
-      (len(pf.get("fuera", [])), len(pf.get("inact", []))))
+check("porfolio: fuera solo quedan activos sin movimiento que no son lanzamientos",
+      pf.get("fuera") is not None and all(x["cat"] != "prev_futura" and x["alta"] < "2025-12-29" for x in pf["fuera"]),
+      [(x["k"], x["cat"], x["alta"]) for x in pf.get("fuera", []) if x["cat"] == "prev_futura" or x["alta"] >= "2025-12-29"][:3])
+check("porfolio: inactivos con stock, todos con stock > 0", all(x["st"] > 0 for x in pf.get("inact", [])), len(pf.get("inact", [])))
+check("los lanzamientos siempre están en seguimiento", pf.get("lanz") and all(x["app"] for x in pf["lanz"]), sum(not x["app"] for x in pf.get("lanz", [])))
+ilu = [k for k in ("501541932400", "501545112400", "501540227240", "501548402400") if k in {r["k"] for r in ds["refs"]}]
+check("tonos nuevos de ILUSIONYST en seguimiento (con y sin previsión)", len(ilu) == 4, ilu)
 check("porfolio: lanzamientos de los últimos 9 meses", len(pf.get("lanz", [])) > 0 and all(x["alta"] >= "2025-12-29" for x in pf["lanz"]), len(pf.get("lanz", [])))
 check("porfolio: misma carga dos veces, sin altas ni bajas", pf.get("cambios") == {"entran": [], "salen": []}, pf.get("cambios"))
 r = upload(c, True)

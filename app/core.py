@@ -203,7 +203,7 @@ def _hace_meses(d: dt.date, n: int) -> dt.date:
 
 
 def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int, *, ST, PREV, PFUT, PPAS, VL, LIN, E, TLY,
-             prev: dict | None = None) -> dict:
+             PFUTV=frozenset(), prev: dict | None = None) -> dict:
     """Vista de porfolio: resumen del maestro, lanzamientos con su preparación, PT activos sin
     movimiento, inactivos con stock y altas/bajas frente a la carga anterior (prev = {código: nombre})."""
     en_app = {r["k"]: r for r in refs}
@@ -221,7 +221,7 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         lt = r["lt"] if r else (TLY[k][0] if yun else a["lote"])
         cs = (r["gp"] if r else a["gp"]) == "Contra Stock"
         lanz.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), app=bool(r), gp=a["gp"],
-                         pv=any(x > 0 for x in PREV.get(k, [])), ln=bool(r["ln"] if r else LIN.get(k)),
+                         pv=any(x > 0 for x in PREV.get(k, [])) or k in PFUTV, ln=bool(r["ln"] if r else LIN.get(k)),
                          mn=(mn > 0) if cs else None, lt=lt > 0, en=bool(E.get(k))))
     lanz.sort(key=lambda x: x["alta"], reverse=True)
 
@@ -326,10 +326,13 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     HP: dict[str, list[float]] = {}  # previsión vigente de los 12 meses cerrados
     PREV: dict[str, list[float]] = {}
     MAND: dict[str, str] = {}
-    PFUT, PPAS = set(), set()  # previsión > 0 solo más allá del horizonte / en meses pasados
+    PFUT, PPAS = set(), set()  # previsión > 0 más allá del horizonte / en meses pasados (cualquier versión)
+    PFUTV = set()  # previsión > 0 más allá del horizonte en la versión vigente: también se sigue
     for v, k, mi, r in pr:
         if _num(_get(r, iQ)) > 0:
             (PFUT if mi >= H else PPAS if mi < 0 else set()).add(k)
+            if mi >= H and v == ver:
+                PFUTV.add(k)
         if -12 <= mi < 0 and hsrc[mi + 12] == v:
             HP.setdefault(k, [0.0] * 12)[mi + 12] += _num(_get(r, iQ))
         if not (0 <= mi < H and src[mi] == v):
@@ -430,13 +433,15 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     dias_mes = calendar.monthrange(today.year, today.month)[1]
     dias_quedan = dias_mes - today.day + 1
 
-    # Universo: PT activos con alguna señal
-    refs = []
+    # Universo: PT activos con alguna señal, más los lanzamientos (altas de los últimos LANZ_MESES
+    # meses) aunque todavía no tengan nada, y los que solo tienen previsión más allá del horizonte
+    refs, lanz_desde = [], _hace_meses(today, LANZ_MESES)
     for k, a in A.items():
         if a["estado"] != "Producto terminado" or a["inact"]:
             continue
         st, pv, pd, en, vt = ST.get(k, 0.0), PREV.get(k), PED.get(k), E.get(k), VT.get(k)
-        if not (st > 0 or (pv and any(x > 0 for x in pv)) or (pd and any(x > 0 for x in pd)) or en or (vt and any(x > 0 for x in vt))):
+        if not (st > 0 or (pv and any(x > 0 for x in pv)) or (pd and any(x > 0 for x in pd)) or en or (vt and any(x > 0 for x in vt))
+                or (a["alta"] and a["alta"] >= lanz_desde) or k in PFUTV):
             continue
         mand = MAND.get(k) or ("Yunsey" if k in TLY else "Belloch")
         lote, mn = TLY[k] if (mand == "Yunsey" and k in TLY) else (a["lote"], a["min"])
@@ -467,7 +472,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
 
     refs.sort(key=lambda r: r["k"])
     meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn)
-    pf = porfolio(A, refs, today, base_y, base_m, ST=ST, PREV=PREV, PFUT=PFUT, PPAS=PPAS - PFUT, VL=VL, LIN=LIN, E=E, TLY=TLY, prev=anterior)
+    pf = porfolio(A, refs, today, base_y, base_m, ST=ST, PREV=PREV, PFUT=PFUT, PPAS=PPAS - PFUT, VL=VL, LIN=LIN, E=E, TLY=TLY, PFUTV=PFUTV, prev=anterior)
     return {"meta": meta, "refs": refs, "porfolio": pf}
 
 

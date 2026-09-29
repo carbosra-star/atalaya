@@ -119,6 +119,8 @@ check("entran: un alta antigua no cuenta como alta nueva", {x["k"]: x["m"] for x
 refs_n = refs_p + [dict(k="L2", n="Lanz. vacío", md="Belloch", gp="Contra Stock", ln="", mn=0, lt=0)]
 pf3 = core.porfolio(A, refs_n, hoy, 2026, 8, prev={"L1": "Lanz. listo", "V1": "Vuelve"}, **sig)
 check("entran: alta nueva", {x["k"]: x["m"] for x in pf3["cambios"]["entran"]} == {"L2": "alta"})
+pf4 = core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **dict(sig, PFUTV={"L2"}))
+check("lanzamiento con previsión solo más allá de 12 meses: previsión ✓", next(x for x in pf4["lanz"] if x["k"] == "L2")["pv"])
 check("sin carga anterior no hay cambios", core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **sig)["cambios"] is None)
 
 # Evaluación con previsión corregida y cargas antiguas sin pvc
