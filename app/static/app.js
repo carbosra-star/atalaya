@@ -13,9 +13,9 @@ const fdate = (iso, short) => { if (!iso) return ''; const d = toDate(iso); if (
 const fdt = (iso) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return fdate(iso) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
 const refHref = (k) => '#/ref/' + encodeURIComponent(k);
-const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['verde', 'Cubierto'], ['gris', 'Sin demanda']];
+const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['verde', 'Cubierto'], ['exceso', 'Exceso'], ['gris', 'Sin demanda']];
 const SEMT = Object.fromEntries(SEM);
-const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, gris: 4 };
+const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, exceso: 4, gris: 5 };
 const ESC = { OF: 'Solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };
 const ESC_TXT = { OF: 'solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };  // para mitad de frase
 const escLower = () => ESC_TXT[S.esc] + (S.pv === 'C' ? ' y previsión corregida' : '');
@@ -78,7 +78,7 @@ function aciertoHTML(r) {
     <tr><th scope="row">Versión</th>${src.map(v => `<td class="r small muted">${esc(v)}</td>`).join('')}</tr></tbody></table></div>`;
 }
 function recompute() {
-  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv };
+  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv, exceso: S.cfg.exceso };
   S.ev = S.ds ? S.ds.refs.map(r => ({ r, e: Cob.evaluate(r, cfg) })) : [];
   S.byK = {}; for (const x of S.ev) S.byK[x.r.k] = x;
 }
@@ -226,7 +226,7 @@ function semCorto(e) {
   if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : 'Rotura';
   if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
     : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why.startsWith('OF o propuestas') ? 'Entradas sin demanda' : 'Propuestas';
-  return { naranja: 'Bajo mínimo', verde: 'Cubierto', gris: 'Sin demanda' }[e.sem];
+  return { naranja: 'Bajo mínimo', verde: 'Cubierto', exceso: 'Exceso', gris: 'Sin demanda' }[e.sem];
 }
 const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${semCorto(e)}<span class="sr"> (${esc(e.why)})</span></span>`;
 // ABC: una sola tinta de más a menos intensa (A → D), NA con borde discontinuo
@@ -546,8 +546,10 @@ async function pageData(main) {
       </form>
       <div id="prev" aria-live="polite"></div></section>
     <section class="card"><h2>Criterios del semáforo</h2>
-      <form class="form" id="cfgF"><label>Horizonte de alerta (meses)<input type="number" name="hz" min="1" max="6" value="${S.cfg.horizonte}"></label><div><button class="btn ghost">Guardar criterios</button></div></form>
-      <p class="muted small">Rotura: stock proyectado &lt; 0 en el horizonte. Bajo mínimo: &lt; stock mínimo. A revisar: depende de propuestas sin fijar, OF atrasada, rotura antes de la entrada de este mes, sin stock ni entradas, o entradas sin demanda. Sin demanda: nada previsto en 12 meses.</p></section>
+      <form class="form" id="cfgF"><label>Horizonte de alerta (meses)<input type="number" name="hz" min="1" max="6" value="${S.cfg.horizonte}"></label>
+        <div class="row"><label>Exceso Belloch (meses de stock)<input type="number" name="exB" min="1" max="12" value="${(S.cfg.exceso || {}).Belloch || 6}"></label><label>Exceso Yunsey (meses de stock)<input type="number" name="exY" min="1" max="12" value="${(S.cfg.exceso || {}).Yunsey || 12}"></label></div>
+        <div><button class="btn ghost">Guardar criterios</button></div></form>
+      <p class="muted small">Rotura: stock proyectado &lt; 0 en el horizonte. Bajo mínimo: &lt; stock mínimo. A revisar: depende de propuestas sin fijar, OF atrasada, rotura antes de la entrada de este mes, sin stock ni entradas, o entradas sin demanda. Exceso (contra stock): el stock de hoy supera la demanda de los próximos meses indicados. Sin demanda: nada previsto en 12 meses.</p></section>
     <section class="card"><h2>ABC y fabricación</h2>${abcForm()}</section></div>
     <h2>Historial de cargas</h2>
     <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Por</th></tr></thead><tbody>
@@ -580,7 +582,7 @@ async function pageData(main) {
     const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), freq: por('fr'), ss: por('ss') } };
     try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros del ABC guardados'); } catch (e) { toast(e.message); }
   };
-  $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(ev.target.hz.value, 10) } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
+  $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target; try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(f.hz.value, 10), exceso: { Belloch: parseInt(f.exB.value, 10), Yunsey: parseInt(f.exY.value, 10) } } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
 }
 
 // ---------------------------------------------------------------- Usuarios (admin)
