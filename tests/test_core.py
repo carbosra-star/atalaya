@@ -206,5 +206,13 @@ check("exceso por encima del stock máximo", core.evaluate(dict(exb, sx=650), 3,
 check("con stock máximo no cuentan los meses", core.evaluate(dict(exb, sx=800), 3, "ALL")["sem"] == "verde")
 check("sin stock máximo vuelve a los meses", core.evaluate(dict(exb, sx=None), 3, "ALL")["ex"] == 100)
 
+# Acierto de cada versión trimestral: meses cerrados desde el inicio de su trimestre, solo refs con filas
+# Base 10/2026 (base_m = 9): 2026Q3 empieza en 07/2026 = mes −3
+items = [("2026Q3", "R1", -5, 50), ("2026Q3", "R1", -3, 100), ("2026Q3", "R1", -2, 100), ("2026Q3", "R1", 1, 100), ("2026Q3", "R2", -3, 70)]
+cover = {"2026Q3": set(range(-5, 3))}
+sales = {"R1": {-3: 80, -2: 120, -1: 90}, "R3": {-2: 500}}
+av = core.acierto_versiones(items, cover, sales, {"R1": "NELLY", "R3": "NELLY"}, 2026, 9)
+check("acierto por versión: solo meses cerrados desde el inicio del trimestre", av == [dict(v="2026Q3", mc="NELLY", e=130, s=290, p=200, n=1, m=3)], av)
+
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

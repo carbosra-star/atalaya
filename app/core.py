@@ -163,6 +163,35 @@ def vigentes(cover: dict[str, set[int]], base_y: int, base_m: int, n: int = 12) 
     return [next((v for v in sorted(cover, reverse=True) if m in cover[v] and inicio(v) <= m), "") for m in range(-n, 0)]
 
 
+def _inicio(v: str, base_y: int, base_m: int) -> int:
+    """Primer mes (índice respecto al mes en curso) del trimestre de la versión AAAAQn."""
+    return (int(v[:4]) - base_y) * 12 + 3 * (int(v[5]) - 1) - base_m
+
+
+def acierto_versiones(items, cover, sales, amb, base_y, base_m) -> list[dict]:
+    """Error de cada versión contra la venta real, por (versión, marca): meses cerrados que cubre la
+    versión desde el inicio de su trimestre, solo referencias del ámbito con filas en ese periodo.
+    items: (versión, ref, mes, cantidad); sales: {ref: {mes: uds}}; amb: {ref: marca}."""
+    ph: dict[tuple, dict] = {}
+    for v, k, mi, q in items:
+        if k in amb and _inicio(v, base_y, base_m) <= mi < 0:
+            d = ph.setdefault((v, k), {})
+            d[mi] = d.get(mi, 0.0) + q
+    acc: dict[tuple, dict] = {}
+    for (v, k), d in ph.items():
+        meses = sorted(m for m in cover[v] if _inicio(v, base_y, base_m) <= m < 0)
+        a = acc.setdefault((v, amb[k]), dict(v=v, mc=amb[k], e=0.0, s=0.0, p=0.0, n=0, ms=set()))
+        a["n"] += 1
+        for m in meses:
+            p, s = d.get(m, 0.0), sales.get(k, {}).get(m, 0.0)
+            a["e"] += abs(s - p)
+            a["s"] += s
+            a["p"] += p
+            a["ms"].add(m)
+    return [dict(v=a["v"], mc=a["mc"], e=round(a["e"]), s=round(a["s"]), p=round(a["p"]), n=a["n"], m=len(a["ms"]))
+            for _, a in sorted(acc.items())]
+
+
 def acierto(refs: list[dict], dq: int, dm: int) -> None:
     """Factor de sesgo (venta ÷ previsión vigente, en los meses que tenían previsión) y error
     medio de los 12 meses cerrados, propios con HMIN meses de historia o, si no, de su grupo
@@ -405,6 +434,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         if mm is not None and cy:
             vcols.append((j, (cy - base_y) * 12 + (mm - base_m)))
     VT: dict[str, list[float]] = {}
+    VALL: dict[str, dict[int, float]] = {}  # venta de todos los meses cerrados, para el acierto por versión
     VL: dict[str, int] = {}  # último mes con venta (índice respecto al mes en curso), en toda la hoja
     FV: dict[str, int] = {}  # primer mes con venta, para saber si el ABC es definitivo
     for r in tv.data:
@@ -414,6 +444,8 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         a = [0.0] * 13
         for j, mi in vcols:
             q = _num(_get(r, j))
+            if mi < 0:
+                VALL.setdefault(k, {})[mi] = VALL.get(k, {}).get(mi, 0.0) + q
             if -12 <= mi <= 0:
                 a[mi + 12] += q
             if q > 0 and mi <= 0:
@@ -514,9 +546,11 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
 
     clasificar(refs, cortes or ABC_DEF["cortes"])
     acierto(refs, dias_quedan, dias_mes)
+    amb = {r["k"]: r["mc"] or "—" for r in refs if r["gp"] == "Contra Stock" and r.get("abc") in ("A", "B", "C", "D")}
+    vers = acierto_versiones([(v, k, mi, _num(_get(r, iQ))) for v, k, mi, r in pr], cover, VALL, amb, base_y, base_m)
 
     refs.sort(key=lambda r: r["k"])
-    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn)
+    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn, vers=vers)
     pf = porfolio(A, refs, today, base_y, base_m, ST=ST, PREV=PREV, PFUT=PFUT, PPAS=PPAS - PFUT, VL=VL, LIN=LIN, E=E, TLY=TLY, PFUTV=PFUTV, prev=anterior)
     return {"meta": meta, "refs": refs, "porfolio": pf}
 
