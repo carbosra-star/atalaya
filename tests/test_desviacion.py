@@ -36,6 +36,9 @@ check("mismo sentido: la menor", p["cp"] == -0.2 and p["tipo"] == "propuesta" an
 check("previsión corregida y efecto", p["pvc"] == [80] * 12 and p["eu"] == -240 and p["ee"] == -480, (p["pvc"][:2], p["eu"], p["ee"]))
 rv = f([ref(fc=1.3)])["P1"]
 check("sentidos contrarios: revisar sin cifra", rv["tipo"] == "revisar" and rv["cp"] is None and rv["ca"] == 0 and rv["eu"] == 0, rv["tipo"])
+check("las dos pequeñas aunque de signo contrario: sin corrección", D._propuesta(0.03, -0.017) == (0.0, "sin"), D._propuesta(0.03, -0.017))
+check("una de las dos pequeña: lo prudente es no corregir", D._propuesta(-0.3, 0.05) == (0.0, "sin"), D._propuesta(-0.3, 0.05))
+check("las dos grandes y de signo contrario: revisar", D._propuesta(-0.3, 0.2) == (None, "revisar"))
 check("tope −50 %", f([ref(vt=[20] * 12, fc=0.5)])["P1"]["cp"] == -0.5)
 check("tope con solo el ritmo", f([ref(vt=[20] * 12, fo="grupo")])["P1"]["cp"] == -0.5)
 sn = f([ref(vt=[95] * 12, fo="grupo")])["P1"]

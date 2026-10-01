@@ -10,11 +10,14 @@ CLASES = ("A", "B", "C", "D")
 
 
 def _propuesta(cr, cs):
-    """(corrección | None, tipo): la más prudente de las dos; sentidos contrarios → revisar."""
+    """(corrección | None, tipo): la más prudente de las dos; si una ya es pequeña (< 10 %), no se
+    corrige; sentidos contrarios con las dos por encima del 10 % → revisar."""
     if cr is None and cs is None:
         return None, "sin_dato"
     if cr is None or cs is None:
         c = cs if cr is None else cr
+    elif min(abs(cr), abs(cs)) < UMBRAL:
+        return 0.0, "sin"
     elif cr * cs < 0:
         return None, "revisar"
     else:

@@ -52,7 +52,8 @@ previsión operativa desde el mes en curso), `vt` y `hp` (12 meses cerrados), `f
   - ninguna disponible → `None`, `tipo = "sin_dato"`;
   - una sola → esa;
   - las dos con el mismo signo → la de menor valor absoluto;
-  - signos contrarios → `None`, `tipo = "revisar"`;
+  - si las dos existen y una está por debajo del 10 % → `0`, `tipo = "sin"` (lo prudente es no corregir; corregido tras la revisión de datos reales);
+  - signos contrarios, las dos por encima del 10 % → `None`, `tipo = "revisar"`;
   - limitada a [−50 %, +50 %] (decisión de diseño: prudencia; más allá, se
     decide a mano);
   - |`cp`| < 10 % → `cp = 0`, `tipo = "sin"` (sin corrección);
