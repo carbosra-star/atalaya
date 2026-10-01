@@ -285,8 +285,8 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), gp=a["gp"], cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else "", **ex(k)))
     fuera.sort(key=lambda x: (x["cat"], x["alta"]))
 
-    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), fina=iso(a["fina"]), **ex(k)) for k, a in pt.items()
-                    if a["inact"] and ST.get(k, 0.0) > 0), key=lambda x: -x["st"])
+    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), pr=round(a.get("precio", 0.0), 2), fina=iso(a["fina"]), **ex(k)) for k, a in pt.items()
+                    if a["inact"] and ST.get(k, 0.0) > 0), key=lambda x: (-x["st"] * x["pr"], -x["st"]))
 
     cambios = None
     if prev is not None:

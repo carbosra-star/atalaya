@@ -686,9 +686,9 @@ const PF_BLOQUES = {
     html: (pf) => pfTabla(pf.fuera.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td>${pfExt(x)}</tr>`).join(''), [['Referencia'], ['ABC'], ['Alta'], ['Qué tiene'], ['A extinguir']], 'Ninguno.'),
   },
   inactivos: {
-    t: 'Inactivos con stock', n: (pf) => fmt(pf.inact.length),
+    t: 'Inactivos con stock', n: (pf) => fmt(pf.inact.length) + (pf.inact.some(x => x.pr > 0) ? ' · ' + keur(pf.inact.reduce((s, x) => s + (x.pr > 0 ? x.st * x.pr : 0), 0)) : ''),
     lead: () => '',
-    html: (pf) => pfTabla(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="r num">${fmt(x.st)}</td><td class="num">${fdate(x.fina)}</td>${pfExt(x)}</tr>`).join(''), [['Referencia'], ['ABC'], ['Stock', 'r'], ['Inactivo desde'], ['A extinguir']], 'Ninguno.'),
+    html: (pf) => pfTabla(pf.inact.map(x => `<tr>${pfRef(x.k, x.n)}${pfAbc(x.k)}<td class="r num">${fmt(x.st)}</td><td class="r num">${x.pr == null ? '<span class="muted">—</span>' : x.pr > 0 ? eur(x.st * x.pr) : '<span class="muted">sin precio</span>'}</td><td class="num">${fdate(x.fina)}</td>${pfExt(x)}</tr>`).join(''), [['Referencia'], ['ABC'], ['Stock', 'r'], ['Valor', 'r'], ['Inactivo desde'], ['A extinguir']], 'Ninguno.'),
   },
   activos: {
     t: 'PT activos', n: (pf) => fmt(pf.res.activos), soloVista: true,

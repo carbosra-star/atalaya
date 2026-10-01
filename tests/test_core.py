@@ -79,8 +79,8 @@ import datetime as dt  # noqa: E402
 hoy = dt.date(2026, 9, 29)
 
 
-def art(n, alta=None, inact=False, estado="Producto terminado", gp="Contra Stock", lote=0, mn=0, fina=None, ext=False, suc=""):
-    return dict(name=n, estado=estado, inact=inact, alta=alta, fina=fina, gp=gp, lote=lote, min=mn, ext=ext, suc=suc)
+def art(n, alta=None, inact=False, estado="Producto terminado", gp="Contra Stock", lote=0, mn=0, fina=None, ext=False, suc="", precio=0.0):
+    return dict(name=n, estado=estado, inact=inact, alta=alta, fina=fina, gp=gp, lote=lote, min=mn, ext=ext, suc=suc, precio=precio)
 
 
 A = {
@@ -90,18 +90,19 @@ A = {
     "F1": art("Futura", alta=dt.date(2024, 1, 1)),                             # previsión solo más allá de 12 meses
     "F2": art("Venta vieja", alta=dt.date(2023, 1, 1), ext=True, suc="I1"),   # última venta hace 15 meses; sucesor inactivo
     "F3": art("Previsión pasada", alta=dt.date(2023, 1, 1), ext=True, suc="ZZ"),  # solo previsión pasada; sucesor inexistente
-    "I1": art("Inactiva con stock", inact=True, fina=dt.date(2026, 3, 2)),
+    "I1": art("Inactiva con stock", inact=True, fina=dt.date(2026, 3, 2), precio=0.5),
+    "I3": art("Inactiva cara", inact=True, precio=10.0),
     "I2": art("Inactiva sin stock", inact=True),
     "S1": art("Semielaborado", estado="Semielaborado"),
     "V1": art("Vuelve", alta=dt.date(2022, 1, 1)),
 }
 refs_p = [dict(k="L1", n="Lanz. listo", md="Belloch", gp="Contra Stock", ln="CS1-1", mn=500, lt=1000),
           dict(k="V1", n="Vuelve", md="Belloch", gp="Contra Stock", ln="", mn=0, lt=0)]
-sig = dict(ST={"I1": 120.0, "I2": 0.0}, PREV={"L1": [10] * 12}, PFUT={"F1"}, PPAS={"F3"}, VL={"F2": -15},
+sig = dict(ST={"I1": 120.0, "I2": 0.0, "I3": 50.0}, PREV={"L1": [10] * 12}, PFUT={"F1"}, PPAS={"F3"}, VL={"F2": -15},
            LIN={"L1": "CS1-1"}, E={"L1": [{"t": "OF"}]}, TLY={})
 prev_p = {"V0": "Ya no existe", "I2": "Inactiva sin stock", "S1": "Semielaborado", "L3": "Alta antigua", "L1": "Lanz. listo"}
 pf = core.porfolio(A, refs_p, hoy, 2026, 8, prev=prev_p, **sig)
-check("resumen del porfolio", pf["res"] == dict(maestro=9, activos=7, seguimiento=2, fuera=5), pf["res"])
+check("resumen del porfolio", pf["res"] == dict(maestro=10, activos=7, seguimiento=2, fuera=5), pf["res"])
 lz = {x["k"]: x for x in pf["lanz"]}
 check("lanzamientos: altas de los últimos 9 meses", set(lz) == {"L1", "L2"}, sorted(lz))
 check("lanzamiento preparado", lz["L1"]["app"] and all(lz["L1"][c] for c in ("pv", "ln", "mn", "lt", "en")), lz["L1"])
@@ -110,7 +111,8 @@ fu = {x["k"]: x["cat"] for x in pf["fuera"]}
 check("sin movimiento por categorías", fu == {"L2": "nada", "L3": "nada", "F1": "prev_futura", "F2": "venta_antigua", "F3": "prev_pasada"}, fu)
 check("sin movimiento con su planificación", all(x["gp"] == "Contra Stock" for x in pf["fuera"]), pf["fuera"][0])
 check("última venta de la venta antigua", next(x for x in pf["fuera"] if x["k"] == "F2")["uv"] == "06/2025")
-check("inactivos con stock", [(x["k"], x["st"], x["fina"]) for x in pf["inact"]] == [("I1", 120, "2026-03-02")], pf["inact"])
+check("inactivos con stock, ordenados por valor", [(x["k"], x["st"], x.get("pr")) for x in pf["inact"]] == [("I3", 50, 10.0), ("I1", 120, 0.5)], pf["inact"])
+check("inactivos con su fecha de baja", next(x for x in pf["inact"] if x["k"] == "I1")["fina"] == "2026-03-02")
 en = {x["k"]: x["m"] for x in pf["cambios"]["entran"]}
 sa = {x["k"]: x["m"] for x in pf["cambios"]["salen"]}
 check("entran: vuelve a tener movimiento", en == {"V1": "vuelve"}, en)
