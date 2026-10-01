@@ -117,7 +117,7 @@ window.addEventListener('hashchange', render);
 
 const ROUTES = {
   '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, reunion: pageMeeting, porfolio: pagePortfolio,
-  datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon, parametros: pageParams,
+  datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon, parametros: pageParams, desviacion: pageDesv,
 };
 async function render() {
   const { parts } = parseHash();
@@ -143,7 +143,7 @@ const LOGO = '<img src="/static/img/atalaya.svg" width="34" height="34" alt="">'
 let globalBound = false;
 function shell() {
   if ($('#main') && $('#side')) { updateChrome(); return; }
-  const soon = [['desviacion', 'Desviación de previsiones'], ['consolidador', 'Consolidador de previsiones']];
+  const soon = [['consolidador', 'Consolidador de previsiones']];
   $('#app').innerHTML = `<div class="shell">
     <nav class="side" id="side" aria-label="Menú principal">
       <a class="brand" href="#/">${LOGO}<span><b>Atalaya</b><span>Supply · bellochapplab</span></span></a>
@@ -156,7 +156,7 @@ function shell() {
         <a role="listitem" href="#/reunion" data-nav="reunion">Reunión semanal <span class="badge" id="bAct" hidden></span></a>
       </div>
       <div class="nav-g" id="g2">Parámetros y previsión</div>
-      <div class="nav" role="list" aria-labelledby="g2"><a role="listitem" href="#/parametros" data-nav="parametros">Stock mínimo y lotes</a>${soon.map(([k, t]) => `<a role="listitem" class="soon" href="#/pronto/${k}" data-nav="pronto/${k}">${t} <span class="badge">pronto</span></a>`).join('')}</div>
+      <div class="nav" role="list" aria-labelledby="g2"><a role="listitem" href="#/parametros" data-nav="parametros">Stock mínimo y lotes</a><a role="listitem" href="#/desviacion" data-nav="desviacion">Desviación de previsiones</a>${soon.map(([k, t]) => `<a role="listitem" class="soon" href="#/pronto/${k}" data-nav="pronto/${k}">${t} <span class="badge">pronto</span></a>`).join('')}</div>
       ${can('admin') ? `<div class="nav-g" id="g3">Administración</div><div class="nav" role="list" aria-labelledby="g3">
         <a role="listitem" href="#/datos" data-nav="datos">Datos</a><a role="listitem" href="#/usuarios" data-nav="usuarios">Usuarios</a></div>` : ''}
       <div class="side-foot"><img src="/static/img/lab_belloch.png" alt="Belloch International Group" height="22"></div>
@@ -691,6 +691,57 @@ async function pageParams(main) {
   if (bulk) bulk.onclick = () => { const its = xs.filter(p => p.estado === 'cambio').map(p => ({ ref: p.k, ...srcProp(p) })); if (confirm(`¿Aceptar la propuesta en ${its.length} referencias?`)) enviar(its); };
 }
 
+// ---------------------------------------------------------------- Desviación de previsiones
+const DEST = { propuesta: 'Con propuesta', revisar: 'Revisar con comercial', sin: 'Sin corrección', sin_dato: 'Sin datos', acordado: 'Acordado' };
+const pctTxt = (x) => x == null ? '<span class="muted">—</span>' : x > 3 ? '&gt; +300 %' : (x > 0 ? '+' : '') + Math.round(x * 100) + ' %';  // casi sin venta (lanzamientos): no se da la cifra
+async function pageDesv(main) {
+  if (!S.ds) return noData(main, 'Desviación de previsiones');
+  const D = await api('/api/desviacion');
+  if (D.empty) return noData(main, 'Desviación de previsiones');
+  const canW = can('admin', 'planificador'), { q } = parseHash();
+  const mc = q.get('mc') || '', estF = (q.get('estado') || 'propuesta,revisar').split(','), md = q.get('md') || '', abc = q.get('abc') || '';
+  const xs = D.rows.filter(p => (!mc || p.mc === mc) && estF.includes(p.estado) && (!md || p.md === md) && (!abc || p.abc === abc))
+    .sort((a, b) => Math.abs(b.ee) - Math.abs(a.ee) || Math.abs(b.eu) - Math.abs(a.eu));
+  const vs = (D.vers || []).filter(x => !mc || x.mc === mc), V = {};
+  vs.forEach(x => { const a = V[x.v] = V[x.v] || { e: 0, s: 0, p: 0, n: 0, m: 0 }; a.e += x.e; a.s += x.s; a.p += x.p; a.n += x.n; a.m = Math.max(a.m, x.m); });
+  const ratio = (a, b) => b ? a / b : null, lim = 300;
+  const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const marcaFila = (x) => `<tr${x.mc === mc ? ' aria-current="true" class="sel"' : ''}><th scope="row">${x.mc === 'Total' ? '<a href="#/desviacion">Total</a>' : `<a href="#/desviacion?mc=${encodeURIComponent(x.mc)}">${esc(x.mc)}</a>`}</th>
+    <td class="r num">${fmt(x.n)}</td><td class="r num">${fmt(x.p12)}</td><td class="r num">${fmt(x.v12)}</td><td class="r num">${pctTxt(x.dv)}</td><td class="r num">${pctTxt(x.sh)}</td><td class="r num">${x.er == null ? '—' : Math.round(x.er * 100) + ' %'}</td>
+    <td class="r num">${fmt(x.prop)}</td><td class="r num">${fmt(x.rev)}</td><td class="r num">${fmt(x.acu)}</td><td class="r num">${fmt(x.eu)}</td><td class="r num">${eur(x.ee)}</td></tr>`;
+  const ctl = (p) => canW ? `<td class="nowrap">${p.cp != null && p.cp !== 0 ? `<button class="btn ghost sm" data-acc="${esc(p.k)}">Aceptar</button> ` : ''}<input type="number" step="1" min="-90" max="300" data-pct="${esc(p.k)}" aria-label="Corrección en % de ${esc(p.k)}" style="width:70px"> <button class="btn ghost sm" data-otro="${esc(p.k)}">Otro %</button> <button class="btn ghost sm" data-man="${esc(p.k)}">Mantener</button></td>` : '';
+  const fila = (p) => `<tr>${refCell({ k: p.k, n: p.n })}<td>${abcTag(p.abc)}</td><td class="r num">${fmt(p.p12)}</td><td class="r num">${fmt(p.v12)}</td><td class="r num">${pctTxt(p.cr)}</td><td class="r num">${pctTxt(p.cs)}</td>
+    <td class="r num"><b>${p.estado === 'acordado' ? pctTxt(p.ca) : pctTxt(p.cp)}</b></td><td class="r num">${fmt(p.pvc.reduce((s, x) => s + x, 0))}</td><td class="r num">${p.pr > 0 ? eur(p.ee) : '<span class="muted">sin precio</span>'}</td><td class="nowrap">${DEST[p.estado]}</td>${ctl(p)}</tr>`;
+  main.innerHTML = `<h1>Desviación de previsiones${mc ? ' · ' + esc(mc) : ''}</h1>
+    <p class="lead">Contra stock con ABC · previsión ${esc(D.version)}. Corrección propuesta: la más prudente entre el ritmo de venta (venta de 12 meses frente a la previsión de 12 meses) y el sesgo histórico de la referencia; si se contradicen, revisar con comercial; menos del 10 %, sin corrección.</p>
+    <div class="tw"><table class="fit"><caption class="sr">Desviación por marca</caption><thead><tr><th scope="col">Marca</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Previsión / venta</th><th scope="col" class="r">Sesgo pasado</th><th scope="col" class="r">Error pasado</th><th scope="col" class="r">Con propuesta</th><th scope="col" class="r">A revisar</th><th scope="col" class="r">Acordadas</th><th scope="col" class="r">Efecto uds</th><th scope="col" class="r">Efecto €</th></tr></thead>
+      <tbody>${D.marcas.map(marcaFila).join('')}</tbody></table></div>
+    <h2>Acierto por versión${mc ? ' · ' + esc(mc) : ''}</h2>
+    ${D.vers ? `<div class="tw"><table class="fit"><thead><tr><th scope="col">Versión</th><th scope="col" class="r">Meses cerrados</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Error</th><th scope="col" class="r">Sesgo</th></tr></thead><tbody>
+      ${Object.keys(V).sort().map(v => `<tr><th scope="row">${esc(v)}</th><td class="r num">${V[v].m}</td><td class="r num">${fmt(V[v].n)}</td><td class="r num">${V[v].s ? Math.round(V[v].e / V[v].s * 100) + ' %' : '—'}</td><td class="r num">${pctTxt(ratio(V[v].p, V[v].s) == null ? null : V[v].p / V[v].s - 1)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin versiones con meses cerrados.</td></tr>'}
+      </tbody></table></div><p class="muted small">Error = Σ |venta − previsión| ÷ Σ venta en los meses cerrados que cubría cada versión desde el inicio de su trimestre. Sesgo positivo: se previó más de lo vendido.</p>` : '<p class="muted">Esta carga no trae el acierto por versión. Vuelve a cargar el MM_Supply desde Datos para verlo.</p>'}
+    <h2>Para la reunión</h2>
+    <form class="filters" id="dF" onsubmit="return false">
+      <label class="fld">Estado<select name="estado">${[['propuesta,revisar', 'Con propuesta y a revisar'], ['propuesta', DEST.propuesta], ['revisar', DEST.revisar], ['acordado', DEST.acordado], ['sin', DEST.sin], ['sin_dato', DEST.sin_dato]].map(([v, t]) => `<option value="${v}" ${estF.join(',') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
+      <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
+      ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio con "Otro %")<input id="dMot" maxlength="500" value="${esc(S.dMot || '')}"></label>` : ''}
+    </form>
+    <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más efecto` : ''}</span>
+      ${canW && xs.some(p => p.estado === 'propuesta') ? `<button class="btn ghost sm" id="dBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'propuesta').length)} propuestas</button>` : ''}
+      <a class="btn ghost sm" href="/api/desviacion/acuerdos.csv" download>Descargar acuerdos (CSV)</a></div>
+    <div class="tw"><table><caption class="sr">Referencias para la reunión</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Ritmo</th><th scope="col" class="r">Sesgo</th><th scope="col" class="r">Propuesta · acordado</th><th scope="col" class="r">Previsión corregida</th><th scope="col" class="r">Efecto €</th><th scope="col">Estado</th>${canW ? '<th scope="col">Acuerdo</th>' : ''}</tr></thead>
+      <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 11 : 10}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
+    <p class="muted small">Ritmo: venta de los 12 últimos meses cerrados ÷ previsión de los 12 próximos − 1. Sesgo: venta ÷ previsión vigente de los 12 meses pasados − 1 (solo con historia propia). Efecto a coste.</p>`;
+  $('#dF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n) return; setQuery({ [n]: ev.target.value }); pageDesv(main); });
+  const mot = $('#dMot'); if (mot) mot.oninput = (ev) => { S.dMot = ev.target.value; };
+  const enviar = async (items) => { try { const r = await api('/api/desviacion/acuerdos', { method: 'POST', body: { items, motivo: mot ? mot.value.trim() : '' } }); toast(`${r.n} ${r.n === 1 ? 'acuerdo guardado' : 'acuerdos guardados'}`); await pageDesv(main); } catch (e) { toast(e.message); } };
+  $$('[data-acc]', main).forEach(b => b.onclick = () => enviar([{ ref: b.dataset.acc, src: 'propuesta' }]));
+  $$('[data-man]', main).forEach(b => b.onclick = () => enviar([{ ref: b.dataset.man, src: 'mantener' }]));
+  $$('[data-otro]', main).forEach(b => b.onclick = () => { const v = parseFloat(String($(`[data-pct="${CSS.escape(b.dataset.otro)}"]`, main).value).replace(',', '.')); if (isNaN(v)) { toast('Escribe la corrección en %'); return; } enviar([{ ref: b.dataset.otro, src: 'manual', pct: v }]); });
+  const bulk = $('#dBulk'); if (bulk) bulk.onclick = () => { const its = xs.filter(p => p.estado === 'propuesta').map(p => ({ ref: p.k, src: 'propuesta' })); if (confirm(`¿Aceptar la propuesta en ${its.length} referencias?`)) enviar(its); };
+}
+
 // ---------------------------------------------------------------- Usuarios (admin)
 async function pageUsers(main) {
   if (!can('admin')) return pageNotFound(main);
@@ -729,7 +780,6 @@ async function pageAccount(main) {
   };
 }
 const SOON = {
-  'desviacion': ['Desviación de previsiones', 'Acierto y sesgo de cada versión de previsión frente a la venta real, por referencia, marca y mandante, y cuánto mejora cada revisión trimestral.'],
   'consolidador': ['Consolidador de previsiones', 'Validación de la previsión de controlling contra el maestro (extinguir, sucesores, inactivos, lanzamientos) y generación del fichero de carga para ABAS y Power BI.'],
 };
 // ---------------------------------------------------------------- Porfolio
