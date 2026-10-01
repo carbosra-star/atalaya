@@ -34,13 +34,13 @@ def filas(refs: list[dict], acuerdos: dict) -> list[dict]:
         pv, pr = r["pv"], r.get("pr") or 0
         p12, v12 = sum(pv), sum(r.get("vt") or [])
         cr = v12 / p12 - 1 if (not r.get("ext") and r.get("abcx") == "venta" and p12 > 0 and v12 > 0) else None
-        cs = r["fc"] - 1 if r.get("fo") == "ref" and r.get("fc") is not None else None
-        cp, tipo = _propuesta(cr, cs)
+        cs = r["fc"] - 1 if r.get("fo") == "ref" and r.get("fc") is not None and not r.get("ext") else None
+        cp, tipo = (None, "extinguir") if r.get("ext") else _propuesta(cr, cs)  # a extinguir: su demanda pasa al sucesor
         a = acuerdos.get(r["k"])
         ca = a["pct"] if a else (cp or 0.0)
         pvc = [max(0, round(x * (1 + ca))) for x in pv]
         eu = sum(pvc) - p12
-        out.append(dict(k=r["k"], n=r.get("n", ""), md=r["md"], mc=r.get("mc") or "", abc=r["abc"], pr=pr,
+        out.append(dict(k=r["k"], n=r.get("n", ""), md=r["md"], mc=r.get("mc") or "—", abc=r["abc"], pr=pr,
                         p12=round(p12), v12=round(v12), cr=None if cr is None else round(cr, 3), cs=None if cs is None else round(cs, 3),
                         cp=cp, tipo=tipo, estado="acordado" if a else tipo, ca=round(ca, 4), src=a["src"] if a else None,
                         pvc=pvc, eu=round(eu), ee=round(eu * pr)))

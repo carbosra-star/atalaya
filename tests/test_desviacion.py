@@ -41,7 +41,9 @@ check("tope con solo el ritmo", f([ref(vt=[20] * 12, fo="grupo")])["P1"]["cp"] =
 sn = f([ref(vt=[95] * 12, fo="grupo")])["P1"]
 check("menos del 10 %: sin corrección", sn["cp"] == 0 and sn["tipo"] == "sin", (sn["cp"], sn["tipo"]))
 check("redondeo a porcentaje entero", f([ref(vt=[77] * 12)])["P1"]["cp"] == -0.23)
-check("a extinguir: sin ritmo", f([ref(ext=True, fo="grupo")])["P1"]["tipo"] == "sin_dato")
+ex = f([ref(ext=True)])["P1"]
+check("a extinguir: sin propuesta aunque tenga sesgo propio", ex["tipo"] == "extinguir" and ex["cp"] is None and ex["cs"] is None and ex["cr"] is None, (ex["tipo"], ex["cs"]))
+check("sin marca: se agrupa como —", f([ref(mc="")])["P1"]["mc"] == "—")
 check("ABC provisional (menos de 12 meses de venta): sin ritmo", f([ref(abcx="anual")])["P1"]["cr"] is None)
 check("sin venta: sin ritmo", f([ref(vt=[0] * 12)])["P1"]["cr"] is None)
 check("sesgo de grupo: no cuenta", f([ref(fo="grupo")])["P1"]["cs"] is None)

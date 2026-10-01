@@ -468,7 +468,7 @@ async function pageRef(main, [k]) {
         const SRCD = { propuesta: 'propuesta', manual: 'manual', mantener: 'mantener' };
         return `<h2>Revisión de la previsión ${esc(dvr.version)}</h2>
         <div class="kpis"><div class="kpi"><div class="v">${fmt(p.p12)} · ${fmt(p.v12)}</div><div class="l">Previsión 12 m · venta 12 m</div></div>
-          <div class="kpi"><div class="v">${pctTxt(p.cr)} · ${pctTxt(p.cs)}</div><div class="l">Ritmo · sesgo</div></div>
+          <div class="kpi"><div class="v">${pctTxt(p.cr)} · ${pctTxt(p.cs)}</div><div class="l">Corrección por ritmo · por sesgo</div></div>
           <div class="kpi"><div class="v">${pctTxt(p.cp)}</div><div class="l">Propuesta (${DEST[p.tipo]})</div></div>
           <div class="kpi"><div class="v">${p.estado === 'acordado' ? pctTxt(p.ca) : '—'}</div><div class="l">${p.estado === 'acordado' ? 'Acordado · previsión corregida ' + fmt(p.pvc.reduce((s, x) => s + x, 0)) : 'Sin acuerdo · se decide en <a href="#/desviacion?mc=' + encodeURIComponent(p.mc) + '">Desviación</a>'}</div></div></div>
         ${dvh.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de acuerdos de previsión</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Versión</th><th scope="col">Por</th><th scope="col" class="r">Corrección</th><th scope="col">Motivo</th></tr></thead><tbody>
@@ -702,7 +702,7 @@ async function pageParams(main) {
 }
 
 // ---------------------------------------------------------------- Desviación de previsiones
-const DEST = { propuesta: 'Con propuesta', revisar: 'Revisar con comercial', sin: 'Sin corrección', sin_dato: 'Sin datos', acordado: 'Acordado' };
+const DEST = { propuesta: 'Con propuesta', revisar: 'Revisar con comercial', sin: 'Sin corrección', sin_dato: 'Sin datos', extinguir: 'A extinguir', acordado: 'Acordado' };
 const pctTxt = (x) => x == null ? '<span class="muted">—</span>' : x > 3 ? '&gt; +300 %' : (x > 0 ? '+' : '') + Math.round(x * 100) + ' %';  // casi sin venta (lanzamientos): no se da la cifra
 async function pageDesv(main) {
   if (!S.ds) return noData(main, 'Desviación de previsiones');
@@ -727,7 +727,7 @@ async function pageDesv(main) {
     <div class="tw"><table class="fit"><caption class="sr">Desviación por marca</caption><thead><tr><th scope="col">Marca</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Previsión / venta</th><th scope="col" class="r">Sesgo pasado</th><th scope="col" class="r">Error pasado</th><th scope="col" class="r">Con propuesta</th><th scope="col" class="r">A revisar</th><th scope="col" class="r">Acordadas</th><th scope="col" class="r">Efecto uds</th><th scope="col" class="r">Efecto €</th></tr></thead>
       <tbody>${D.marcas.map(marcaFila).join('')}</tbody></table></div>
     <h2>Acierto por versión${mc ? ' · ' + esc(mc) : ''}</h2>
-    ${D.vers ? `<div class="tw"><table class="fit"><thead><tr><th scope="col">Versión</th><th scope="col" class="r">Meses cerrados</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Error</th><th scope="col" class="r">Sesgo</th></tr></thead><tbody>
+    ${D.vers ? `<div class="tw"><table class="fit"><caption class="sr">Acierto por versión</caption><thead><tr><th scope="col">Versión</th><th scope="col" class="r">Meses cerrados</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Error</th><th scope="col" class="r">Sesgo</th></tr></thead><tbody>
       ${Object.keys(V).sort().map(v => `<tr><th scope="row">${esc(v)}</th><td class="r num">${V[v].m}</td><td class="r num">${fmt(V[v].n)}</td><td class="r num">${V[v].s ? Math.round(V[v].e / V[v].s * 100) + ' %' : '—'}</td><td class="r num">${pctTxt(ratio(V[v].p, V[v].s) == null ? null : V[v].p / V[v].s - 1)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin versiones con meses cerrados.</td></tr>'}
       </tbody></table></div><p class="muted small">Error = Σ |venta − previsión| ÷ Σ venta en los meses cerrados que cubría cada versión desde el inicio de su trimestre. Sesgo positivo: se previó más de lo vendido.</p>` : '<p class="muted">Esta carga no trae el acierto por versión. Vuelve a cargar el MM_Supply desde Datos para verlo.</p>'}
     <h2>Para la reunión</h2>
@@ -740,9 +740,9 @@ async function pageDesv(main) {
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más efecto` : ''}</span>
       ${canW && xs.some(p => p.estado === 'propuesta') ? `<button class="btn ghost sm" id="dBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'propuesta').length)} propuestas</button>` : ''}
       <a class="btn ghost sm" href="/api/desviacion/acuerdos.csv" download>Descargar acuerdos (CSV)</a></div>
-    <div class="tw"><table><caption class="sr">Referencias para la reunión</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Ritmo</th><th scope="col" class="r">Sesgo</th><th scope="col" class="r">Propuesta · acordado</th><th scope="col" class="r">Previsión corregida</th><th scope="col" class="r">Efecto €</th><th scope="col">Estado</th>${canW ? '<th scope="col">Acuerdo</th>' : ''}</tr></thead>
+    <div class="tw"><table><caption class="sr">Referencias para la reunión</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Corrección por ritmo</th><th scope="col" class="r">Corrección por sesgo</th><th scope="col" class="r">Propuesta · acordado</th><th scope="col" class="r">Previsión corregida</th><th scope="col" class="r">Efecto €</th><th scope="col">Estado</th>${canW ? '<th scope="col">Acuerdo</th>' : ''}</tr></thead>
       <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 11 : 10}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
-    <p class="muted small">Ritmo: venta de los 12 últimos meses cerrados ÷ previsión de los 12 próximos − 1. Sesgo: venta ÷ previsión vigente de los 12 meses pasados − 1 (solo con historia propia). Efecto a coste.</p>`;
+    <p class="muted small">Las correcciones van en el sentido de lo que hay que hacer con la previsión (negativo: bajarla). Corrección por ritmo: venta de los 12 últimos meses cerrados ÷ previsión de los 12 próximos − 1. Corrección por sesgo: venta ÷ previsión vigente de los 12 meses pasados − 1 (solo con historia propia). En la tabla por marca, en cambio, el sesgo positivo indica que se previó de más. Efecto a coste.</p>`;
   $('#dF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n) return; setQuery({ [n]: ev.target.value }); pageDesv(main); });
   const mot = $('#dMot'); if (mot) mot.oninput = (ev) => { S.dMot = ev.target.value; };
   const enviar = async (items) => { try { const r = await api('/api/desviacion/acuerdos', { method: 'POST', body: { items, motivo: mot ? mot.value.trim() : '' } }); toast(`${r.n} ${r.n === 1 ? 'acuerdo guardado' : 'acuerdos guardados'}`); await pageDesv(main); } catch (e) { toast(e.message); } };
