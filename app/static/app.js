@@ -428,7 +428,8 @@ async function pageRef(main, [k]) {
   if (!x) { main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a></p><h1>Referencia ${esc(k)}</h1><p class="lead">No está entre los productos terminados activos de la última carga. Puede que esté inactiva, no sea producto terminado o no tenga stock, previsión, pedidos ni entradas.</p>`; return; }
   const draw = async () => {
     const { r, e } = S.byK[k]; const n = Cob.H;
-    const [notes, acts] = await Promise.all([api('/api/notes/' + encodeURIComponent(k)), api('/api/actions?ref=' + encodeURIComponent(k))]);
+    const [notes, acts, par, hist] = await Promise.all([api('/api/notes/' + encodeURIComponent(k)), api('/api/actions?ref=' + encodeURIComponent(k)),
+      api('/api/parametros?ref=' + encodeURIComponent(k)), api('/api/parametros/' + encodeURIComponent(k) + '/historial')]);
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
@@ -452,6 +453,16 @@ async function pageRef(main, [k]) {
         <tr><th scope="row">Stock fin de mes</th>${e.all.stk.map(v => `<td class="r num ${v < 0 ? 'neg' : ''}"><b>${fmt(v)}</b></td>`).join('')}</tr>
       </tbody></table></div>
       <p class="muted small">${prevSrcText()}${restoText(r)}${r.at ? ` Pedidos atrasados: ${fmt(r.at)}.` : ''}</p>
+      ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
+        const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', manual: 'manual', calculado: 'calculado' };
+        return `<h2>Parámetros</h2>
+        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.mn)} · ${fmt(p.lt)}</div><div class="l">ERP: stock mínimo · lote</div></div>
+          <div class="kpi"><div class="v">${fmt(p.xl)} · ${p.est == null ? '—' : fmt(p.est)}</div><div class="l">SS Excel · estadístico${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}</div></div>
+          <div class="kpi"><div class="v">${fmt(p.ssp)} · ${fmt(p.ltp)}</div><div class="l">Propuesta: SS · lote</div></div>
+          <div class="kpi"><div class="v">${p.d ? fmt(p.ss) + ' · ' + fmt(p.lote) : '—'}</div><div class="l">${PEST[p.estado]}${p.smax ? ' · stock máximo ' + fmt(p.smax) : ''}</div></div></div>
+        ${can('admin', 'planificador') ? `<form class="form" id="plzF" style="max-width:none"><div class="row"><label>Plazo extra de material (días laborables)<input type="number" name="dias" min="0" max="250" value="${p.dx}"></label><label style="flex:1">Motivo<input name="motivo" maxlength="500"></label><button class="btn ghost">Guardar plazo</button></div></form>` : (p.dx ? `<p class="muted small">Plazo extra de material: ${p.dx} días laborables.</p>` : '')}
+        ${hist.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de decisiones</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Por</th><th scope="col" class="r">SS</th><th scope="col" class="r">Lote</th><th scope="col">Antes (ERP)</th><th scope="col">Motivo</th><th scope="col">Aplicado</th></tr></thead><tbody>
+          ${hist.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.by || '')}</td><td class="r num">${fmt(h.ss)} <span class="muted small">${SRC[h.src_ss]}</span></td><td class="r num">${fmt(h.lote)} <span class="muted small">${SRC[h.src_lote]}</span></td><td class="num">${fmt(h.ss_antes)} · ${fmt(h.lote_antes)}</td><td>${esc(h.motivo)}</td><td class="num">${h.aplicado ? fdate(h.aplicado) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Sin decisiones todavía. Se deciden en <a href="#/parametros">Stock mínimo y lotes</a>.</p>'}`; })()}
       <h2>Acierto de la previsión</h2>${aciertoHTML(r)}
       <div class="two">
         <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li><span class="tag">${ENT[v.t]}</span><span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${v.mq ? ' · ' + esc(v.mq) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF ni propuestas.</p>'}
@@ -468,6 +479,7 @@ async function pageRef(main, [k]) {
     bindScenario(main, draw);
     const af = $('#actF'); if (af) af.onsubmit = async (ev) => { ev.preventDefault(); const fd = new FormData(af); try { await api('/api/actions', { method: 'POST', body: { ref: k, text: fd.get('text'), owner: fd.get('owner'), due: fd.get('due') } }); await refreshActions(); updateChrome(); toast('Acción añadida'); draw(); } catch (e2) { toast(e2.message); } };
     const nf = $('#noteF'); if (nf) nf.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/notes/' + encodeURIComponent(k), { method: 'POST', body: { text: new FormData(nf).get('text') } }); S.notes[k] = (S.notes[k] || 0) + 1; toast('Nota guardada'); draw(); } catch (e2) { toast(e2.message); } };
+    const pz = $('#plzF'); if (pz) pz.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/parametros/' + encodeURIComponent(k) + '/plazo', { method: 'PUT', body: { dias: parseInt(pz.dias.value, 10), motivo: pz.motivo.value } }); toast('Plazo guardado'); draw(); } catch (e2) { toast(e2.message); } };
     $$('[data-done]', main).forEach(b => b.onclick = async () => { try { await api('/api/actions/' + b.dataset.done, { method: 'PATCH', body: { status: 'hecha' } }); await refreshActions(); updateChrome(); toast('Acción marcada como hecha'); draw(); } catch (e2) { toast(e2.message); } });
   };
   await draw();
@@ -549,11 +561,12 @@ async function pageMeeting(main) {
 // ---------------------------------------------------------------- Datos (admin)
 function abcForm() {
   const a = abcCfg(), inp = (name, v, w = 64) => `<input name="${name}" value="${esc(String(v).replace('.', ','))}" inputmode="decimal" style="width:${w}px">`;
-  const fila = (md, pre, lbl) => `<tr><th scope="row">${md} · ${lbl}</th>${ABC_CL.map((c, i) => `<td>${inp(`${pre}_${md}_${c}`, ((a[pre === 'fr' ? 'freq' : 'ss'][md]) || [])[i] ?? '')}</td>`).join('')}</tr>`;
+  const src = (pre) => pre === 'ns' ? (S.cfg.ns || {}) : a[pre === 'fr' ? 'freq' : 'ss'];
+  const fila = (md, pre, lbl) => `<tr><th scope="row">${md} · ${lbl}</th>${ABC_CL.map((c, i) => `<td>${inp(`${pre}_${md}_${c}`, (src(pre)[md] || [])[i] ?? '')}</td>`).join('')}</tr>`;
   return `<form class="form" id="abcF" style="max-width:none"><p class="muted small" style="margin:0">Pareto por mandante sobre la venta de 12 meses. Al guardar se recalcula la carga vigente.</p>
     <div class="row">${[0, 1, 2].map(i => `<label>Corte ${ABC_CL[i]} (% acumulado de venta)<input type="number" name="corte${i}" min="1" max="99" value="${a.cortes[i]}"></label>`).join('')}</div>
     <div class="tw"><table class="fit abcp"><thead><tr><th scope="col">Por clase</th>${ABC_CL.map(c => `<th scope="col">${abcTag(c)}</th>`).join('')}</tr></thead><tbody>
-      ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% SS')).join('')}</tbody></table></div>
+      ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% SS (Excel)') + fila(md, 'ns', 'nivel de servicio %')).join('')}</tbody></table></div>
     <div><button class="btn ghost">Guardar parámetros del ABC</button></div></form>`;
 }
 async function pageData(main) {
@@ -601,8 +614,8 @@ async function pageData(main) {
   $('#abcF').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target, n = (x) => Number(String(x).replace(',', '.'));
     const por = (pre) => Object.fromEntries(['Belloch', 'Yunsey'].map(md => [md, ABC_CL.map(c => n(f[`${pre}_${md}_${c}`].value))]));
-    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), freq: por('fr'), ss: por('ss') } };
-    try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros del ABC guardados'); } catch (e) { toast(e.message); }
+    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), freq: por('fr'), ss: por('ss') }, ns: por('ns') };
+    try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros guardados'); } catch (e) { toast(e.message); }
   };
   $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target; try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(f.hz.value, 10), exceso: { Belloch: parseInt(f.exB.value, 10), Yunsey: parseInt(f.exY.value, 10) } } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
 }
