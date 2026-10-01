@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS prev_dec(
   motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS prev_dec_ref ON prev_dec(ref, version, id);
 CREATE INDEX IF NOT EXISTS prev_dec_ver ON prev_dec(version, ref, id);
+CREATE TABLE IF NOT EXISTS linea_alias(codigo TEXT PRIMARY KEY, nombre TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 """
 
 
@@ -289,6 +290,7 @@ def dataset():
         return jsonify({"empty": True})
     ds = json.loads(zlib.decompress(row["data"]))
     _con_sx(ds["refs"])
+    ds["alias"] = _alias()
     by = db().execute("SELECT name FROM users WHERE id=?", (row["user_id"],)).fetchone()
     ds["load"] = {"id": row["id"], "created": row["created"], "by": by["name"] if by else "", "filename": row["filename"]}
     prev = db().execute("SELECT id,created,hoy,data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (row["hoy"],)).fetchone()
@@ -645,6 +647,46 @@ def desv_csv():
     nombre = f'acuerdos_prevision_{ds["meta"]["version"]}_{today():%Y%m%d}.csv'
     return Response(txt.encode("latin-1", errors="replace"), mimetype="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+# ---------------------------------------------------------------- nombres de las líneas
+def _alias() -> dict:
+    """Nombre corto de cada grupo de máquinas ("piedra Rosetta"); sin nombre, se muestra el código."""
+    return {r["codigo"]: r["nombre"] for r in db().execute("SELECT codigo,nombre FROM linea_alias")}
+
+
+@app.route("/api/lineas", methods=["GET", "PUT"])
+@need()
+def lineas():
+    row = _load_row()
+    if not row:
+        return jsonify([]) if request.method == "GET" else err("No hay datos cargados")
+    ds = json.loads(zlib.decompress(row["data"]))
+    n: dict[str, int] = defaultdict(int)
+    for r in ds["refs"]:
+        if r.get("ln"):
+            n[r["ln"]] += 1
+    if request.method == "PUT":
+        if g.user["role"] not in ("admin", "planificador"):
+            return err("Tu usuario no tiene permiso para esta acción", 403)
+        nombres = (request.get_json(silent=True) or {}).get("nombres")
+        if not isinstance(nombres, dict) or not nombres:
+            return err("No hay nombres que guardar")
+        for cod, nom in nombres.items():
+            if cod not in n:
+                return err(f"La línea {cod} no está en la carga vigente")
+            if not isinstance(nom, str) or len(nom.strip()) > 40:
+                return err("Los nombres cortos deben tener como mucho 40 caracteres")
+        for cod, nom in nombres.items():
+            nom = " ".join(nom.split())
+            if not nom or nom == cod:  # vacío o igual al código: vuelve al código
+                db().execute("DELETE FROM linea_alias WHERE codigo=?", (cod,))
+            else:
+                db().execute("INSERT INTO linea_alias(codigo,nombre,user_id,updated) VALUES(?,?,?,?) ON CONFLICT(codigo) DO UPDATE SET "
+                             "nombre=excluded.nombre, user_id=excluded.user_id, updated=excluded.updated", (cod, nom, g.user["id"], now()))
+        db().commit()
+    al, abas = _alias(), ds["meta"].get("lineas") or {}
+    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k)} for k in sorted(n)])
 
 
 # ---------------------------------------------------------------- notas y acciones

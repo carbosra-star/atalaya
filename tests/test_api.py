@@ -199,6 +199,19 @@ con.commit()
 con.close()
 check("acuerdo de otra versión no es vigente", c.get(f"/api/desviacion?ref={k2}").json["rows"][0]["estado"] != "acordado")
 
+# Nombres cortos de las líneas ("piedra Rosetta")
+ln_ = c.get("/api/lineas").json
+check("líneas: códigos de la carga con su nombre ABAS y, al principio, el código como nombre", ln_ and all(x["nombre"] == x["codigo"] for x in ln_) and any(x["abas"] for x in ln_), ln_[:2])
+cod = next(x["codigo"] for x in ln_ if x["codigo"] != "—")
+check("líneas: un lector no puede renombrar", c2.put("/api/lineas", json={"nombres": {cod: "Corta"}}, headers=H).status_code == 403)
+check("líneas: nombre demasiado largo se rechaza", c.put("/api/lineas", json={"nombres": {cod: "x" * 41}}, headers=H).status_code == 400)
+check("líneas: código que no está en la carga se rechaza", c.put("/api/lineas", json={"nombres": {"NOEXISTE": "x"}}, headers=H).status_code == 400)
+check("líneas: renombrar", c.put("/api/lineas", json={"nombres": {cod: "  Espada 1 "}}, headers=H).status_code == 200
+      and next(x for x in c.get("/api/lineas").json if x["codigo"] == cod)["nombre"] == "Espada 1")
+check("líneas: el dataset trae los nombres", c.get("/api/dataset").json.get("alias", {}).get(cod) == "Espada 1")
+c.put("/api/lineas", json={"nombres": {cod: ""}}, headers=H)
+check("líneas: vacío vuelve al código", next(x for x in c.get("/api/lineas").json if x["codigo"] == cod)["nombre"] == cod and cod not in c.get("/api/dataset").json.get("alias", {}))
+
 # Límite de intentos: la IP de X-Forwarded-For no cuenta si no hay proxy de confianza
 c3 = A.app.test_client()
 for i in range(8):

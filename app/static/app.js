@@ -15,6 +15,12 @@ const fdate = (iso, short) => { if (!iso) return ''; const d = toDate(iso); if (
 const fdt = (iso) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return fdate(iso) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
 const refHref = (k) => '#/ref/' + encodeURIComponent(k);
+// Líneas: nombre corto ("piedra Rosetta", se edita en Líneas); sin nombre, el código. Al pasar el ratón, código y nombre en ABAS
+const lnNom = (c) => !c || c === '—' ? '—' : ((S.ds && S.ds.alias) || {})[c] || c;
+const lnTit = (c) => !c || c === '—' ? 'Sin línea asignada' : c + (((S.ds && S.ds.meta.lineas) || {})[c] ? ' · ' + S.ds.meta.lineas[c] : '');
+const lnSpan = (c) => `<span title="${esc(lnTit(c))}">${esc(lnNom(c))}</span>`;
+const lnLink = (c) => c ? `<a href="#/linea/${encodeURIComponent(c)}" title="${esc(lnTit(c))}">${esc(lnNom(c))}</a>` : '—';
+const lnOpts = (codes, cur) => '<option value="">Todas</option>' + codes.slice().sort((a, b) => lnNom(a).localeCompare(lnNom(b), 'es')).map(c => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c === '—' ? 'Sin línea' : lnNom(c))}</option>`).join('');
 const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['verde', 'Cubierto'], ['exceso', 'Exceso'], ['gris', 'Sin demanda']];
 const SEMT = Object.fromEntries(SEM);
 const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, exceso: 4, gris: 5 };
@@ -329,13 +335,13 @@ async function pageHome(main) {
     </div>
     <h2>Las 10 más urgentes</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción</th><th scope="col">Estado</th></tr></thead><tbody>
-    ${urg.map(({ r, e }) => `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
+    ${urg.map(({ r, e }) => `<tr>${refCell(r)}<td>${lnSpan(r.ln)}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
     </tbody></table></div>`;
 }
 
 // ---------------------------------------------------------------- Coberturas
 const LIST_GET = {
-  sem: x => SEMORD[x.e.sem] * 1e9 - x.e.d3, k: x => x.r.k, ln: x => x.r.ln || 'zzz', abc: x => x.r.abc, st: x => x.r.st, mn: x => x.r.mn,
+  sem: x => SEMORD[x.e.sem] * 1e9 - x.e.d3, k: x => x.r.k, ln: x => x.r.ln ? lnNom(x.r.ln) : 'zzz', abc: x => x.r.abc, st: x => x.r.st, mn: x => x.r.mn,
   d0: x => x.e.all.dem[0], d3: x => x.e.d3, val: x => { const v = valor(x.r, x.e); return v == null ? -1 : v; }, cob: x => x.e.cob, cobp: x => x.e.cobp == null ? 999 : x.e.cobp, rot: x => x.e.rot < 0 ? 99 : x.e.rot, next: x => x.e.next ? x.e.next.d : 'z',
 };
 function listFilter(q) {
@@ -361,7 +367,7 @@ async function pageList(main) {
     const tb = $('#tbl tbody');
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
       ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
-      <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td>${abcRef(r)}</td>
+      <td>${lnLink(r.ln)}</td><td>${abcRef(r)}</td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td>${mesCell(r, e)}<td class="r num">${fmt(e.d3)}</td>
       ${cobCell(e)}${valorCell(r, e)}
       <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="12" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
@@ -376,7 +382,7 @@ async function pageList(main) {
     <form class="filters" id="flt" role="search" aria-label="Filtros" onsubmit="return false">
       <label class="fld">Buscar<input type="search" name="q" value="${esc(q.get('q') || '')}" placeholder="Código o artículo"></label>
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], q.get('md'), 'Todos')}</select></label>
-      <label class="fld">Línea<select name="ln">${opts(lines, q.get('ln'), 'Todas')}</select></label>
+      <label class="fld">Línea<select name="ln">${lnOpts(lines, q.get('ln'))}</select></label>
       <label class="fld">Marca<select name="mc">${opts(brands, q.get('mc'), 'Todas')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D', 'NA'], q.get('abc'), 'Todas')}</select></label>
       <label class="fld">Planificación<select name="gp"><option value="Contra Stock" ${!q.has('gp') || q.get('gp') === 'Contra Stock' ? 'selected' : ''}>Contra stock</option><option value="Bajo Pedido" ${q.get('gp') === 'Bajo Pedido' ? 'selected' : ''}>Bajo pedido</option><option value="" ${q.has('gp') && !q.get('gp') ? 'selected' : ''}>Todas</option></select></label>
@@ -395,8 +401,8 @@ async function pageList(main) {
   draw();
 }
 function downloadCSV(rows) {
-  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `coberturas_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -434,7 +440,7 @@ async function pageRef(main, [k]) {
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
-        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
+        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${r.ext ? ' · <b>a extinguir</b>' : ''}${r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
         <p>${pill(e.sem, e.why)}</p></div>
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
@@ -503,14 +509,31 @@ async function pageLines(main) {
   const L = S.ds.meta.lineas || {};
   const rows = Object.entries(groupLines(cs)).map(([k, xs]) => { const c = {}; xs.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1); return { k, xs, c }; })
     .sort((a, b) => (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
+  const canW = can('admin', 'planificador');
   main.innerHTML = `<h1>Líneas</h1><p class="lead">Contra stock, por grupo de máquina.</p>
-    <form onsubmit="return false" class="filters">${scenarioCtl()}</form>
+    <form onsubmit="return false" class="filters">${scenarioCtl()}${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar nombres</button></div>' : ''}</form>
+    <div id="lnBox"></div>
     <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th></tr></thead><tbody>
-    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(k)}</a> <span class="nm">${esc(L[k] || (k === '—' ? 'Sin línea asignada' : ''))}</span></td><td class="r num">${xs.length}</td>
+    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(k === '—' ? 'Sin línea asignada' : k + (L[k] ? ' · ' + L[k] : ''))}</span></td><td class="r num">${xs.length}</td>
       <td><div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div></td>
       <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>`).join('')}
     </tbody></table></div>`;
   bindScenario(main, () => pageLines(main));
+  const ed = $('#lnEd');
+  if (ed) ed.onclick = async () => {
+    const ls = await api('/api/lineas');
+    $('#lnBox').innerHTML = `<section class="card"><h2>Nombres de las líneas</h2><p class="muted small">Nombre corto para usar en toda la app. Vacío o igual al código: se muestra el código.</p>
+      <form class="form" id="lnF" style="max-width:none"><div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Refs</th><th scope="col">Nombre corto</th></tr></thead><tbody>
+      ${ls.map(x => `<tr><th scope="row">${esc(x.codigo)}</th><td>${esc(x.abas)}</td><td class="r num">${fmt(x.n)}</td><td><input name="${esc(x.codigo)}" value="${esc(x.nombre)}" maxlength="40" aria-label="Nombre corto de ${esc(x.codigo)}" style="width:200px"></td></tr>`).join('')}
+      </tbody></table></div><div><button class="btn">Guardar nombres</button> <button type="button" class="btn ghost" id="lnX">Cerrar</button></div></form></section>`;
+    $('#lnX').onclick = () => { $('#lnBox').innerHTML = ''; };
+    $('#lnF').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const nombres = {}; ls.forEach(x => { const v = ev.target.elements[x.codigo].value.trim(); if (v !== x.nombre) nombres[x.codigo] = v; });
+      if (!Object.keys(nombres).length) { toast('No hay cambios'); return; }
+      try { const r = await api('/api/lineas', { method: 'PUT', body: { nombres } }); S.ds.alias = Object.fromEntries(r.filter(x => x.nombre !== x.codigo).map(x => [x.codigo, x.nombre])); toast('Nombres guardados'); pageLines(main); } catch (e2) { toast(e2.message); }
+    };
+  };
 }
 async function pageLine(main, [ln]) {
   if (!S.ds) return noData(main, 'Línea');
@@ -519,7 +542,7 @@ async function pageLine(main, [ln]) {
   const n = Cob.H, dem = new Array(n).fill(0), ent = new Array(n).fill(0);
   xs.forEach(({ e }) => { for (let i = 0; i < n; i++) { dem[i] += e.all.dem[i]; ent[i] += e.all.ent[i]; } });
   const rows = xs.slice().sort((a, b) => SEMORD[a.e.sem] - SEMORD[b.e.sem] || b.e.d3 - a.e.d3);
-  main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(ln)}</p><h1>${esc(ln)}${name ? ' · ' + esc(name) : ''}</h1><p class="lead">${xs.length} referencias contra stock.</p>
+  main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(lnNom(ln))}</p><h1>${esc(lnNom(ln))}</h1><p class="lead">${ln === '—' ? 'Sin línea asignada' : esc(ln) + (name ? ' · ' + esc(name) : '')} · ${xs.length} referencias contra stock.</p>
     ${strip(xs, k => `#/coberturas?ln=${encodeURIComponent(ln)}&sem=${k}`)}
     <h2>Demanda y entradas de la línea</h2>
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
@@ -550,7 +573,7 @@ async function pageMeeting(main) {
       ${scenarioCtl()}</form>
     <h2>Por decidir (${list.length})</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción abierta</th><th scope="col">Estado</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
-    ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr>${refCell(r)}<td>${esc(r.ln || '—')}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
+    ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr>${refCell(r)}<td>${lnSpan(r.ln)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
       <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td><td>${pillShort(e)}</td>
       ${canW ? `<td><button class="btn ghost sm" data-add="${esc(r.k)}" aria-label="Añadir acción a ${esc(r.k)}">Añadir acción</button></td>` : ''}</tr>
       ${canW ? `<tr hidden id="af-${esc(r.k)}"><td colspan="7"><form class="form" data-f="${esc(r.k)}" style="max-width:none"><div class="row"><label>Acción<input name="text" required maxlength="2000"></label><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Guardar</button></div></form></td></tr>` : ''}`; }).join('') || '<tr><td colspan="7" class="empty">Nada pendiente con estos criterios.</td></tr>'}
@@ -673,7 +696,7 @@ async function pageParams(main) {
       <label class="fld">Estado<select name="estado">${[['decidir,cambio', 'Por decidir y con cambio'], ['decidir', PEST.decidir], ['cambio', PEST.cambio], ['decidido', PEST.decidido], ['aplicado', PEST.aplicado], ['igual', PEST.igual]].map(([v, t]) => `<option value="${v}" ${estF.join(',') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
-      <label class="fld">Línea<select name="ln">${opts([...new Set(P.rows.map(p => p.ln || '—'))].sort(), ln, 'Todas')}</select></label>
+      <label class="fld">Línea<select name="ln">${lnOpts([...new Set(P.rows.map(p => p.ln || '—'))], ln)}</select></label>
       ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot" value="${esc(S.pMot || '')}"></label>` : ''}
     </form>
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
