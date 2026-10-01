@@ -36,6 +36,9 @@ check('configuración incompleta usa el valor por defecto', evaluate(exb, { ...c
 check('bajo pedido nunca es exceso', evaluate({ ...exb, gp: 'Bajo Pedido' }, cfg).sem === 'verde');
 check('bajo mínimo manda sobre el exceso', evaluate({ ...exb, mn: 800 }, cfg).sem === 'naranja');
 check('faltante en el horizonte', evaluate({ ...exb, st: 150 }, cfg).fa === 150 && evaluate({ ...exb, st: -50 }, cfg).fa === 350 && evaluate(exb, cfg).fa === 0);
+check('exceso por stock máximo', evaluate({ ...exb, sx: 650 }, cfg).ex === 50 && evaluate({ ...exb, sx: 650 }, cfg).why === 'Por encima del stock máximo');
+check('con stock máximo no cuentan los meses', evaluate({ ...exb, sx: 800 }, cfg).sem === 'verde');
+check('sin stock máximo vuelve a los meses', evaluate({ ...exb, sx: null }, cfg).ex === 100);
 
 console.log(fails ? `\n${fails} comprobaciones fallidas` : '\nTodo correcto');
 process.exit(fails ? 1 : 0);

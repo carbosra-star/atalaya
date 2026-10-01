@@ -201,6 +201,10 @@ fal = dict(exb, st=150)
 check("faltante en el horizonte de 3 meses", core.evaluate(fal, 3, "ALL")["fa"] == 150, core.evaluate(fal, 3, "ALL"))
 check("faltante con stock negativo", core.evaluate(dict(fal, st=-50), 3, "ALL")["fa"] == 350)
 check("sin rotura en el horizonte, faltante 0", core.evaluate(exb, 3, "ALL")["fa"] == 0)
+# Exceso por stock máximo (stock de seguridad + lote): sustituye al criterio de meses cuando hay sx
+check("exceso por encima del stock máximo", core.evaluate(dict(exb, sx=650), 3, "ALL")["ex"] == 50 and core.evaluate(dict(exb, sx=650), 3, "ALL")["why"] == "Por encima del stock máximo")
+check("con stock máximo no cuentan los meses", core.evaluate(dict(exb, sx=800), 3, "ALL")["sem"] == "verde")
+check("sin stock máximo vuelve a los meses", core.evaluate(dict(exb, sx=None), 3, "ALL")["ex"] == 100)
 
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

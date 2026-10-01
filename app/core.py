@@ -591,12 +591,14 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
             sem, why = "amarillo", "OF con fecha pasada"
         elif cs and r["st"] <= 0 and not r["en"] and any(x > 0 for x in allp["dem"][:SIN_ENT_MESES]):
             sem, why = "amarillo", "Sin stock ni entradas para la demanda prevista"
-    # Exceso: lo que seguiría en el almacén pasados N meses sin fabricar nada más (solo contra stock)
+    # Exceso: por encima del stock máximo (stock de seguridad + lote) si lo hay; si no, lo que seguiría
+    # en el almacén pasados N meses sin fabricar nada más (solo contra stock)
+    sx = r.get("sx")
     md = r.get("md") or "Belloch"
     n = int((exceso or {}).get(md) or EXCESO_DEF.get(md, 6))
-    ex = max(0, round(r["st"] - sum(allp["dem"][:n])))
+    ex = max(0, round(r["st"] - (sx if sx else sum(allp["dem"][:n]))))
     if sem == "verde" and cs and ex > 0:
-        sem, why = "exceso", f"Stock para más de {n} meses"
+        sem, why = "exceso", "Por encima del stock máximo" if sx else f"Stock para más de {n} meses"
     if sem != "exceso":
         ex = 0
     # Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido

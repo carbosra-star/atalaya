@@ -56,10 +56,11 @@
       else if (lateOF) { sem = 'amarillo'; why = 'OF con fecha pasada'; }
       else if (cs && r.st <= 0 && !r.en.length && all.dem.slice(0, SIN_ENT_MESES).some(x => x > 0)) { sem = 'amarillo'; why = 'Sin stock ni entradas para la demanda prevista'; }
     }
-    // Exceso: lo que seguiría en el almacén pasados N meses sin fabricar nada más (solo contra stock)
-    const md = r.md || 'Belloch', n = Math.trunc((cfg.exceso && cfg.exceso[md]) || EXCESO_DEF[md] || 6);
-    let ex = Math.max(0, Math.round(r.st - all.dem.slice(0, n).reduce((s, x) => s + x, 0)));
-    if (sem === 'verde' && cs && ex > 0) { sem = 'exceso'; why = `Stock para más de ${n} meses`; }
+    // Exceso: por encima del stock máximo (stock de seguridad + lote) si lo hay; si no, lo que seguiría
+    // en el almacén pasados N meses sin fabricar nada más (solo contra stock)
+    const md = r.md || 'Belloch', n = Math.trunc((cfg.exceso && cfg.exceso[md]) || EXCESO_DEF[md] || 6), sx = r.sx;
+    let ex = Math.max(0, Math.round(r.st - (sx ? sx : all.dem.slice(0, n).reduce((s, x) => s + x, 0))));
+    if (sem === 'verde' && cs && ex > 0) { sem = 'exceso'; why = sx ? 'Por encima del stock máximo' : `Stock para más de ${n} meses`; }
     if (sem !== 'exceso') ex = 0;
     // Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
     const fa = Math.max(0, Math.round(-Math.min(...all.stk.slice(0, hz))));

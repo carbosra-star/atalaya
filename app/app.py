@@ -281,13 +281,14 @@ def dataset():
     if not row:
         return jsonify({"empty": True})
     ds = json.loads(zlib.decompress(row["data"]))
+    _con_sx(ds["refs"])
     by = db().execute("SELECT name FROM users WHERE id=?", (row["user_id"],)).fetchone()
     ds["load"] = {"id": row["id"], "created": row["created"], "by": by["name"] if by else "", "filename": row["filename"]}
     prev = db().execute("SELECT id,created,hoy,data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (row["hoy"],)).fetchone()
     ds["prev"] = None
     if prev:
         # Se recalcula con el horizonte actual y los tres escenarios, para comparar con lo que ve el usuario
-        refs = json.loads(zlib.decompress(prev["data"]))["refs"]
+        refs = _con_sx(json.loads(zlib.decompress(prev["data"]))["refs"])
         cfg = get_config()
         hz, exc = cfg.get("horizonte", 3), cfg["exceso"]
         ds["prev"] = {"id": prev["id"], "created": prev["created"], "hoy": prev["hoy"],
@@ -331,7 +332,7 @@ def upload():
     finally:
         os.unlink(path)
     cfg = get_config()
-    sem = {r["k"]: core.evaluate(r, cfg.get("horizonte", 3), "ALL", "T", cfg["exceso"])["sem"] for r in ds["refs"]}
+    sem = {r["k"]: core.evaluate(r, cfg.get("horizonte", 3), "ALL", "T", cfg["exceso"])["sem"] for r in _con_sx(json.loads(json.dumps(ds["refs"])))}
     counts = defaultdict(int)
     for s in sem.values():
         counts[s] += 1
@@ -436,6 +437,14 @@ def _param_rows(refs: list[dict]) -> list[dict]:
     cfg = get_config()
     extra = {r["ref"]: r["dias"] for r in db().execute("SELECT ref,dias FROM param_extra")}
     return parametros.parametros(refs, cfg["abc"]["freq"], cfg["abc"]["ss"], cfg["ns"], _decisiones(), extra)
+
+
+def _con_sx(refs: list[dict]) -> list[dict]:
+    """Añade a cada referencia su stock máximo (decidido o del ERP) para el criterio de exceso."""
+    sx = {p["k"]: p["smax"] for p in _param_rows(refs)}
+    for r in refs:
+        r["sx"] = sx.get(r["k"])
+    return refs
 
 
 @app.get("/api/parametros")
