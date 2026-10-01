@@ -20,6 +20,7 @@ LANZ_MESES, ALTA_MESES = 9, 4
 ABC_DEF = dict(cortes=[45, 80, 95], freq={"Belloch": [12, 6, 4, 2], "Yunsey": [6, 4, 2, 1]},
                ss={"Belloch": [75, 75, 50, 0], "Yunsey": [75, 75, 50, 0]})
 ABC_VIDA, ABC_MIN = 12, 3  # meses de venta para un ABC definitivo / mínimos para anualizarla  # porfolio: ventana de lanzamientos y antigüedad máxima de un "alta nueva"
+EXCESO_DEF = {"Belloch": 6, "Yunsey": 12}  # exceso: stock para más de N meses de demanda (provisional hasta el módulo de stock mínimo)
 SHEETS = ["MM_Art", "MM_TLY", "MM_Stocks", "MM_Vtas", "MM_PedVentas", "MM_Prev", "MM_PROP", "MM_OF", "MM_Maq"]
 MESES = {"ene": 0, "feb": 1, "mar": 2, "abr": 3, "may": 4, "jun": 5, "jul": 6, "ago": 7, "sep": 8, "oct": 9, "nov": 10, "dic": 11}
 
@@ -546,7 +547,7 @@ def project(r: dict, esc: str, pv: str = "T"):
     return {"dem": dem, "ent": ent, "stk": stk}
 
 
-def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str = "T") -> dict:
+def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str = "T", exceso: dict | None = None) -> dict:
     hz = horizonte
     allp, ofp = project(r, escenario, prevision), project(r, "OF", prevision)
 
@@ -590,7 +591,17 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
             sem, why = "amarillo", "OF con fecha pasada"
         elif cs and r["st"] <= 0 and not r["en"] and any(x > 0 for x in allp["dem"][:SIN_ENT_MESES]):
             sem, why = "amarillo", "Sin stock ni entradas para la demanda prevista"
-    return {"sem": sem, "why": why, "rot": rot}
+    # Exceso: lo que seguiría en el almacén pasados N meses sin fabricar nada más (solo contra stock)
+    md = r.get("md") or "Belloch"
+    n = int((exceso or {}).get(md) or EXCESO_DEF.get(md, 6))
+    ex = max(0, round(r["st"] - sum(allp["dem"][:n])))
+    if sem == "verde" and cs and ex > 0:
+        sem, why = "exceso", f"Stock para más de {n} meses"
+    if sem != "exceso":
+        ex = 0
+    # Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
+    fa = max(0, round(-min(allp["stk"][:hz])))
+    return {"sem": sem, "why": why, "rot": rot, "ex": ex, "fa": fa}
 
 
 def rotura_antes(r: dict, d0: float, esc: str) -> str:

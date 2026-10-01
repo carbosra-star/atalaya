@@ -26,5 +26,16 @@ const futura = { ...cs, st: 0, pv: [0, 0, 0, 0, ...new Array(8).fill(1000)], pv0
 check('sin stock ni entradas con demanda en 6 meses', evaluate(futura, cfg).why === 'Sin stock ni entradas para la demanda prevista');
 check('entradas sin demanda', evaluate({ ...cs, pv: new Array(12).fill(0), pv0r: 0, en: [of(500, '2026-10-15', 0.5)] }, cfg).why === 'OF o propuestas sin demanda prevista');
 
+// Exceso y faltante (gemelos de core.py, ver test_core.py)
+const exb = { ...base, gp: 'Contra Stock', md: 'Belloch', st: 700 };
+check('exceso Belloch', evaluate(exb, cfg).sem === 'exceso' && evaluate(exb, cfg).ex === 100 && evaluate(exb, cfg).why === 'Stock para más de 6 meses', evaluate(exb, cfg));
+check('exceso: en el límite no hay exceso', evaluate({ ...exb, st: 600 }, cfg).sem === 'verde');
+check('Yunsey a 12 meses', evaluate({ ...exb, md: 'Yunsey', st: 1100 }, cfg).sem === 'verde' && evaluate({ ...exb, md: 'Yunsey', st: 1300 }, cfg).ex === 100);
+check('meses de exceso configurables', evaluate(exb, { ...cfg, exceso: { Belloch: 3, Yunsey: 12 } }).ex === 400);
+check('configuración incompleta usa el valor por defecto', evaluate(exb, { ...cfg, exceso: { Yunsey: 12 } }).ex === 100);
+check('bajo pedido nunca es exceso', evaluate({ ...exb, gp: 'Bajo Pedido' }, cfg).sem === 'verde');
+check('bajo mínimo manda sobre el exceso', evaluate({ ...exb, mn: 800 }, cfg).sem === 'naranja');
+check('faltante en el horizonte', evaluate({ ...exb, st: 150 }, cfg).fa === 150 && evaluate({ ...exb, st: -50 }, cfg).fa === 350 && evaluate(exb, cfg).fa === 0);
+
 console.log(fails ? `\n${fails} comprobaciones fallidas` : '\nTodo correcto');
 process.exit(fails ? 1 : 0);

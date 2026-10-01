@@ -2,6 +2,7 @@
 (function (root) {
   const H = 12;
   const SIN_ENT_MESES = 6;  // aviso de "sin stock ni entradas" si la demanda empieza en los 6 próximos meses
+  const EXCESO_DEF = { Belloch: 6, Yunsey: 12 };  // exceso: stock para más de N meses de demanda (gemela de core.EXCESO_DEF)
   // escenario: 'OF' | 'OFPF' (OF + propuestas fijadas) | 'ALL' (OF + todas las propuestas)
   const counts = (t, esc) => t === 'OF' || (esc !== 'OF' && t === 'PF') || (esc === 'ALL' && t === 'P');
   // pv: 'T' previsión tal cual, 'C' corregida por el sesgo (si la carga la trae)
@@ -55,8 +56,15 @@
       else if (lateOF) { sem = 'amarillo'; why = 'OF con fecha pasada'; }
       else if (cs && r.st <= 0 && !r.en.length && all.dem.slice(0, SIN_ENT_MESES).some(x => x > 0)) { sem = 'amarillo'; why = 'Sin stock ni entradas para la demanda prevista'; }
     }
-    return { all, of, rot, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12 };
+    // Exceso: lo que seguiría en el almacén pasados N meses sin fabricar nada más (solo contra stock)
+    const md = r.md || 'Belloch', n = Math.trunc((cfg.exceso && cfg.exceso[md]) || EXCESO_DEF[md] || 6);
+    let ex = Math.max(0, Math.round(r.st - all.dem.slice(0, n).reduce((s, x) => s + x, 0)));
+    if (sem === 'verde' && cs && ex > 0) { sem = 'exceso'; why = `Stock para más de ${n} meses`; }
+    if (sem !== 'exceso') ex = 0;
+    // Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
+    const fa = Math.max(0, Math.round(-Math.min(...all.stk.slice(0, hz))));
+    return { all, of, rot, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
-  root.Cob = { project, evaluate, H };
+  root.Cob = { project, evaluate, H, EXCESO_DEF };
 })(window);

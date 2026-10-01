@@ -177,5 +177,28 @@ check("sin stock ni entradas: demanda a más de 6 meses no avisa", ev(dict(futur
 check("entradas sin demanda", ev(dict(cs, pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["why"] == "OF o propuestas sin demanda prevista")
 check("entradas sin demanda: bajo pedido sigue en gris", ev(dict(cs, gp="Bajo Pedido", pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["sem"] == "gris")
 
+# Exceso: stock por encima de la demanda de los próximos N meses (Belloch 6, Yunsey 12), solo contra stock
+exb = dict(base, gp="Contra Stock", md="Belloch", st=700, pv=[100] * 12, pv0r=100)
+r1 = core.evaluate(exb, 3, "ALL")
+check("exceso Belloch: 700 > 6 × 100", r1["sem"] == "exceso" and r1["ex"] == 100 and r1["why"] == "Stock para más de 6 meses", r1)
+check("exceso: en el límite no hay exceso", core.evaluate(dict(exb, st=600), 3, "ALL")["sem"] == "verde")
+exy = dict(exb, md="Yunsey", st=1100)
+check("Yunsey a 12 meses: 1100 no es exceso", core.evaluate(exy, 3, "ALL")["sem"] == "verde")
+check("Yunsey a 12 meses: 1300 sí", core.evaluate(dict(exy, st=1300), 3, "ALL")["ex"] == 100)
+check("meses de exceso configurables", core.evaluate(exb, 3, "ALL", "T", {"Belloch": 3, "Yunsey": 12})["ex"] == 400)
+check("configuración incompleta usa el valor por defecto", core.evaluate(exb, 3, "ALL", "T", {"Yunsey": 12})["ex"] == 100)
+check("bajo pedido nunca es exceso", core.evaluate(dict(exb, gp="Bajo Pedido"), 3, "ALL")["sem"] == "verde")
+check("sin demanda sigue en gris", core.evaluate(dict(exb, pv=[0] * 12, pv0r=0), 3, "ALL")["sem"] == "gris")
+check("bajo mínimo manda sobre el exceso", core.evaluate(dict(exb, mn=800), 3, "ALL")["sem"] == "naranja")
+check("OF atrasada manda sobre el exceso", core.evaluate(dict(exb, en=[dict(t="OF", q=10, m=0, d="2026-09-01", late=True)]), 3, "ALL")["sem"] == "amarillo")
+exc = dict(exb, st=500, pvc=[50] * 12, pv0rc=50)
+check("con la previsión corregida aparece el exceso", core.evaluate(exc, 3, "ALL", "C")["ex"] == 200 and core.evaluate(exc, 3, "ALL", "T")["ex"] == 0)
+check("sin exceso, ex = 0", core.evaluate(dict(exb, st=100), 3, "ALL")["ex"] == 0)
+# Faltante: lo que falta en el peor mes del horizonte
+fal = dict(exb, st=150)
+check("faltante en el horizonte de 3 meses", core.evaluate(fal, 3, "ALL")["fa"] == 150, core.evaluate(fal, 3, "ALL"))
+check("faltante con stock negativo", core.evaluate(dict(fal, st=-50), 3, "ALL")["fa"] == 350)
+check("sin rotura en el horizonte, faltante 0", core.evaluate(exb, 3, "ALL")["fa"] == 0)
+
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)
