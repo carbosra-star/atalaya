@@ -170,6 +170,35 @@ p3 = c.get(f"/api/parametros?ref={k3}").json["rows"][0]
 check("aplicada y cambiada en ABAS: se ignora", p3["estado"] != "aplicado" and not p3["d"] and k3 not in c.get("/api/parametros/abas.csv").data.decode("latin-1"), p3["estado"])
 con.close()
 
+# Desviación de previsiones
+dv = c.get("/api/desviacion").json
+check("desviación: versión vigente y acierto por versión", dv.get("version") == ds["meta"]["version"] and dv.get("vers") and all(x["e"] >= 0 for x in dv["vers"]), (dv.get("version"), len(dv.get("vers") or [])))
+check("desviación: resumen con total primero", dv["marcas"][0]["mc"] == "Total" and dv["marcas"][0]["n"] == len(dv["rows"]), dv["marcas"][0])
+prop = [p for p in dv["rows"] if p["tipo"] == "propuesta"]
+k1, k2 = prop[0]["k"], prop[1]["k"]
+acu = lambda items, motivo="", cl=c: cl.post("/api/desviacion/acuerdos", json={"items": items, "motivo": motivo}, headers=H)  # noqa: E731
+check("acuerdo manual sin motivo se rechaza", acu([{"ref": k1, "src": "manual", "pct": -15}]).status_code == 400)
+check("acuerdo manual fuera de rango se rechaza", acu([{"ref": k1, "src": "manual", "pct": -95}], "x").status_code == 400)
+check("acuerdo fuera de ámbito se rechaza", acu([{"ref": "999999999999", "src": "mantener"}]).status_code == 400)
+check("un lector no puede acordar", acu([{"ref": k1, "src": "mantener"}], cl=c2).status_code == 403)
+r = acu([{"ref": k1, "src": "manual", "pct": -15}, {"ref": k2, "src": "propuesta"}], "Reunión; comercial\nNelly ñ €")
+check("acuerdos guardados", r.status_code == 200 and r.json["n"] == 2, r.json)
+a1 = c.get(f"/api/desviacion?ref={k1}").json["rows"][0]
+check("acuerdo vigente aplicado a la previsión", a1["estado"] == "acordado" and a1["ca"] == -0.15 and a1["src"] == "manual", a1)
+check("acuerdo de la propuesta", c.get(f"/api/desviacion?ref={k2}").json["rows"][0]["ca"] == prop[1]["cp"])
+txt = c.get("/api/desviacion/acuerdos.csv").data.decode("latin-1")
+lin = txt.split("\r\n")
+check("CSV de acuerdos: cabecera con los meses", lin[0].startswith("Referencia;Mandante;Marca;Versión;Corrección %;Motivo;") and len(lin[0].split(";")) == 18, lin[0])
+fila = next(x for x in lin if x.startswith(k1 + ";"))
+check("CSV de acuerdos: % con coma y motivo limpio", fila.split(";")[4] == "-15" and ";" not in fila.split(";")[5] and len(fila.split(";")) == 18, fila)
+h = c.get(f"/api/desviacion/{k1}/historial").json
+check("historial del acuerdo con versión y autor", len(h) == 1 and h[0]["version"] == ds["meta"]["version"] and h[0]["by"], h)
+con = sqlite3.connect(A.DB_PATH)
+con.execute("UPDATE prev_dec SET version='2026Q3' WHERE ref=?", (k2,))
+con.commit()
+con.close()
+check("acuerdo de otra versión no es vigente", c.get(f"/api/desviacion?ref={k2}").json["rows"][0]["estado"] != "acordado")
+
 # Límite de intentos: la IP de X-Forwarded-For no cuenta si no hay proxy de confianza
 c3 = A.app.test_client()
 for i in range(8):

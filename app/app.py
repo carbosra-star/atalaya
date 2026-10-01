@@ -26,6 +26,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import core
+import desviacion
 import parametros
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
@@ -95,6 +96,11 @@ CREATE TABLE IF NOT EXISTS param_dec(
 CREATE INDEX IF NOT EXISTS param_dec_ref ON param_dec(ref, id);
 CREATE TABLE IF NOT EXISTS param_extra(
   ref TEXT PRIMARY KEY, dias INTEGER NOT NULL, motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS prev_dec(
+  id INTEGER PRIMARY KEY, ref TEXT NOT NULL, md TEXT NOT NULL, version TEXT NOT NULL,
+  pct REAL NOT NULL, src TEXT NOT NULL CHECK(src IN ('propuesta','manual','mantener')),
+  motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS prev_dec_ref ON prev_dec(ref, version, id);
 """
 
 
@@ -542,6 +548,104 @@ def param_csv():
     txt = "Referencia;Mandante;Stock mínimo;Lote\r\n" + "".join(f'{p["k"]};{p["md"]};{p["ss"]};{p["lote"]}\r\n' for p in rows)
     nombre = f'parametros_abas_{today():%Y%m%d}.csv'
     return Response(txt.encode("latin-1"), mimetype="text/csv", headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+# ---------------------------------------------------------------- desviación de previsiones
+def _acuerdos(version: str) -> dict:
+    """Acuerdo vigente (el último) de cada referencia para la versión de previsión dada."""
+    q = ("SELECT d.* FROM prev_dec d JOIN (SELECT ref, MAX(id) AS id FROM prev_dec WHERE version=? GROUP BY ref) u "
+         "ON u.id=d.id")
+    return {r["ref"]: dict(r) for r in db().execute(q, (version,))}
+
+
+def _desv(row) -> tuple[dict, list[dict]]:
+    ds = json.loads(zlib.decompress(row["data"]))
+    return ds, desviacion.filas(ds["refs"], _acuerdos(ds["meta"]["version"]))
+
+
+@app.get("/api/desviacion")
+@need()
+def desv_list():
+    row = _load_row()
+    if not row:
+        return jsonify({"empty": True})
+    ds, rows = _desv(row)
+    out = {"version": ds["meta"]["version"], "base": ds["meta"]["base"], "rows": rows,
+           "marcas": desviacion.resumen_marcas(rows, ds["refs"]), "vers": ds["meta"].get("vers")}
+    if request.args.get("ref"):
+        out["rows"] = [p for p in rows if p["k"] == request.args["ref"]]
+    return jsonify(out)
+
+
+@app.post("/api/desviacion/acuerdos")
+@need("admin", "planificador")
+def desv_acordar():
+    b = request.get_json(silent=True) or {}
+    items, motivo = b.get("items"), (b.get("motivo") or "").strip()[:500]
+    if not isinstance(items, list) or not 1 <= len(items) <= 1000:
+        return err("Indica entre 1 y 1.000 referencias")
+    row = _load_row()
+    if not row:
+        return err("No hay datos cargados")
+    ds, rows = _desv(row)
+    P = {p["k"]: p for p in rows}
+    ins = []
+    for it in items:
+        p = P.get(it.get("ref")) if isinstance(it, dict) else None
+        if not p:
+            return err("Alguna referencia no está entre los productos contra stock con ABC de la carga vigente")
+        src = it.get("src")
+        if src == "propuesta":
+            if p["cp"] is None:
+                return err(f"{p['k']}: no tiene corrección propuesta (los métodos no coinciden o no hay datos)")
+            pct = p["cp"]
+        elif src == "mantener":
+            pct = 0.0
+        elif src == "manual":
+            v = it.get("pct")
+            if not (isinstance(v, (int, float)) and not isinstance(v, bool) and -90 <= v <= 300):
+                return err("La corrección manual debe ser un porcentaje entre −90 y 300")
+            if not motivo:
+                return err("Indica el motivo de las correcciones manuales")
+            pct = round(v / 100, 4)
+        else:
+            return err("Fuente no válida")
+        ins.append((p["k"], p["md"], ds["meta"]["version"], pct, src, motivo, g.user["id"], now()))
+    db().executemany("INSERT INTO prev_dec(ref,md,version,pct,src,motivo,user_id,created) VALUES(?,?,?,?,?,?,?,?)", ins)
+    db().commit()
+    return jsonify({"ok": True, "n": len(ins)})
+
+
+@app.get("/api/desviacion/<ref>/historial")
+@need()
+def desv_historial(ref):
+    if not REF_RE.fullmatch(ref):
+        return err("La referencia no es válida")
+    q = ("SELECT d.version,d.pct,d.src,d.motivo,d.created,u.name AS by FROM prev_dec d LEFT JOIN users u ON u.id=d.user_id "
+         "WHERE d.ref=? ORDER BY d.id DESC")
+    return jsonify([dict(r) for r in db().execute(q, (ref,))])
+
+
+@app.get("/api/desviacion/acuerdos.csv")
+@need()
+def desv_csv():
+    row = _load_row()
+    if not row:
+        return err("No hay datos cargados")
+    ds, rows = _desv(row)
+    y, m = map(int, ds["meta"]["base"].split("-"))
+    meses = [f"{(m - 1 + i) % 12 + 1:02d}/{(y + (m - 1 + i) // 12) % 100:02d}" for i in range(12)]
+    limpio = lambda s: " ".join((s or "").replace(";", ",").split())  # noqa: E731
+    pct = lambda x: ("%g" % round(x * 100, 1)).replace(".", ",")  # noqa: E731
+    lineas = ["Referencia;Mandante;Marca;Versión;Corrección %;Motivo;" + ";".join(meses)]
+    A_ = _acuerdos(ds["meta"]["version"])
+    for p in rows:
+        if p["estado"] == "acordado":
+            lineas.append(";".join([p["k"], p["md"], limpio(p["mc"]), ds["meta"]["version"], pct(p["ca"]), limpio(A_[p["k"]]["motivo"])] + [str(x) for x in p["pvc"]]))
+    txt = "\r\n".join(lineas) + "\r\n"
+    nombre = f'acuerdos_prevision_{ds["meta"]["version"]}_{today():%Y%m%d}.csv'
+    return Response(txt.encode("latin-1", errors="replace"), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 # ---------------------------------------------------------------- notas y acciones
