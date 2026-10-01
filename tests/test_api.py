@@ -149,6 +149,7 @@ check("CSV para ABAS: trae lo decidido", f'{k1};{p1["md"]};{p1["ss"]};{p1["lote"
 check("CSV para ABAS: no trae lo aplicado", k2 not in txt)
 h = c.get(f"/api/parametros/{k1}/historial").json
 check("historial con autor, motivo y valores de antes", len(h) == 1 and h[0]["motivo"] == "Prueba de decisión" and h[0]["ss_antes"] == cam[0]["mn"] and h[0]["by"], h)
+check("plazo extra de una referencia fuera de ámbito se rechaza", c.put("/api/parametros/999999999999/plazo", json={"dias": 5}, headers=H).status_code == 400)
 check("plazo extra fuera de rango se rechaza", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 300}, headers=H).status_code == 400)
 check("plazo extra", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 21, "motivo": "Tubos 66 días"}, headers=H).status_code == 200
       and c.get(f"/api/parametros?ref={k1}").json["rows"][0]["dx"] == 21)

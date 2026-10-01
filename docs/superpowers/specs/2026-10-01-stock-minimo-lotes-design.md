@@ -80,7 +80,7 @@ contra stock con `abc` en A–D. Entradas por referencia (ya en el dataset): `md
   4. Yunsey: `v = max(v, mn)`.
   5. `sx_st = round100(v)`; `tipo = "ok"`.
 
-**Sin propuesta automática** (añadido en la revisión final): las referencias **a extinguir** (`tipo = "extinguir"`) y las que no tienen previsión en 12 meses o en el próximo trimestre (`tipo = "sin_prev"`, p. ej. temporada) no reciben estadístico ni lote calculado como propuesta: darían lote 0 o la mitad del SS por el límite ×0,5 y falsearían el total en €. Su propuesta es el ERP y quedan para decidir a mano.
+**A extinguir y sin previsión** (añadido en la revisión final, decidido con el usuario): las referencias **a extinguir** (`tipo = "extinguir"`) consumen el stock del PT y rara vez se fabrican para gastar material, así que la propuesta es **dejar de reponer**: SS 0 y lote 0 (estado `cambio`, o `igual` si el ERP ya está a 0). Las que no tienen previsión en 12 meses o en el próximo trimestre (`tipo = "sin_prev"`, p. ej. temporada) no reciben propuesta automática (daría lote 0 o la mitad del SS por el límite ×0,5): su propuesta es el ERP y quedan para decidir a mano.
 
 **Propuesta**:
 - `ss_p` = `sx_st` si `tipo == "ok"`; si no, `mn` (y `tipo` queda marcado para

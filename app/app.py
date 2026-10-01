@@ -522,6 +522,9 @@ def param_plazo(ref):
     dias = b.get("dias")
     if not REF_RE.fullmatch(ref) or not (isinstance(dias, int) and not isinstance(dias, bool) and 0 <= dias <= 250):
         return err("El plazo extra debe ser un número entero de días laborables entre 0 y 250")
+    row = _load_row()
+    if not row or ref not in {p["k"] for p in _param_rows(_refs(row))}:
+        return err("La referencia no está entre los productos contra stock con ABC de la carga vigente")
     db().execute("INSERT INTO param_extra(ref,dias,motivo,user_id,created) VALUES(?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET "
                  "dias=excluded.dias, motivo=excluded.motivo, user_id=excluded.user_id, created=excluded.created",
                  (ref, dias, (b.get("motivo") or "").strip()[:500], g.user["id"], now()))

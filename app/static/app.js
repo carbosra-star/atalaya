@@ -664,17 +664,18 @@ async function pageParams(main) {
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
       <label class="fld">Línea<select name="ln">${opts([...new Set(P.rows.map(p => p.ln || '—'))].sort(), ln, 'Todas')}</select></label>
-      ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot"></label>` : ''}
+      ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot" value="${esc(S.pMot || '')}"></label>` : ''}
     </form>
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
     <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión/mes</th><th scope="col" class="r">Error</th>
-      <th scope="col" class="r">SS ERP</th><th scope="col" class="r">SS Excel</th><th scope="col" class="r">SS estadístico</th><th scope="col" class="r">SS propuesta</th><th scope="col" class="r">Lote ERP</th><th scope="col" class="r">Lote propuesta</th><th scope="col" class="r">Δ € stock medio</th><th scope="col">Estado</th>${canW ? '<th scope="col">Decisión</th>' : ''}</tr></thead>
+      <th scope="col" class="r">SS ERP</th><th scope="col" class="r">SS Excel</th><th scope="col" class="r">SS estadístico</th><th scope="col" class="r">SS propuesta · decidido</th><th scope="col" class="r">Lote ERP</th><th scope="col" class="r">Lote propuesta · decidido</th><th scope="col" class="r">Δ € stock medio</th><th scope="col">Estado</th>${canW ? '<th scope="col">Decisión</th>' : ''}</tr></thead>
       <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 13 : 12}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
     <p class="muted small">Δ € = variación del stock medio (stock de seguridad + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.</p>`;
   xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
   $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo') return; setQuery({ [n]: ev.target.value }); pageParams(main); });
   const motivo = () => ($('#pMot') ? $('#pMot').value.trim() : '');
+  if ($('#pMot')) $('#pMot').oninput = (ev) => { S.pMot = ev.target.value; };  // se conserva al cambiar de filtro
   const enviar = async (items) => { try { const r = await api('/api/parametros/decisiones', { method: 'POST', body: { items, motivo: motivo() } }); toast(`${r.n} ${r.n === 1 ? 'decisión guardada' : 'decisiones guardadas'}`); await pageParams(main); } catch (e) { toast(e.message); } };
   $$('[data-ss],[data-lt]', main).forEach(s => s.onchange = () => { const k = s.dataset.ss || s.dataset.lt, inp = $(`[data-${s.dataset.ss ? 'ssv' : 'ltv'}="${CSS.escape(k)}"]`, main); inp.hidden = s.value !== 'manual'; if (!inp.hidden) inp.focus(); });
   $$('[data-dec]', main).forEach(b => b.onclick = () => {

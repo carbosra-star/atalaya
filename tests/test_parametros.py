@@ -36,6 +36,8 @@ def calc(rs, dec=None, extra=None):
 
 # Lote: previsión anual / fabricaciones; ≥ 10.000 a miles, por debajo a centenas, mínimo 100
 check("lote 24.000 / 12 = 2.000", P.lote_calc(24000, 12) == 2000)
+check("redondeo a centenas: la mitad sube", P.round100(250) == 300 and P.round100(249) == 200, P.round100(250))
+check("redondeo a miles: la mitad sube", P.lote_calc(126000, 12) == 11000, P.lote_calc(126000, 12))
 check("lote ≥ 10.000 a miles", P.lote_calc(130000, 12) == 11000, P.lote_calc(130000, 12))
 check("lote pequeño a centenas, mínimo 100", P.lote_calc(1000, 12) == 100 and P.lote_calc(500, 12) == 100)
 check("sin previsión, lote 0", P.lote_calc(0, 12) == 0)
@@ -60,6 +62,10 @@ sh = calc([ref(hp=[0] * 7 + [1000] * 5)])["P1"]
 check("menos de 6 meses: sin historia", sh["tipo"] == "sin_hist" and sh["est"] is None and sh["estado"] == "decidir")
 sob = calc([ref(mn=500, vt=[600, 1000] * 6)])["P1"]
 check("sobreprevisión > 20 %: no sube", sob["est"] == 500 and sob["flag"] == "corregir", (sob["est"], sob["sg"]))
+inf = calc([ref(vt=[1300, 1500] * 6)])["P1"]
+check("infraprevisión > 20 %: se calcula y se marca corregir previsión", inf["tipo"] == "ok" and inf["flag"] == "corregir" and inf["sg"] < -0.2 and inf["est"] is not None, (inf["sg"], inf["est"]))
+sinhp = ref(); del sinhp["hp"]
+check("carga sin histórico de previsión: sin historia, sin fallar", calc([sinhp])["P1"]["tipo"] == "sin_hist")
 check("límite ×2 del ERP", calc([ref(mn=200)])["P1"]["est"] == 400)
 check("límite ×0,5 del ERP", calc([ref(mn=4000)])["P1"]["est"] == 2000)
 yun = calc([ref(md="Yunsey")])["P1"]
@@ -72,7 +78,8 @@ check("igual al ERP", igual["estado"] == "igual" and igual["de"] == 0, igual["es
 check("sin lote en el ERP y sin decisión: stock máximo nulo", calc([ref(lt=0)])["P1"]["smax"] is None)
 # Sin previsión o a extinguir: no se propone nada automático (ni lote 0 ni la mitad del SS), se decide a mano
 ext = calc([ref(ext=True)])["P1"]
-check("a extinguir: a decidir con el ERP", ext["tipo"] == "extinguir" and ext["estado"] == "decidir" and ext["ssp"] == 1000 and ext["ltp"] == 20000 and ext["est"] is None and ext["de"] == 0, ext)
+check("a extinguir: se propone dejar de reponer (SS 0 y lote 0)", ext["tipo"] == "extinguir" and ext["estado"] == "cambio" and ext["ssp"] == 0 and ext["ltp"] == 0 and ext["est"] is None and ext["de"] == -11000, ext)
+check("a extinguir ya a 0 en el ERP: igual", calc([ref(ext=True, mn=0, lt=0)])["P1"]["estado"] == "igual")
 sp = calc([ref(pv=[0] * 12)])["P1"]
 check("sin previsión en 12 meses: a decidir con el ERP", sp["tipo"] == "sin_prev" and sp["estado"] == "decidir" and sp["ssp"] == 1000 and sp["ltp"] == 20000, sp)
 tq = calc([ref(pv=[2000, 0, 0, 0] + [3000] * 8)])["P1"]

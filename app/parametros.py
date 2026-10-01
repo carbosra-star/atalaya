@@ -17,7 +17,8 @@ CLASES = "ABCD"
 
 
 def round100(x: float) -> int:
-    return max(0, int(round(x / 100.0)) * 100)
+    """Múltiplo de 100 más cercano (la mitad sube), nunca negativo."""
+    return max(0, math.floor(x / 100.0 + 0.5) * 100)
 
 
 def lote_calc(anual: float, f: float) -> int:
@@ -25,7 +26,7 @@ def lote_calc(anual: float, f: float) -> int:
     if anual <= 0 or not f:
         return 0
     x = anual / f
-    return int(round(x / 1000.0)) * 1000 if x >= 10000 else max(100, round100(x))
+    return math.floor(x / 1000.0 + 0.5) * 1000 if x >= 10000 else max(100, round100(x))
 
 
 def _ruido(p: float, erp: float) -> bool:
@@ -34,7 +35,7 @@ def _ruido(p: float, erp: float) -> bool:
 
 def _estadistico(r: dict, ns: float, dias_extra: int):
     """(stock de seguridad | None, tipo, error típico relativo, sesgo, marca)."""
-    meses = [(v, p) for v, p in zip(r["vt"], r["hp"]) if p > 0]
+    meses = [(v, p) for v, p in zip(r.get("vt") or [], r.get("hp") or []) if p > 0]  # cargas antiguas sin hp: sin historia
     vm = mean(v for v, _ in meses) if meses else 0
     if len(meses) < HMIN or vm <= 0:
         return None, "sin_hist", None, None, ""
@@ -69,15 +70,16 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
         xl = round100(lc * ss_pct[md][i] / 100)
         dx = int(extra.get(k, 0))
         est, tipo, etr, sesgo, flag = _estadistico(r, ns[md][i], dx)
-        # A extinguir o sin previsión (en 12 meses o en el próximo trimestre, p. ej. temporada): sin propuesta
-        # automática (daría lote 0 o la mitad del SS por el límite ×0,5), se decide a mano partiendo del ERP
+        # A extinguir: se consume el stock del PT y no se repone (SS y lote 0); si hay que fabricar para
+        # gastar material, se decide a mano. Sin previsión en 12 meses o en el próximo trimestre (p. ej.
+        # temporada): sin propuesta automática (daría lote 0 o la mitad del SS), se decide a mano desde el ERP
         sin = "extinguir" if r.get("ext") else "sin_prev" if not sum(r["pv"]) or not sum(r["pv"][1:4]) else ""
         if sin:
             est, tipo = None, sin
-        ssp = est if tipo == "ok" else mn
-        if _ruido(ssp, mn):
+        ssp = est if tipo == "ok" else 0 if sin == "extinguir" else mn
+        if sin != "extinguir" and _ruido(ssp, mn):
             ssp = mn
-        ltp = lt if sin or _ruido(lc, lt) else lc
+        ltp = 0 if sin == "extinguir" else lt if sin or _ruido(lc, lt) else lc
         d = dec.get(k)
         if d and d.get("aplicado") and (d["ss"] != mn or d["lote"] != lt):
             d = None  # se aplicó y después se cambió en ABAS: la decisión ya no manda
@@ -86,7 +88,7 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
             smax = ss + lote if lote > 0 else None
         else:
             ss, lote = ssp, ltp
-            estado = "decidir" if tipo != "ok" else ("cambio" if (ssp, ltp) != (mn, lt) else "igual")
+            estado = "decidir" if tipo not in ("ok", "extinguir") else ("cambio" if (ssp, ltp) != (mn, lt) else "igual")
             smax = mn + lt if lt > 0 else None
         rows.append(dict(
             k=k, n=r.get("n", ""), md=md, abc=r["abc"], ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
