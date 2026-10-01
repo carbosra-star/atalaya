@@ -89,6 +89,17 @@ check("frecuencia no válida se rechaza", c.put("/api/config", json={"abc": dict
 c.put("/api/config", json={"abc": cfg["abc"]}, headers=H)
 check("el horizonte se sigue guardando aparte", c.put("/api/config", json={"horizonte": 3}, headers=H).json.get("abc", {}).get("cortes") == [45, 80, 95])
 
+# Meses de exceso por mandante
+check("exceso por defecto 6/12", cfg.get("exceso") == {"Belloch": 6, "Yunsey": 12}, cfg.get("exceso"))
+r = c.put("/api/config", json={"exceso": {"Belloch": 4, "Yunsey": 9}}, headers=H)
+check("guardar meses de exceso", r.status_code == 200 and r.json["exceso"] == {"Belloch": 4, "Yunsey": 9}, r.json)
+for malo in ({"Belloch": 0, "Yunsey": 12}, {"Belloch": 13, "Yunsey": 12}, {"Belloch": 6.5, "Yunsey": 12}, {"Belloch": 6}, "6", {"Belloch": True, "Yunsey": 12}):
+    check(f"exceso no válido se rechaza: {malo}", c.put("/api/config", json={"exceso": malo}, headers=H).status_code == 400)
+nexc = lambda: sum(v == "exceso" for v in c.get("/api/dataset").json["prev"]["sem"]["ALL"].values())  # noqa: E731
+n9 = nexc()
+c.put("/api/config", json={"exceso": {"Belloch": 6, "Yunsey": 12}}, headers=H)
+check("la carga anterior se evalúa con los meses de exceso guardados", nexc() < n9, (n9, nexc()))
+
 # Validaciones de acciones
 r = c.post("/api/actions", json={"ref": "<img src=x onerror=alert(1)>", "text": "x"}, headers=H)
 check("acción con referencia no válida se rechaza", r.status_code == 400)
@@ -118,16 +129,18 @@ check("cambiar X-Forwarded-For no evita el bloqueo", r.status_code == 429)
 # Paridad core.py / static/core.js
 node = shutil.which("node")
 if node:
-    out = {f"{e}{p}{h}": {r["k"]: core.evaluate(r, h, e, p)["sem"] for r in ds["refs"]}
+    exc = c.get("/api/me").json["config"]["exceso"]
+    out = {f"{e}{p}{h}": {r["k"]: core.evaluate(r, h, e, p, exc)["sem"] for r in ds["refs"]}
            for e in ("OF", "OFPF", "ALL") for p in ("T", "C") for h in (1, 3, 6)}
     with tempfile.TemporaryDirectory() as tmp:
         fj = os.path.join(tmp, "d.json")
-        json.dump({"refs": ds["refs"], "py": out}, open(fj, "w"))
+        json.dump({"refs": ds["refs"], "py": out, "exc": exc}, open(fj, "w"))
         js = ("global.window={};require(process.argv[1]);const d=require(process.argv[2]);let n=0;"
               "for(const e of ['OF','OFPF','ALL'])for(const p of ['T','C'])for(const h of [1,3,6])for(const r of d.refs)"
-              "if(window.Cob.evaluate(r,{horizonte:h,escenario:e,prevision:p}).sem!==d.py[e+p+h][r.k])n++;console.log(n)")
+              "if(window.Cob.evaluate(r,{horizonte:h,escenario:e,prevision:p,exceso:d.exc}).sem!==d.py[e+p+h][r.k])n++;console.log(n)")
         diff = subprocess.check_output([node, "-e", js, os.path.join(ROOT, "static", "core.js"), fj], text=True).strip()
     check("core.js evalúa igual que core.py", diff == "0", f"{diff} diferencias")
+    check("hay referencias en exceso con los datos reales", sum(v == "exceso" for v in out["ALLT3"].values()) > 50, sum(v == "exceso" for v in out["ALLT3"].values()))
 else:
     print("--   sin Node.js: no se comprueba la paridad con core.js")
 

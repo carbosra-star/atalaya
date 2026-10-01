@@ -135,7 +135,7 @@ def init_db() -> None:
 
 
 def get_config() -> dict:
-    cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF))}
+    cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF)), "exceso": dict(core.EXCESO_DEF)}
     for r in db().execute("SELECT key,value FROM config"):
         cfg[r["key"]] = json.loads(r["value"])
     return cfg
@@ -277,9 +277,10 @@ def dataset():
     if prev:
         # Se recalcula con el horizonte actual y los tres escenarios, para comparar con lo que ve el usuario
         refs = json.loads(zlib.decompress(prev["data"]))["refs"]
-        hz = get_config().get("horizonte", 3)
+        cfg = get_config()
+        hz, exc = cfg.get("horizonte", 3), cfg["exceso"]
         ds["prev"] = {"id": prev["id"], "created": prev["created"], "hoy": prev["hoy"],
-                      "sem": {e + ("_C" if p == "C" else ""): {r["k"]: core.evaluate(r, hz, e, p)["sem"] for r in refs}
+                      "sem": {e + ("_C" if p == "C" else ""): {r["k"]: core.evaluate(r, hz, e, p, exc)["sem"] for r in refs}
                               for e in ESCENARIOS for p in ("T", "C")}}
     return jsonify(ds)
 
@@ -318,8 +319,8 @@ def upload():
         return err("No se ha podido leer el fichero: " + str(e)[:200])
     finally:
         os.unlink(path)
-    hz = get_config().get("horizonte", 3)
-    sem = {r["k"]: core.evaluate(r, hz, "ALL")["sem"] for r in ds["refs"]}
+    cfg = get_config()
+    sem = {r["k"]: core.evaluate(r, cfg.get("horizonte", 3), "ALL", "T", cfg["exceso"])["sem"] for r in ds["refs"]}
     counts = defaultdict(int)
     for s in sem.values():
         counts[s] += 1
@@ -349,7 +350,7 @@ def config():
     if g.user["role"] != "admin":
         return err("Solo un administrador puede cambiar los criterios", 403)
     b = request.get_json(silent=True) or {}
-    if "horizonte" not in b and "abc" not in b:
+    if not any(k in b for k in ("horizonte", "abc", "exceso")):
         return err("No hay nada que guardar")
     save = {}
     if "horizonte" in b:
@@ -362,6 +363,12 @@ def config():
         if problema:
             return err(problema)
         save["abc"] = {k: b["abc"][k] for k in ("cortes", "freq", "ss")}
+    if "exceso" in b:
+        ex = b["exceso"]
+        ok = isinstance(ex, dict) and all(isinstance(ex.get(md), int) and not isinstance(ex.get(md), bool) and 1 <= ex[md] <= 12 for md in ("Belloch", "Yunsey"))
+        if not ok:
+            return err("Los meses de exceso deben ser números enteros entre 1 y 12 para Belloch y Yunsey")
+        save["exceso"] = {md: ex[md] for md in ("Belloch", "Yunsey")}
     antes = get_config()["abc"]["cortes"]
     for k, v in save.items():
         db().execute("INSERT INTO config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, json.dumps(v)))
