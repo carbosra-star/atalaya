@@ -12,6 +12,7 @@ Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
 | Ficha de referencia | Todos | Proyección de stock a 12 meses, tabla mes a mes, entradas (OF y propuestas), venta de 12 meses, acciones y notas |
 | Líneas | Todos | Estado por grupo de máquina y página de cada línea con su demanda y entradas |
 | Porfolio | Todos | Resumen del maestro, altas y bajas frente a la carga anterior (con su motivo), lanzamientos de los últimos 9 meses con lo que tienen preparado, PT activos sin movimiento e inactivos con stock (con su valor) |
+| Stock mínimo y lotes | Todos (deciden planificador y administrador) | Lote y stock de seguridad por referencia (ERP, método Excel y estadístico), propuesta, decisiones con historial, valor en € por mandante y clase y fichero de cambios para ABAS |
 | Reunión semanal | Todos (editan planificador y administrador) | Referencias que necesitan decisión y acciones abiertas con responsable y fecha |
 | Datos | Administrador | Carga del MM_Supply (comprobar → publicar), historial de cargas y criterios del semáforo |
 | Usuarios | Administrador | Alta de usuarios, roles, activación y contraseñas temporales |
@@ -97,9 +98,11 @@ Hojas que usa la app (las demás se ignoran):
 
     Los tres últimos solo se aplican a los contra stock: los bajo pedido se fabrican contra pedido.
   - Cubierto.
-  - Exceso (solo contra stock): el stock de hoy supera la demanda de los próximos 6 meses en Belloch o 12 en Yunsey (configurable en Datos). Es provisional hasta el módulo de stock mínimo y lotes, que lo cambiará por el stock máximo.
+  - Exceso (solo contra stock): el stock de hoy supera el stock máximo (stock de seguridad + lote); si no tiene lote, la demanda de los próximos 6 meses en Belloch o 12 en Yunsey (configurable en Datos).
   - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
 - **Valor**: a coste, con el `Precio Mixto` del maestro. En Inicio: valor del stock, del exceso (stock − demanda de los meses de exceso) y del stock sin demanda. En Coberturas, la columna Valor enseña el exceso en las referencias en exceso, lo que falta (peor mes del horizonte) en las de rotura y el stock en el resto. Las referencias con stock y sin precio aparecen como "sin precio" y no suman.
+- **Stock mínimo y lotes** (contra stock con ABC): lote = previsión de 12 meses ÷ fabricaciones al año de la clase (a miles desde 10.000, a centenas por debajo). Stock de seguridad método Excel = lote × % de la clase. Estadístico = z(nivel de servicio) × error típico relativo × previsión media del próximo trimestre × √(plazo en meses), con plazo = 15 días laborables + plazo extra de material; error > 100 % = irregular, menos de 6 meses con previsión = sin historia; sobreprevisión > 20 % no sube; límite ×0,5–×2 del ERP; redondeo a centenas; Yunsey no baja. La propuesta es el estadístico (o el ERP si no hay cifra), salvo cambios de menos del 10 % o 100 uds. Las decisiones se guardan con historial; el fichero para ABAS trae las pendientes y, al publicar una carga cuyo ERP ya las tiene, se marcan como aplicadas.
+- **Stock máximo** = stock de seguridad + lote (decididos o del ERP). Es el criterio de exceso; sin lote, se usa la demanda de los meses de exceso.
 - **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento (stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses), los que tienen previsión más allá de 12 meses en la versión vigente y todos los lanzamientos (altas de los últimos 9 meses), aunque todavía no tengan nada. Las altas y bajas se detectan solas en cada carga.
 - **Porfolio**: un alta es "nueva" si tiene menos de 4 meses; los lanzamientos son las altas de los últimos 9 meses.
 - **ABC** por mandante con Pareto sobre la venta en unidades de los 12 meses cerrados (cortes configurables en Datos, por defecto A < 45 %, B < 80 %, C < 95 %, D resto; la referencia que cruza un corte se queda en su clase); bajo pedido = NA. Con menos de 12 meses desde la primera venta se anualiza la venta media y con menos de 3 se usa la previsión de 12 meses: en ambos casos el ABC es provisional (*). Por mandante y clase se configuran también la frecuencia de fabricación y el % de SS, para el futuro módulo de stock mínimo y lotes.
@@ -112,10 +115,12 @@ La lógica está en `app/core.py` (servidor) y su gemela de evaluación en `app/
 app/
   app.py          API, sesiones, roles y base de datos
   core.py         lectura del MM_Supply y cálculo de coberturas
+  parametros.py   stock mínimo, lote y stock máximo (sin gemela en el navegador)
   static/         aplicación web (index.html, app.js, app.css, core.js)
 tests/test_api.py prueba de extremo a extremo: DATA_DIR=/tmp/prueba python tests/test_api.py MM_Supply.xlsx
                   (con Node.js instalado comprueba además que core.js y core.py dan el mismo semáforo)
 tests/test_core.py    pruebas de la lógica con datos inventados: python tests/test_core.py
+tests/test_parametros.py pruebas del cálculo de stock mínimo y lotes: python tests/test_parametros.py
 tests/test_core_js.js pruebas de core.js sin gemela en Python: node tests/test_core_js.js
 ```
 
@@ -123,7 +128,7 @@ tests/test_core_js.js pruebas de core.js sin gemela en Python: node tests/test_c
 
 - Stock bloqueado o en cuarentena (hoy cuenta dentro del stock).
 - Capacidad por línea para comparar con la carga.
-- Módulos de stock mínimo y lotes, desviación de previsiones y consolidador (ya visibles en el menú como "pronto").
+- Módulos de desviación de previsiones y consolidador (ya visibles en el menú como "pronto").
 
 ## Deuda técnica y decisiones provisionales
 
