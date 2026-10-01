@@ -17,6 +17,23 @@
     return { dem, ent, stk };
   }
 
+  // Cobertura desde hoy: meses que dura el stock consumiendo la demanda prevista mes a mes (el mes en curso
+  // por lo que queda de él, que pesa los días que quedan ÷ días del mes). 99: sin demanda en 12 meses (sin dato);
+  // 50: dura más de 12 meses
+  function cobertura(st, dem, dias) {
+    if (!dem.some(x => x > 0)) return 99;
+    if (st <= 0) return 0;
+    const f0 = dias && dias[1] ? dias[0] / dias[1] : 1;
+    let s = st, t = 0;
+    for (let m = 0; m < dem.length; m++) {
+      const w = m === 0 ? f0 : 1;
+      if (s < dem[m]) return t + w * s / dem[m];
+      s -= dem[m]; t += w;
+    }
+    return 50;
+  }
+  const cobTxt = (v) => v == null || v >= 99 ? '—' : v > 12 ? '> 12 m' : Math.max(0, v).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m';
+
   // Primera entrada de este mes antes de la cual se acaba el stock, con la demanda del mes repartida
   // por igual en los días que quedan (e.f: parte de esos días que habrá pasado al llegar)
   function roturaAntes(r, d0, esc) {
@@ -36,10 +53,10 @@
     const rotOF = firstBelow(of, 0), bminOF = r.mn > 0 ? firstBelow(of, r.mn) : -1;
     // Demanda/mes: media de los 3 próximos meses completos (sin el mes en curso, que solo trae lo que queda)
     const d3 = all.dem.slice(1, 4).reduce((s, x) => s + x, 0) / 3;
-    const cob = d3 > 0 ? r.st / d3 : 99;  // 99: sin demanda en los 3 próximos meses, no hay nada que cubrir
-    // Cobertura prudente (informativa): demanda corregida de los 3 próximos meses más el error medio, con tope del 100 %
-    const dc = project(r, 'ALL', 'C').dem.slice(1, 4).reduce((s, x) => s + x, 0) / 3 * (1 + Math.min(r.er == null ? 0 : r.er, 1));
-    const cobp = !r.pvc ? null : dc > 0 ? r.st / dc : 99;  // null: carga antigua sin previsión corregida
+    const cob = cobertura(r.st, all.dem, cfg.dias);
+    // Cobertura prudente (informativa): igual, con la demanda corregida aumentada en el error medio (tope del 100 %)
+    const kp = 1 + Math.min(r.er == null ? 0 : r.er, 1);
+    const cobp = !r.pvc ? null : cobertura(r.st, project(r, 'ALL', 'C').dem.map(x => x * kp), cfg.dias);  // null: carga antigua sin previsión corregida
     const next = r.en.filter(e => counts(e.t, cfg.escenario || 'ALL')).sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
     const lateOF = r.en.some(e => e.t === 'OF' && e.late);
     const hasP = r.en.some(e => e.t === 'P' && e.m < hz);
@@ -67,5 +84,5 @@
     return { all, of, rot, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
-  root.Cob = { project, evaluate, H, EXCESO_DEF };
+  root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt };
 })(window);

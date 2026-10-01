@@ -29,7 +29,7 @@ const ESC_TXT = { OF: 'solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y tod
 const escLower = () => ESC_TXT[S.esc] + (S.pv === 'C' ? ' y previsión corregida' : '');
 const PV = { T: 'Tal cual', C: 'Corregida' };
 const pvKey = () => S.esc + (S.pv === 'C' ? '_C' : '');  // clave de la carga anterior evaluada
-const cobTxt = (v) => v == null || v >= 99 ? '—' : Math.max(0, v).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m';  // stock negativo: 0 m
+const cobTxt = (v) => Cob.cobTxt(v);  // stock negativo: 0 m
 const ENT = { OF: 'OF', PF: 'Propuesta fijada', P: 'Propuesta' };
 // Valor que importa según el estado (a coste, Precio Mixto): exceso, lo que falta en rotura o el stock.
 // null = sin precio (con algo que valorar); 0 = nada que valorar
@@ -94,7 +94,7 @@ function aciertoHTML(r) {
     <tr><th scope="row">Versión</th>${src.map(v => `<td class="r small muted">${esc(v)}</td>`).join('')}</tr></tbody></table></div>`;
 }
 function recompute() {
-  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv, exceso: S.cfg.exceso };
+  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv, exceso: S.cfg.exceso, dias: S.ds && S.ds.meta.dias };
   S.ev = S.ds ? S.ds.refs.map(r => ({ r, e: Cob.evaluate(r, cfg) })) : [];
   S.byK = {}; for (const x of S.ev) S.byK[x.r.k] = x;
 }
@@ -391,7 +391,8 @@ async function pageList(main) {
     <div class="toolbar"><span class="count" id="count" aria-live="polite"></span><button class="btn ghost sm" id="csv">Descargar lista (CSV)</button></div>
     <div class="leyenda" id="leyenda"></div>
     <div class="tw"><table id="tbl"><caption class="sr">Referencias y su cobertura</caption><thead id="thead"></thead><tbody></tbody></table></div>
-    <button class="btn ghost more" id="more" hidden></button>`;
+    <button class="btn ghost more" id="more" hidden></button>
+    <p class="muted small">Cobertura: meses que dura el stock de hoy con la demanda prevista desde hoy, mes a mes (el mes en curso, por lo que queda). No cuenta las entradas. Prudente: igual, con la previsión corregida y aumentada en su error. Demanda/mes: media de los 3 próximos meses completos.</p>`;
   const fl = $('#flt');
   fl.addEventListener('input', (ev) => { const n = ev.target.name; if (!n) return; if (n === 'q') { clearTimeout(fl.t); fl.t = setTimeout(() => { setQuery({ q: ev.target.value.trim() }); limit = 200; draw(); }, 200); } });
   fl.addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'q') return; setQuery({ [n]: n === 'gp' ? (ev.target.value || '') : ev.target.value }); if (n === 'gp' && !ev.target.value) { const { path, q: qq } = parseHash(); qq.set('gp', ''); history.replaceState(null, '', '#' + path + '?' + qq); } limit = 200; draw(); });
@@ -402,7 +403,7 @@ async function pageList(main) {
 }
 function downloadCSV(rows) {
   const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `coberturas_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);

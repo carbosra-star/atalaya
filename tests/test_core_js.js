@@ -2,6 +2,7 @@
 global.window = {};
 require('../app/static/core.js');
 const { evaluate } = window.Cob;
+const cobTxt = (v) => window.Cob.cobTxt(v);
 let fails = 0;
 const check = (name, cond, detail) => { console.log((cond ? 'OK   ' : 'FALLO'), name, detail === undefined ? '' : detail); if (!cond) fails++; };
 
@@ -16,6 +17,17 @@ check('carga antigua sin previsión corregida: sin cobertura prudente', evaluate
 const sinDem = { ...nueva, st: 0, pv: new Array(12).fill(0), pv0r: 0, pvc: new Array(12).fill(0), pv0rc: 0 };
 check('sin stock ni demanda: cobertura sin dato', evaluate(sinDem, cfg).cob === 99, evaluate(sinDem, cfg).cob);
 check('sin stock ni demanda: cobertura prudente sin dato', evaluate(sinDem, cfg).cobp === 99, evaluate(sinDem, cfg).cobp);
+
+// Cobertura desde hoy, mes a mes: lo que dura el stock con la demanda prevista (mes en curso por lo que queda)
+const { cobertura } = window.Cob;
+const dm = [43, 18, 7, 19, 19, 19, 19, 29, 19, 20, 39, 48];
+check('cobertura: rompe este mes (día 1)', Math.abs(cobertura(34, dm, [31, 31]) - 34 / 43) < 1e-9, cobertura(34, dm, [31, 31]));
+check('cobertura: día 25, el mes en curso pesa lo que queda', Math.abs(cobertura(34, [10, ...dm.slice(1)], [7, 31]) - (7 / 31 + 1 + 6 / 7)) < 1e-9, cobertura(34, [10, ...dm.slice(1)], [7, 31]));
+check('cobertura: sin stock, 0', cobertura(0, dm, [31, 31]) === 0 && cobertura(-5, dm, [31, 31]) === 0);
+check('cobertura: más de 12 meses', cobertura(10000, new Array(12).fill(100), [31, 31]) > 12 && cobTxt(cobertura(10000, new Array(12).fill(100), [31, 31])) === '> 12 m');
+check('cobertura: sin demanda en 12 meses, sin dato', cobertura(500, new Array(12).fill(0), [31, 31]) === 99);
+check('cobertura: meses sin demanda en medio no consumen', Math.abs(cobertura(150, [100, 0, 0, 100, 100, 0, 0, 0, 0, 0, 0, 0], [31, 31]) - 3.5) < 1e-9);
+check('evaluate usa la cobertura desde hoy', Math.abs(evaluate({ ...base, st: 34, pv: dm, pv0r: 43 }, { ...cfg, dias: [31, 31] }).cob - 34 / 43) < 1e-9);
 
 // Avisos en amarillo (gemelos de core.py, ver test_core.py)
 const cs = { ...base, gp: 'Contra Stock', st: 100, pv: new Array(12).fill(1000), pv0r: 1000 };

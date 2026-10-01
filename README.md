@@ -82,10 +82,10 @@ Hojas que usa la app (las demás se ignoran):
 - **Previsión operativa**: para cada mes se usa la versión más reciente que tenga ese mes (por ejemplo, el mes en curso de 2026Q3 y los siguientes de 2026Q4).
 - **Demanda del mes** = la mayor entre la previsión y los pedidos de ese mes (como consume ABAS). En el mes en curso cuenta la menor entre (previsión − lo ya vendido) y la parte proporcional de los días naturales que quedan, hoy incluido; los pedidos con fecha pasada se suman al mes en curso.
 - **Entradas** según el escenario elegido: solo OF, OF y propuestas fijadas, u OF y todas las propuestas.
-- **Demanda/mes y cobertura**: la demanda/mes es la media de los 3 próximos meses completos (sin el mes en curso); la cobertura es stock de hoy ÷ demanda/mes.
+- **Demanda/mes y cobertura**: la demanda/mes es la media de los 3 próximos meses completos (sin el mes en curso). La cobertura es lo que dura el stock de hoy consumiendo la demanda prevista desde hoy, mes a mes: primero lo que queda del mes en curso (que pesa los días que quedan) y después cada mes; sin demanda en 12 meses es "—" y si dura más de 12 meses, "> 12 m". No cuenta las entradas.
 - **Acierto de la previsión**: para los 12 últimos meses cerrados se compara la venta con la previsión vigente de cada mes (la última versión cuyo trimestre había empezado). El **factor de sesgo** es venta ÷ previsión en los meses que tenían previsión, propio con 6 meses o más de historia o, si no, el de su grupo mandante × ABC, siempre entre 0,5 y 1,5. El **error medio** es Σ|venta − previsión| ÷ venta.
 - **Previsión corregida** (selector "Previsión"): la previsión × factor de sesgo. Por defecto se usa la previsión tal cual.
-- **Cobertura prudente**: stock ÷ (demanda/mes con previsión corregida × (1 + error medio, con tope del 100 %)). Es informativa, no cambia el semáforo.
+- **Cobertura prudente**: la misma cuenta con la demanda corregida por el sesgo y aumentada en el error medio (con tope del 100 %). Es informativa, no cambia el semáforo.
 - **Stock proyectado** a fin de mes = stock anterior − demanda + entradas.
 - **Semáforo** (horizonte configurable, 3 meses por defecto):
   - Rotura: stock proyectado por debajo de 0 dentro del horizonte.
