@@ -213,6 +213,8 @@ cover = {"2026Q3": set(range(-5, 3))}
 sales = {"R1": {-3: 80, -2: 120, -1: 90}, "R3": {-2: 500}}
 av = core.acierto_versiones(items, cover, sales, {"R1": "NELLY", "R3": "NELLY"}, 2026, 9)
 check("acierto por versión: solo meses cerrados desde el inicio del trimestre", av == [dict(v="2026Q3", mc="NELLY", e=130, s=290, p=200, n=1, m=3)], av)
+av2 = core.acierto_versiones(items, cover, sales, {"R1": "NELLY"}, 2026, 9, meses_venta={-3, -2})
+check("acierto por versión: meses que MM_Vtas no trae no cuentan como venta 0", av2 == [dict(v="2026Q3", mc="NELLY", e=40, s=200, p=200, n=1, m=2)], av2)
 
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

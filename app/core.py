@@ -168,18 +168,20 @@ def _inicio(v: str, base_y: int, base_m: int) -> int:
     return (int(v[:4]) - base_y) * 12 + 3 * (int(v[5]) - 1) - base_m
 
 
-def acierto_versiones(items, cover, sales, amb, base_y, base_m) -> list[dict]:
+def acierto_versiones(items, cover, sales, amb, base_y, base_m, meses_venta: set[int] | None = None) -> list[dict]:
     """Error de cada versión contra la venta real, por (versión, marca): meses cerrados que cubre la
     versión desde el inicio de su trimestre, solo referencias del ámbito con filas en ese periodo.
-    items: (versión, ref, mes, cantidad); sales: {ref: {mes: uds}}; amb: {ref: marca}."""
+    items: (versión, ref, mes, cantidad); sales: {ref: {mes: uds}}; amb: {ref: marca};
+    meses_venta: meses que trae MM_Vtas (los que no trae no cuentan como venta 0)."""
+    ini = {v: _inicio(v, base_y, base_m) for v in cover}
     ph: dict[tuple, dict] = {}
     for v, k, mi, q in items:
-        if k in amb and _inicio(v, base_y, base_m) <= mi < 0:
+        if k in amb and ini[v] <= mi < 0:
             d = ph.setdefault((v, k), {})
             d[mi] = d.get(mi, 0.0) + q
     acc: dict[tuple, dict] = {}
     for (v, k), d in ph.items():
-        meses = sorted(m for m in cover[v] if _inicio(v, base_y, base_m) <= m < 0)
+        meses = sorted(m for m in cover[v] if ini[v] <= m < 0 and (meses_venta is None or m in meses_venta))
         a = acc.setdefault((v, amb[k]), dict(v=v, mc=amb[k], e=0.0, s=0.0, p=0.0, n=0, ms=set()))
         a["n"] += 1
         for m in meses:
@@ -445,7 +447,8 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         for j, mi in vcols:
             q = _num(_get(r, j))
             if mi < 0:
-                VALL.setdefault(k, {})[mi] = VALL.get(k, {}).get(mi, 0.0) + q
+                d = VALL.setdefault(k, {})
+                d[mi] = d.get(mi, 0.0) + q
             if -12 <= mi <= 0:
                 a[mi + 12] += q
             if q > 0 and mi <= 0:
@@ -547,7 +550,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     clasificar(refs, cortes or ABC_DEF["cortes"])
     acierto(refs, dias_quedan, dias_mes)
     amb = {r["k"]: r["mc"] or "—" for r in refs if r["gp"] == "Contra Stock" and r.get("abc") in ("A", "B", "C", "D")}
-    vers = acierto_versiones([(v, k, mi, _num(_get(r, iQ))) for v, k, mi, r in pr], cover, VALL, amb, base_y, base_m)
+    vers = acierto_versiones([(v, k, mi, _num(_get(r, iQ))) for v, k, mi, r in pr], cover, VALL, amb, base_y, base_m, {mi for _, mi in vcols})
 
     refs.sort(key=lambda r: r["k"])
     meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn, vers=vers)

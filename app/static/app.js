@@ -320,7 +320,7 @@ async function pageHome(main) {
     ${strip(cs, k => '#/coberturas?sem=' + k)}
     <div class="kpis">${kpi('#/coberturas?gp=', keur(conPr(S.ev, stk)), `Valor del stock · contra stock ${keur(conPr(cs, stk))}`)}
       ${kpi('#/coberturas?sem=exceso&sort=val&dir=-1', keur(conPr(exc, x => x.e.ex)), `En exceso · ${fmt(exc.length)} refs`)}
-      ${kpi('#/coberturas?gp=&sem=gris&sort=val&dir=-1', keur(conPr(sdm, stk)), `Sin demanda · ${fmt(sdm.length)} refs`)}</div>
+      ${kpi('#/coberturas?gp=&sem=gris&sort=val&dir=-1', keur(conPr(sdm, stk)), `Sin demanda con stock · ${fmt(sdm.length)} refs`)}</div>
     ${sinPr ? `<p class="muted small">${fmt(sinPr)} referencias con stock y sin precio no suman.</p>` : ''}
     <div class="grid">
       <section class="card"><h2>Entran en rotura</h2>${prev ? `<p class="big">${into.length}</p><p class="muted small">Frente a la carga del ${fdate(S.ds.prev.created)}</p>${into.length ? `<ul>${into.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
@@ -439,7 +439,7 @@ async function pageRef(main, [k]) {
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
         <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
-        <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? ` · exceso ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : e.sem === 'rojo' && e.fa ? ` · falta ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
+        <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? `<br>Exceso: ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : e.sem === 'rojo' && e.fa ? `<br>Falta: ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
         <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · lote ${fmt(r.lt)}` : ''}</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cob)}</div><div class="l">Cobertura</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cobp)}</div><div class="l">Cobertura prudente</div></div>

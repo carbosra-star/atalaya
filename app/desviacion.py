@@ -42,7 +42,7 @@ def filas(refs: list[dict], acuerdos: dict) -> list[dict]:
         eu = sum(pvc) - p12
         out.append(dict(k=r["k"], n=r.get("n", ""), md=r["md"], mc=r.get("mc") or "—", abc=r["abc"], pr=pr,
                         p12=round(p12), v12=round(v12), cr=None if cr is None else round(cr, 3), cs=None if cs is None else round(cs, 3),
-                        cp=cp, tipo=tipo, estado="acordado" if a else tipo, ca=round(ca, 4), src=a["src"] if a else None,
+                        cp=cp, tipo=tipo, estado="acordado" if a else tipo, ca=round(ca, 4), src=a["src"] if a else None, mo=(a.get("motivo") or "") if a else "",
                         pvc=pvc, eu=round(eu), ee=round(eu * pr)))
     return out
 

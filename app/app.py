@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS prev_dec(
   pct REAL NOT NULL, src TEXT NOT NULL CHECK(src IN ('propuesta','manual','mantener')),
   motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS prev_dec_ref ON prev_dec(ref, version, id);
+CREATE INDEX IF NOT EXISTS prev_dec_ver ON prev_dec(version, ref, id);
 """
 
 
@@ -326,18 +327,18 @@ def upload():
     last = db().execute("SELECT data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (hoy.isoformat(),)).fetchone()
     prev = {r["k"]: r["n"] for r in json.loads(zlib.decompress(last["data"]))["refs"]} if last else None
     mismo = db().execute("SELECT created FROM loads WHERE hoy=? ORDER BY id DESC LIMIT 1", (hoy.isoformat(),)).fetchone()
+    cfg = get_config()
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         f.save(tmp.name)
         path = tmp.name
     try:
-        ds = core.parse(core.read_workbook(path), hoy, prev, get_config()["abc"]["cortes"])
+        ds = core.parse(core.read_workbook(path), hoy, prev, cfg["abc"]["cortes"])
     except core.DataError as e:
         return err(str(e))
     except Exception as e:  # fichero corrupto u otro formato
         return err("No se ha podido leer el fichero: " + str(e)[:200])
     finally:
         os.unlink(path)
-    cfg = get_config()
     sem = {r["k"]: core.evaluate(r, cfg.get("horizonte", 3), "ALL", "T", cfg["exceso"])["sem"] for r in _con_sx(json.loads(json.dumps(ds["refs"])))}
     counts = defaultdict(int)
     for s in sem.values():
@@ -459,11 +460,11 @@ def param_list():
     row = _load_row()
     if not row:
         return jsonify({"empty": True})
-    rows = _param_rows(_refs(row))
-    out = {"rows": rows, "resumen": parametros.resumen(rows), "hoy": row["hoy"]}
-    if request.args.get("ref"):
-        out["rows"] = [p for p in rows if p["k"] == request.args["ref"]]
-    return jsonify(out)
+    k, refs = request.args.get("ref"), _refs(row)
+    if k:  # ficha: solo esa referencia (el cálculo es por referencia)
+        return jsonify({"rows": _param_rows([r for r in refs if r["k"] == k]), "hoy": row["hoy"]})
+    rows = _param_rows(refs)
+    return jsonify({"rows": rows, "resumen": parametros.resumen(rows), "hoy": row["hoy"]})
 
 
 SRC_SS, SRC_LOTE = {"erp": "mn", "excel": "xl", "estadistico": "est", "manual": None}, {"erp": "lt", "calculado": "lc", "manual": None}
@@ -558,9 +559,10 @@ def _acuerdos(version: str) -> dict:
     return {r["ref"]: dict(r) for r in db().execute(q, (version,))}
 
 
-def _desv(row) -> tuple[dict, list[dict]]:
+def _desv(row, ref: str = "") -> tuple[dict, list[dict]]:
     ds = json.loads(zlib.decompress(row["data"]))
-    return ds, desviacion.filas(ds["refs"], _acuerdos(ds["meta"]["version"]))
+    refs = [r for r in ds["refs"] if r["k"] == ref] if ref else ds["refs"]
+    return ds, desviacion.filas(refs, _acuerdos(ds["meta"]["version"]))
 
 
 @app.get("/api/desviacion")
@@ -569,12 +571,10 @@ def desv_list():
     row = _load_row()
     if not row:
         return jsonify({"empty": True})
-    ds, rows = _desv(row)
-    out = {"version": ds["meta"]["version"], "base": ds["meta"]["base"], "rows": rows,
-           "marcas": desviacion.resumen_marcas(rows, ds["refs"]), "vers": ds["meta"].get("vers")}
-    if request.args.get("ref"):
-        out["rows"] = [p for p in rows if p["k"] == request.args["ref"]]
-    return jsonify(out)
+    k = request.args.get("ref", "")
+    ds, rows = _desv(row, k)  # con ?ref (ficha) solo esa referencia, sin resumen por marca
+    return jsonify({"version": ds["meta"]["version"], "base": ds["meta"]["base"], "rows": rows,
+                    "marcas": None if k else desviacion.resumen_marcas(rows, ds["refs"]), "vers": ds["meta"].get("vers")})
 
 
 @app.post("/api/desviacion/acuerdos")
@@ -638,10 +638,9 @@ def desv_csv():
     limpio = lambda s: " ".join((s or "").replace(";", ",").split())  # noqa: E731
     pct = lambda x: ("%g" % round(x * 100, 1)).replace(".", ",")  # noqa: E731
     lineas = ["Referencia;Mandante;Marca;Versión;Corrección %;Motivo;" + ";".join(meses)]
-    A_ = _acuerdos(ds["meta"]["version"])
     for p in rows:
         if p["estado"] == "acordado":
-            lineas.append(";".join([p["k"], p["md"], limpio(p["mc"]), ds["meta"]["version"], pct(p["ca"]), limpio(A_[p["k"]]["motivo"])] + [str(x) for x in p["pvc"]]))
+            lineas.append(";".join([p["k"], p["md"], limpio(p["mc"]), ds["meta"]["version"], pct(p["ca"]), limpio(p["mo"])] + [str(x) for x in p["pvc"]]))
     txt = "\r\n".join(lineas) + "\r\n"
     nombre = f'acuerdos_prevision_{ds["meta"]["version"]}_{today():%Y%m%d}.csv'
     return Response(txt.encode("latin-1", errors="replace"), mimetype="text/csv",

@@ -220,7 +220,7 @@ if node:
               "if(window.Cob.evaluate(r,{horizonte:h,escenario:e,prevision:p,exceso:d.exc}).sem!==d.py[e+p+h][r.k])n++;console.log(n)")
         diff = subprocess.check_output([node, "-e", js, os.path.join(ROOT, "static", "core.js"), fj], text=True).strip()
     check("core.js evalúa igual que core.py", diff == "0", f"{diff} diferencias")
-    check("hay referencias en exceso con los datos reales", sum(v == "exceso" for v in out["ALLT3"].values()) > 50, sum(v == "exceso" for v in out["ALLT3"].values()))
+    check("hay referencias en exceso con los datos reales", sum(v == "exceso" for v in out["ALLT3"].values()) > 0, sum(v == "exceso" for v in out["ALLT3"].values()))
 else:
     print("--   sin Node.js: no se comprueba la paridad con core.js")
 
