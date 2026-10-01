@@ -517,11 +517,12 @@ async function pageMeeting(main) {
   const semF = q.get('sem') || 'rojo,naranja', onlyNo = q.get('sin') === '1';
   const canW = can('admin', 'planificador');
   const list = S.ev.filter(x => x.r.gp === 'Contra Stock' && semF.split(',').includes(x.e.sem) && (!onlyNo || !openActs(x.r.k).length))
-    .sort((a, b) => SEMORD[a.e.sem] - SEMORD[b.e.sem] || (a.e.rot < 0 ? 99 : a.e.rot) - (b.e.rot < 0 ? 99 : b.e.rot) || b.e.d3 - a.e.d3);
+    .sort(semF === 'exceso' ? (a, b) => (valor(b.r, b.e) ?? -1) - (valor(a.r, a.e) ?? -1)  // exceso: primero lo que más dinero inmoviliza
+      : (a, b) => SEMORD[a.e.sem] - SEMORD[b.e.sem] || (a.e.rot < 0 ? 99 : a.e.rot) - (b.e.rot < 0 ? 99 : b.e.rot) || b.e.d3 - a.e.d3);
   const today = todayISO();
   main.innerHTML = `<h1>Reunión semanal</h1>
     <form class="filters" onsubmit="return false">
-      <label class="fld">Qué revisar<select id="mSem"><option value="rojo,naranja" ${semF === 'rojo,naranja' ? 'selected' : ''}>Rotura y bajo mínimo</option><option value="rojo" ${semF === 'rojo' ? 'selected' : ''}>Solo rotura</option><option value="rojo,naranja,amarillo" ${semF === 'rojo,naranja,amarillo' ? 'selected' : ''}>Rotura, bajo mínimo y a revisar</option></select></label>
+      <label class="fld">Qué revisar<select id="mSem"><option value="rojo,naranja" ${semF === 'rojo,naranja' ? 'selected' : ''}>Rotura y bajo mínimo</option><option value="rojo" ${semF === 'rojo' ? 'selected' : ''}>Solo rotura</option><option value="rojo,naranja,amarillo" ${semF === 'rojo,naranja,amarillo' ? 'selected' : ''}>Rotura, bajo mínimo y a revisar</option><option value="exceso" ${semF === 'exceso' ? 'selected' : ''}>Exceso (por valor)</option></select></label>
       <label class="fld" style="flex-direction:row;align-items:center;gap:6px;padding-bottom:8px"><input type="checkbox" id="mSin" ${onlyNo ? 'checked' : ''}> Solo sin acción abierta</label>
       ${scenarioCtl()}</form>
     <h2>Por decidir (${list.length})</h2>
