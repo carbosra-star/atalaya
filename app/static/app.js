@@ -6,6 +6,8 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Enteros con punto de miles siempre (toLocaleString no agrupa 4 cifras: 5341 → 5.341)
 const fmt = (n) => (n == null || isNaN(n)) ? '–' : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const eur = (n) => fmt(n) + ' €';
+const keur = (n) => Math.abs(n) >= 1e6 ? (n / 1e6).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' M€' : fmt(n / 1000) + ' k€';
 // Fechas siempre en números: 29/09/2026, 29/09 (corta), 29/09/2026 10:25 (con hora), 09/26 (mes)
 const pad = (n) => String(n).padStart(2, '0');
 const toDate = (iso) => new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso);
@@ -23,6 +25,14 @@ const PV = { T: 'Tal cual', C: 'Corregida' };
 const pvKey = () => S.esc + (S.pv === 'C' ? '_C' : '');  // clave de la carga anterior evaluada
 const cobTxt = (v) => v == null || v >= 99 ? '—' : Math.max(0, v).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m';  // stock negativo: 0 m
 const ENT = { OF: 'OF', PF: 'Propuesta fijada', P: 'Propuesta' };
+// Valor que importa según el estado (a coste, Precio Mixto): exceso, lo que falta en rotura o el stock.
+// null = sin precio (con algo que valorar); 0 = nada que valorar
+function valor(r, e) {
+  const u = e.sem === 'exceso' ? e.ex : e.sem === 'rojo' ? e.fa : Math.max(r.st, 0);
+  return !u ? 0 : r.pr > 0 ? u * r.pr : null;
+}
+const valorCell = (r, e) => { const v = valor(r, e), t = e.sem === 'exceso' ? 'Exceso' : e.sem === 'rojo' ? 'Falta' : 'Stock';
+  return v == null ? '<td class="r"><span class="muted">sin precio</span></td>' : `<td class="r num" title="${t}">${v ? eur(v) : '–'}</td>`; };
 
 const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL',
   pv: (() => { try { return localStorage.getItem('prev') === 'C' ? 'C' : 'T'; } catch (e) { return 'T'; } })() };
@@ -300,9 +310,17 @@ async function pageHome(main) {
   const late = S.actions.filter(a => a.due && a.due < today);
   const wo = cs.filter(x => (x.e.sem === 'rojo' || x.e.sem === 'naranja') && !openActs(x.r.k).length).length;
   const li = (x) => `<li>${refLink(x.r)} ${esc(x.r.n)}</li>`;
+  const conPr = (xs, u) => xs.filter(x => u(x) > 0 && x.r.pr > 0).reduce((s, x) => s + u(x) * x.r.pr, 0);
+  const stk = x => Math.max(x.r.st, 0), exc = cs.filter(x => x.e.sem === 'exceso'), sdm = S.ev.filter(x => x.e.sem === 'gris' && x.r.st > 0);
+  const sinPr = S.ev.filter(x => x.r.st > 0 && !(x.r.pr > 0)).length;
+  const kpi = (href, v, l) => `<a class="kpi kpi-link" href="${href}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
   main.innerHTML = `<h1>Semana del ${fdate(S.ds.meta.hoy)}</h1>
     <p class="lead">Contra stock · ${escLower()}.</p>
     ${strip(cs, k => '#/coberturas?sem=' + k)}
+    <div class="kpis">${kpi('#/coberturas?gp=', keur(conPr(S.ev, stk)), `Valor del stock · contra stock ${keur(conPr(cs, stk))}`)}
+      ${kpi('#/coberturas?sem=exceso&sort=val&dir=-1', keur(conPr(exc, x => x.e.ex)), `En exceso · ${fmt(exc.length)} refs`)}
+      ${kpi('#/coberturas?gp=&sem=gris&sort=val&dir=-1', keur(conPr(sdm, stk)), `Sin demanda · ${fmt(sdm.length)} refs`)}</div>
+    ${sinPr ? `<p class="muted small">${fmt(sinPr)} referencias con stock y sin precio no suman.</p>` : ''}
     <div class="grid">
       <section class="card"><h2>Entran en rotura</h2>${prev ? `<p class="big">${into.length}</p><p class="muted small">Frente a la carga del ${fdate(S.ds.prev.created)}</p>${into.length ? `<ul>${into.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
       <section class="card"><h2>Salen de rotura</h2>${prev ? `<p class="big">${out.length}</p>${out.length ? `<ul>${out.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
@@ -317,7 +335,7 @@ async function pageHome(main) {
 // ---------------------------------------------------------------- Coberturas
 const LIST_GET = {
   sem: x => SEMORD[x.e.sem] * 1e9 - x.e.d3, k: x => x.r.k, ln: x => x.r.ln || 'zzz', abc: x => x.r.abc, st: x => x.r.st, mn: x => x.r.mn,
-  d0: x => x.e.all.dem[0], d3: x => x.e.d3, cob: x => x.e.cob, cobp: x => x.e.cobp == null ? 999 : x.e.cobp, rot: x => x.e.rot < 0 ? 99 : x.e.rot, next: x => x.e.next ? x.e.next.d : 'z',
+  d0: x => x.e.all.dem[0], d3: x => x.e.d3, val: x => { const v = valor(x.r, x.e); return v == null ? -1 : v; }, cob: x => x.e.cob, cobp: x => x.e.cobp == null ? 999 : x.e.cobp, rot: x => x.e.rot < 0 ? 99 : x.e.rot, next: x => x.e.next ? x.e.next.d : 'z',
 };
 function listFilter(q) {
   const t = (q.get('q') || '').toLowerCase(), md = q.get('md') || '', ln = q.get('ln') || '', mc = q.get('mc') || '', abc = q.get('abc') || '', gp = q.has('gp') ? q.get('gp') : 'Contra Stock';
@@ -332,7 +350,8 @@ async function pageList(main) {
   let limit = 200;
   const draw = () => {
     const { q } = parseHash(); const f = listFilter(q);
-    const key = q.get('sort') || 'sem', dir = parseInt(q.get('dir') || '1', 10);
+    const porValor = !q.get('sort') && ['exceso', 'rojo'].includes(q.get('sem'));
+    const key = q.get('sort') || (porValor ? 'val' : 'sem'), dir = parseInt(q.get('dir') || (porValor ? '-1' : '1'), 10);
     const rows = sortTable(f(false), key, dir, LIST_GET);
     const qsNoSem = new URLSearchParams(q); qsNoSem.delete('sem');
     $('#stripBox').innerHTML = strip(f(true), k => { const p = new URLSearchParams(qsNoSem); if (q.get('sem') !== k) p.set('sem', k); return '#/coberturas' + (p.toString() ? '?' + p : ''); }, q.get('sem'));
@@ -343,11 +362,11 @@ async function pageList(main) {
       ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
       <td>${r.ln ? `<a href="#/linea/${encodeURIComponent(r.ln)}">${esc(r.ln)}</a>` : '—'}</td><td>${abcRef(r)}</td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td>${mesCell(r, e)}<td class="r num">${fmt(e.d3)}</td>
-      ${cobCell(e)}
-      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
+      ${cobCell(e)}${valorCell(r, e)}
+      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="12" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
     $('#more').hidden = rows.length <= limit; $('#more').textContent = `Mostrar ${Math.min(200, rows.length - limit)} más`;
-    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Queda este mes', 'd0', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura · prudente', 'cob', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
-    $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd0', 'd3', 'mn'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
+    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Queda este mes', 'd0', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura · prudente', 'cob', key, dir, 'r')}${thSort('Valor', 'val', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
+    $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd0', 'd3', 'mn', 'val'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
     main._rows = rows;
   };
   const { q } = parseHash();
@@ -375,8 +394,8 @@ async function pageList(main) {
   draw();
 }
 function downloadCSV(rows) {
-  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `coberturas_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -417,6 +436,7 @@ async function pageRef(main, [k]) {
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
         <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
+        <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? ` · exceso ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : e.sem === 'rojo' && e.fa ? ` · falta ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
         <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · lote ${fmt(r.lt)}` : ''}</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cob)}</div><div class="l">Cobertura</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cobp)}</div><div class="l">Cobertura prudente</div></div>
