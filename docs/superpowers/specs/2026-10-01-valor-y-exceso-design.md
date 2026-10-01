@@ -93,9 +93,9 @@ Coberturas, Inicio y Ficha.
   o "Falta: N uds · X €".
 - **Líneas y Reunión semanal**: el estado nuevo aparece en el reparto de colores
   y en los filtros, sin más columnas.
-- **Porfolio**: "Inactivos con stock" y "Sin movimiento" añaden el valor (stock ×
-  precio) y se ordenan por él. Requiere añadir `pr` a esas filas en
-  `core.porfolio` (servidor); en cargas antiguas sin ese dato se muestra "—"
+- **Porfolio**: "Inactivos con stock" añade el valor (stock × precio) y se ordena
+  por él ("Sin movimiento" no: por definición no tiene stock). Requiere añadir
+  `pr` a esas filas en `core.porfolio` (servidor); en cargas antiguas sin ese dato se muestra "—"
   hasta que se publique una carga nueva.
 
 **Sin precio**: si una referencia tiene stock y precio 0, el valor se muestra

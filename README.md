@@ -7,11 +7,11 @@ Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
 
 | Sección | Quién la ve | Contenido |
 |---|---|---|
-| Inicio | Todos | Resumen de la semana: reparto por estado, qué entra y sale de rotura respecto a la carga anterior, acciones abiertas y las 10 referencias más urgentes |
+| Inicio | Todos | Resumen de la semana: reparto por estado, valor del stock, del exceso y sin demanda, qué entra y sale de rotura respecto a la carga anterior, acciones abiertas y las 10 referencias más urgentes |
 | Coberturas | Todos | Lista filtrable y ordenable de referencias (mandante, línea, marca, ABC, planificación, estado), descarga en CSV |
 | Ficha de referencia | Todos | Proyección de stock a 12 meses, tabla mes a mes, entradas (OF y propuestas), venta de 12 meses, acciones y notas |
 | Líneas | Todos | Estado por grupo de máquina y página de cada línea con su demanda y entradas |
-| Porfolio | Todos | Resumen del maestro, altas y bajas frente a la carga anterior (con su motivo), lanzamientos de los últimos 9 meses con lo que tienen preparado, PT activos sin movimiento e inactivos con stock |
+| Porfolio | Todos | Resumen del maestro, altas y bajas frente a la carga anterior (con su motivo), lanzamientos de los últimos 9 meses con lo que tienen preparado, PT activos sin movimiento e inactivos con stock (con su valor) |
 | Reunión semanal | Todos (editan planificador y administrador) | Referencias que necesitan decisión y acciones abiertas con responsable y fecha |
 | Datos | Administrador | Carga del MM_Supply (comprobar → publicar), historial de cargas y criterios del semáforo |
 | Usuarios | Administrador | Alta de usuarios, roles, activación y contraseñas temporales |
@@ -97,7 +97,9 @@ Hojas que usa la app (las demás se ignoran):
 
     Los tres últimos solo se aplican a los contra stock: los bajo pedido se fabrican contra pedido.
   - Cubierto.
+  - Exceso (solo contra stock): el stock de hoy supera la demanda de los próximos 6 meses en Belloch o 12 en Yunsey (configurable en Datos). Es provisional hasta el módulo de stock mínimo y lotes, que lo cambiará por el stock máximo.
   - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
+- **Valor**: a coste, con el `Precio Mixto` del maestro. En Inicio: valor del stock, del exceso (stock − demanda de los meses de exceso) y del stock sin demanda. En Coberturas, la columna Valor enseña el exceso en las referencias en exceso, lo que falta (peor mes del horizonte) en las de rotura y el stock en el resto. Las referencias con stock y sin precio aparecen como "sin precio" y no suman.
 - **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento (stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses), los que tienen previsión más allá de 12 meses en la versión vigente y todos los lanzamientos (altas de los últimos 9 meses), aunque todavía no tengan nada. Las altas y bajas se detectan solas en cada carga.
 - **Porfolio**: un alta es "nueva" si tiene menos de 4 meses; los lanzamientos son las altas de los últimos 9 meses.
 - **ABC** por mandante con Pareto sobre la venta en unidades de los 12 meses cerrados (cortes configurables en Datos, por defecto A < 45 %, B < 80 %, C < 95 %, D resto; la referencia que cruza un corte se queda en su clase); bajo pedido = NA. Con menos de 12 meses desde la primera venta se anualiza la venta media y con menos de 3 se usa la previsión de 12 meses: en ambos casos el ABC es provisional (*). Por mandante y clase se configuran también la frecuencia de fabricación y el % de SS, para el futuro módulo de stock mínimo y lotes.
