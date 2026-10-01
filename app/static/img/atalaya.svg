@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#007AC2"/>
+  <!-- horizonte -->
+  <path d="M4 26.5h24" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>
+  <!-- torre -->
+  <path d="M12.6 26.5 13.6 14h4.8l1 12.5z" fill="#fff"/>
+  <!-- mirador con almenas -->
+  <path d="M10.5 10.2h11v3.8h-11z M10.5 7h2.4v3.4h-2.4z M14.8 7h2.4v3.4h-2.4z M19.1 7h2.4v3.4h-2.4z" fill="#fff"/>
+  <!-- ventana -->
+  <rect x="15.1" y="17" width="1.8" height="3" rx=".5" fill="#007AC2"/>
+</svg>

@@ -133,20 +133,20 @@ async function render() {
   main.innerHTML = '';
   try { await fn(main, parts.slice(1)); } catch (e) { main.innerHTML = `<h1 tabindex="-1">No se ha podido abrir esta página</h1><p class="lead">${esc(e.message)}</p>`; }
   markNav(parts[0] || '');
-  const h1 = $('h1', main); if (h1) { h1.setAttribute('tabindex', '-1'); h1.focus({ preventScroll: true }); document.title = h1.textContent + ' · Planificación Supply'; }
+  const h1 = $('h1', main); if (h1) { h1.setAttribute('tabindex', '-1'); h1.focus({ preventScroll: true }); document.title = h1.textContent + ' · Atalaya'; }
   window.scrollTo(0, 0); $('#side') && $('#side').classList.remove('open');
 }
 
 // ---------------------------------------------------------------- estructura
 const ICON_SEARCH = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-const LOGO = '<svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="rgba(255,255,255,.1)"/><rect x="6" y="18" width="5" height="8" fill="#5DB07C"/><rect x="13.5" y="12" width="5" height="14" fill="#D9B73A"/><rect x="21" y="6" width="5" height="20" fill="#E0574A"/></svg>';
+const LOGO = '<img src="/static/img/atalaya.svg" width="34" height="34" alt="">';
 let globalBound = false;
 function shell() {
   if ($('#main') && $('#side')) { updateChrome(); return; }
   const soon = [['stock-minimo', 'Stock mínimo y lotes'], ['desviacion', 'Desviación de previsiones'], ['consolidador', 'Consolidador de previsiones']];
   $('#app').innerHTML = `<div class="shell">
     <nav class="side" id="side" aria-label="Menú principal">
-      <a class="brand" href="#/">${LOGO}<span><b>Planificación Supply</b><span>bellochapplab</span></span></a>
+      <a class="brand" href="#/">${LOGO}<span><b>Atalaya</b><span>Supply · bellochapplab</span></span></a>
       <div class="nav-g" id="g1">Seguimiento</div>
       <div class="nav" role="list" aria-labelledby="g1">
         <a role="listitem" href="#/" data-nav="">Inicio</a>
@@ -159,6 +159,7 @@ function shell() {
       <div class="nav" role="list" aria-labelledby="g2">${soon.map(([k, t]) => `<a role="listitem" class="soon" href="#/pronto/${k}" data-nav="pronto/${k}">${t} <span class="badge">pronto</span></a>`).join('')}</div>
       ${can('admin') ? `<div class="nav-g" id="g3">Administración</div><div class="nav" role="list" aria-labelledby="g3">
         <a role="listitem" href="#/datos" data-nav="datos">Datos</a><a role="listitem" href="#/usuarios" data-nav="usuarios">Usuarios</a></div>` : ''}
+      <div class="side-foot"><img src="/static/img/lab_belloch.png" alt="Belloch International Group" height="22"></div>
     </nav>
     <div class="content">
       <header class="bar">
@@ -755,11 +756,11 @@ async function pageNotFound(main) { main.innerHTML = '<h1>Página no encontrada<
 
 function pageLogin() {
   $('#app').removeAttribute('aria-busy');
-  $('#app').innerHTML = `<main class="login" id="main"><section class="card"><h1 tabindex="-1">Planificación Supply</h1><p class="muted">bellochapplab · entra con tu usuario</p>
+  $('#app').innerHTML = `<main class="login" id="main"><section class="card"><img class="login-logo" src="/static/img/lab_belloch.png" alt="Belloch International Group" height="34"><h1 tabindex="-1" class="login-t">${LOGO}Atalaya</h1><p class="muted">Supply · bellochapplab · entra con tu usuario</p>
     <form class="form" id="lf"><label>Usuario<input name="username" required autocomplete="username" autofocus></label>
     <label>Contraseña<input type="password" name="password" required autocomplete="current-password"></label>
     <div><button class="btn">Entrar</button></div><p class="msg err" id="lm" aria-live="assertive"></p></form></section></main>`;
-  document.title = 'Entrar · Planificación Supply';
+  document.title = 'Entrar · Atalaya';
   $('#lf').onsubmit = async (ev) => {
     ev.preventDefault(); const fd = new FormData(ev.target); $('#lm').textContent = '';
     try { await api('/api/login', { method: 'POST', body: { username: fd.get('username'), password: fd.get('password') } }); await boot(); location.hash = '#/'; }

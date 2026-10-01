@@ -1,4 +1,4 @@
-# Planificación Supply · bellochapplab
+# Atalaya · Supply · bellochapplab
 
 Aplicación web para el seguimiento de coberturas de producto terminado (PT) de Belloch y Yunsey.
 Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
@@ -24,7 +24,7 @@ Cada pantalla tiene su propia dirección (por ejemplo `#/ref/010010002400`), as�
 
 Requisitos: Docker con Compose (Container Manager de Synology, Portainer o `docker compose` por SSH).
 
-1. Copia esta carpeta al NAS, por ejemplo en `/volume1/docker/planificacion-supply`.
+1. Copia esta carpeta al NAS, por ejemplo en `/volume1/docker/atalaya`.
 2. Copia `.env.example` como `.env` y rellena al menos `ADMIN_USER`, `ADMIN_NAME` y `ADMIN_PASSWORD`.
 3. Revisa el puerto en `docker-compose.yml` (por defecto `8085`).
 4. Arranca:
@@ -34,7 +34,7 @@ Requisitos: Docker con Compose (Container Manager de Synology, Portainer o `dock
 5. Abre `http://<ip-del-nas>:8085` y entra con el administrador del `.env`.
 6. En **Datos**, sube el MM_Supply, pulsa **Comprobar fichero** y, si las cifras cuadran, **Publicar para todos**.
 
-Si dejas `ADMIN_PASSWORD` vacío, se genera una contraseña temporal que aparece en el log del contenedor (`docker logs planificacion-supply`) y se pide cambiarla al entrar.
+Si dejas `ADMIN_PASSWORD` vacío, se genera una contraseña temporal que aparece en el log del contenedor (`docker logs atalaya`) y se pide cambiarla al entrar.
 
 ### HTTPS
 
