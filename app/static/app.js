@@ -428,8 +428,9 @@ async function pageRef(main, [k]) {
   if (!x) { main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a></p><h1>Referencia ${esc(k)}</h1><p class="lead">No está entre los productos terminados activos de la última carga. Puede que esté inactiva, no sea producto terminado o no tenga stock, previsión, pedidos ni entradas.</p>`; return; }
   const draw = async () => {
     const { r, e } = S.byK[k]; const n = Cob.H;
-    const [notes, acts, par, hist] = await Promise.all([api('/api/notes/' + encodeURIComponent(k)), api('/api/actions?ref=' + encodeURIComponent(k)),
-      api('/api/parametros?ref=' + encodeURIComponent(k)), api('/api/parametros/' + encodeURIComponent(k) + '/historial')]);
+    const [notes, acts, par, hist, dvr, dvh] = await Promise.all([api('/api/notes/' + encodeURIComponent(k)), api('/api/actions?ref=' + encodeURIComponent(k)),
+      api('/api/parametros?ref=' + encodeURIComponent(k)), api('/api/parametros/' + encodeURIComponent(k) + '/historial'),
+      api('/api/desviacion?ref=' + encodeURIComponent(k)), api('/api/desviacion/' + encodeURIComponent(k) + '/historial')]);
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
@@ -463,6 +464,15 @@ async function pageRef(main, [k]) {
         ${can('admin', 'planificador') ? `<form class="form" id="plzF" style="max-width:none"><div class="row"><label>Plazo extra de material (días laborables)<input type="number" name="dias" min="0" max="250" value="${p.dx}"></label><label style="flex:1">Motivo<input name="motivo" maxlength="500"></label><button class="btn ghost">Guardar plazo</button></div></form>` : (p.dx ? `<p class="muted small">Plazo extra de material: ${p.dx} días laborables.</p>` : '')}
         ${hist.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de decisiones</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Por</th><th scope="col" class="r">SS</th><th scope="col" class="r">Lote</th><th scope="col">Antes (ERP)</th><th scope="col">Motivo</th><th scope="col">Aplicado</th></tr></thead><tbody>
           ${hist.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.by || '')}</td><td class="r num">${fmt(h.ss)} <span class="muted small">${SRC[h.src_ss]}</span></td><td class="r num">${fmt(h.lote)} <span class="muted small">${SRC[h.src_lote]}</span></td><td class="num">${fmt(h.ss_antes)} · ${fmt(h.lote_antes)}</td><td>${esc(h.motivo)}</td><td class="num">${h.aplicado ? fdate(h.aplicado) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Sin decisiones todavía. Se deciden en <a href="#/parametros">Stock mínimo y lotes</a>.</p>'}`; })()}
+      ${(() => { const p = dvr && dvr.rows && dvr.rows[0]; if (!p) return '';
+        const SRCD = { propuesta: 'propuesta', manual: 'manual', mantener: 'mantener' };
+        return `<h2>Revisión de la previsión ${esc(dvr.version)}</h2>
+        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.p12)} · ${fmt(p.v12)}</div><div class="l">Previsión 12 m · venta 12 m</div></div>
+          <div class="kpi"><div class="v">${pctTxt(p.cr)} · ${pctTxt(p.cs)}</div><div class="l">Ritmo · sesgo</div></div>
+          <div class="kpi"><div class="v">${pctTxt(p.cp)}</div><div class="l">Propuesta (${DEST[p.tipo]})</div></div>
+          <div class="kpi"><div class="v">${p.estado === 'acordado' ? pctTxt(p.ca) : '—'}</div><div class="l">${p.estado === 'acordado' ? 'Acordado · previsión corregida ' + fmt(p.pvc.reduce((s, x) => s + x, 0)) : 'Sin acuerdo · se decide en <a href="#/desviacion?mc=' + encodeURIComponent(p.mc) + '">Desviación</a>'}</div></div></div>
+        ${dvh.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de acuerdos de previsión</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Versión</th><th scope="col">Por</th><th scope="col" class="r">Corrección</th><th scope="col">Motivo</th></tr></thead><tbody>
+          ${dvh.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.version)}</td><td>${esc(h.by || '')}</td><td class="r num">${pctTxt(h.pct)} <span class="muted small">${SRCD[h.src]}</span></td><td>${esc(h.motivo)}</td></tr>`).join('')}</tbody></table></div>` : ''}`; })()}
       <h2>Acierto de la previsión</h2>${aciertoHTML(r)}
       <div class="two">
         <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li><span class="tag">${ENT[v.t]}</span><span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${v.mq ? ' · ' + esc(v.mq) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF ni propuestas.</p>'}
