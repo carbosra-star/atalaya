@@ -10,7 +10,7 @@ Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
 | Inicio | Todos | Resumen de la semana: reparto por estado, valor del stock, del exceso y sin demanda, qué entra y sale de rotura respecto a la carga anterior, acciones abiertas y las 10 referencias más urgentes |
 | Coberturas | Todos | Lista filtrable y ordenable de referencias (mandante, línea, marca, ABC, planificación, estado), descarga en CSV |
 | Ficha de referencia | Todos | Proyección de stock a 12 meses, tabla mes a mes, entradas (OF y propuestas), venta de 12 meses, acciones y notas |
-| Líneas | Todos | Estado por grupo de máquina y página de cada línea con su demanda y entradas |
+| Líneas | Todos (renombran planificador y administrador) | Estado por grupo de máquina y página de cada línea con su demanda y entradas; nombre corto de cada línea ("piedra Rosetta" código → nombre) que se usa en toda la app |
 | Porfolio | Todos | Resumen del maestro, altas y bajas frente a la carga anterior (con su motivo), lanzamientos de los últimos 9 meses con lo que tienen preparado, PT activos sin movimiento e inactivos con stock (con su valor) |
 | Stock mínimo y lotes | Todos (deciden planificador y administrador) | Lote y stock de seguridad por referencia (ERP, método Excel y estadístico), propuesta, decisiones con historial, valor en € por mandante y clase y fichero de cambios para ABAS |
 | Desviación de previsiones | Todos (acuerdan planificador y administrador) | Desviación por marca (previsión frente a venta, sesgo y error pasados), acierto de cada versión trimestral y lista para la revisión con comercial con corrección propuesta, acuerdos por versión y CSV |
