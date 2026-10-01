@@ -1,6 +1,7 @@
 // Evaluación del semáforo en el navegador (gemela de core.evaluate en el servidor)
 (function (root) {
   const H = 12;
+  const SIN_ENT_MESES = 6;  // aviso de "sin stock ni entradas" si la demanda empieza en los 6 próximos meses
   // escenario: 'OF' | 'OFPF' (OF + propuestas fijadas) | 'ALL' (OF + todas las propuestas)
   const counts = (t, esc) => t === 'OF' || (esc !== 'OF' && t === 'PF') || (esc === 'ALL' && t === 'P');
   // pv: 'T' previsión tal cual, 'C' corregida por el sesgo (si la carga la trae)
@@ -13,6 +14,17 @@
     let s = r.st;
     for (let m = 0; m < H; m++) { s = s - dem[m] + ent[m]; stk[m] = s; }
     return { dem, ent, stk };
+  }
+
+  // Primera entrada de este mes antes de la cual se acaba el stock, con la demanda del mes repartida
+  // por igual en los días que quedan (e.f: parte de esos días que habrá pasado al llegar)
+  function roturaAntes(r, d0, esc) {
+    let s = r.st;
+    for (const e of r.en.filter(e => e.m === 0 && counts(e.t, esc)).sort((a, b) => a.d < b.d ? -1 : 1)) {
+      if (s - d0 * (e.f || 0) < 0) return e.d;
+      s += e.q;
+    }
+    return '';
   }
 
   function evaluate(r, cfg) {
@@ -32,11 +44,17 @@
     const hasP = r.en.some(e => e.t === 'P' && e.m < hz);
     let sem = 'verde', why = 'Cubierto en el horizonte';
     const d12 = all.dem.reduce((s, x) => s + x, 0);
-    if (d12 <= 0 && r.st >= 0) { sem = 'gris'; why = r.st > 0 ? 'Sin demanda prevista' : 'Sin demanda ni stock'; }
+    const cs = r.gp === 'Contra Stock';  // los bajo pedido se fabrican contra pedido: sin estos avisos
+    if (d12 <= 0 && r.st >= 0) { if (r.en.length && cs) { sem = 'amarillo'; why = 'OF o propuestas sin demanda prevista'; } else { sem = 'gris'; why = r.st > 0 ? 'Sin demanda prevista' : 'Sin demanda ni stock'; } }
     else if (rot >= 0 && rot < hz) { sem = 'rojo'; why = (rot === 0 && r.at > r.st) ? 'Pedidos atrasados por encima del stock' : rot === 0 ? 'Rotura este mes' : 'Rotura en ' + rot + (rot === 1 ? ' mes' : ' meses'); }
     else if (bmin >= 0 && bmin < hz) { sem = 'naranja'; why = 'Por debajo del stock mínimo'; }
     else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = 'Depende de propuestas sin fijar'; }
-    if (lateOF && sem === 'verde') { sem = 'amarillo'; why = 'OF con fecha pasada'; }
+    if (sem === 'verde') {
+      const antes = cs && roturaAntes(r, all.dem[0], cfg.escenario || 'ALL');
+      if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}`; }
+      else if (lateOF) { sem = 'amarillo'; why = 'OF con fecha pasada'; }
+      else if (cs && r.st <= 0 && !r.en.length && all.dem.slice(0, SIN_ENT_MESES).some(x => x > 0)) { sem = 'amarillo'; why = 'Sin stock ni entradas para la demanda prevista'; }
+    }
     return { all, of, rot, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12 };
   }
 

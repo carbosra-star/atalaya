@@ -88,7 +88,14 @@ Hojas que usa la app (las demás se ignoran):
 - **Semáforo** (horizonte configurable, 3 meses por defecto):
   - Rotura: stock proyectado por debajo de 0 dentro del horizonte.
   - Bajo mínimo: por debajo del stock mínimo.
-  - Pendiente de propuestas: con solo las OF habría problema y lo resuelven propuestas sin fijar, o hay una OF con fecha pasada.
+  - A revisar (amarillo):
+    - con solo las OF habría problema y lo resuelven propuestas sin fijar;
+    - hay una OF con fecha pasada;
+    - rotura antes de la entrada: el stock no llega a la primera entrada de este mes, con la demanda del mes repartida por igual en los días que quedan;
+    - sin stock ni entradas (OF o propuestas) para la demanda de los 6 próximos meses, aunque empiece más allá del horizonte;
+    - OF o propuestas sin demanda prevista en 12 meses.
+
+    Los tres últimos solo se aplican a los contra stock: los bajo pedido se fabrican contra pedido.
   - Cubierto.
   - Sin demanda: no tiene demanda prevista en 12 meses, tenga stock o no.
 - **Seguimiento**: entran los productos terminados activos del maestro (MM_Art) con algún movimiento (stock, previsión en 12 meses, pedidos, OF o propuestas en 12 meses, o venta en los últimos 13 meses), los que tienen previsión más allá de 12 meses en la versión vigente y todos los lanzamientos (altas de los últimos 9 meses), aunque todavía no tengan nada. Las altas y bajas se detectan solas en cada carga.

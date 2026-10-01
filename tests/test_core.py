@@ -162,5 +162,20 @@ check("tal cual rompe en el mes 5", core.evaluate(nueva, 6, "ALL", "T")["rot"] =
 check("corregida rompe en el mes 10", core.evaluate(nueva, 6, "ALL", "C")["rot"] == 10)
 check("carga antigua: corregida = tal cual", core.evaluate(base, 6, "ALL", "C") == core.evaluate(base, 6, "ALL", "T"))
 
+# Avisos en amarillo (solo contra stock)
+cs = dict(base, gp="Contra Stock", st=100, pv=[1000] * 12, pv0r=1000)
+of = lambda q, d, f=None, t="OF": dict(t=t, q=q, m=0, d=d, late=False, **({"f": f} if f is not None else {}))  # noqa: E731
+ev = lambda r, esc="ALL": core.evaluate(r, 3, esc)  # noqa: E731
+check("rotura antes de la entrada", ev(dict(cs, en=[of(3000, "2026-10-15", 0.5)]))["why"] == "Rotura antes de la entrada del 15/10")
+check("la entrada llega antes de acabar el stock", ev(dict(cs, en=[of(3000, "2026-10-02", 0.05)]))["sem"] == "verde")
+check("la segunda entrada llega tarde", ev(dict(cs, en=[of(400, "2026-10-02", 0.05), of(3000, "2026-10-20", 0.7)]))["why"] == "Rotura antes de la entrada del 20/10")
+check("propuesta que no cuenta en el escenario", ev(dict(cs, en=[of(3000, "2026-10-01", 0, "OF"), of(9, "2026-10-29", 0.95, "P")]), "OF")["sem"] == "verde")
+check("rotura antes de la entrada: bajo pedido no", ev(dict(cs, gp="Bajo Pedido", en=[of(3000, "2026-10-15", 0.5)]))["sem"] == "verde")
+futura = dict(cs, st=0, pv=[0] * 4 + [1000] * 8, pv0r=0)
+check("sin stock ni entradas con demanda en 6 meses", ev(futura)["why"] == "Sin stock ni entradas para la demanda prevista")
+check("sin stock ni entradas: demanda a más de 6 meses no avisa", ev(dict(futura, pv=[0] * 6 + [1000] * 6))["sem"] == "verde")
+check("entradas sin demanda", ev(dict(cs, pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["why"] == "OF o propuestas sin demanda prevista")
+check("entradas sin demanda: bajo pedido sigue en gris", ev(dict(cs, gp="Bajo Pedido", pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["sem"] == "gris")
+
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

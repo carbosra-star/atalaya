@@ -267,9 +267,9 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         if not a["alta"] or a["alta"] < desde:
             continue
         r = en_app.get(k)
-        yun = (r["md"] == "Yunsey") if r else k in TLY
-        mn = r["mn"] if r else (TLY[k][1] if yun else a["min"])
-        lt = r["lt"] if r else (TLY[k][0] if yun else a["lote"])
+        yun = (r["md"] == "Yunsey") if r else k.startswith("5")
+        mn = r["mn"] if r else (TLY[k][1] if yun and k in TLY else a["min"])
+        lt = r["lt"] if r else (TLY[k][0] if yun and k in TLY else a["lote"])
         cs = (r["gp"] if r else a["gp"]) == "Contra Stock"
         lanz.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), app=bool(r), gp=a["gp"],
                          pv=any(x > 0 for x in PREV.get(k, [])) or k in PFUTV, ln=bool(r["ln"] if r else LIN.get(k)),
@@ -355,7 +355,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     # Previsión operativa: cada mes sale de la versión más reciente que lo cubre
     # (p. ej. el mes en curso de 2026Q3 y los siguientes de 2026Q4).
     tp = _Table(rows["MM_Prev"], "IDPrev", "MM_Prev")
-    iR, iV, iQ, iF, iM = tp.col("Referencia"), tp.col("IDPrev"), tp.col("Valor"), tp.col("Fecha"), tp.opt("Mandante")
+    iR, iV, iQ, iF = tp.col("Referencia"), tp.col("IDPrev"), tp.col("Valor"), tp.col("Fecha")
     pr = []  # (versión, ref, mes, fila)
     cover: dict[str, set[int]] = {}
     for r in tp.data:
@@ -377,7 +377,6 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     hsrc = vigentes(cover, base_y, base_m)
     HP: dict[str, list[float]] = {}  # previsión vigente de los 12 meses cerrados
     PREV: dict[str, list[float]] = {}
-    MAND: dict[str, str] = {}
     PFUT, PPAS = set(), set()  # previsión > 0 más allá del horizonte / en meses pasados (cualquier versión)
     PFUTV = set()  # previsión > 0 más allá del horizonte en la versión vigente: también se sigue
     for v, k, mi, r in pr:
@@ -390,8 +389,6 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         if not (0 <= mi < H and src[mi] == v):
             continue
         PREV.setdefault(k, [0.0] * H)[mi] += _num(_get(r, iQ))
-        if iM is not None and _get(r, iM) and (k not in MAND or v == ver):
-            MAND[k] = _norm(_get(r, iM))
 
     # Ventas (tabla dinámica con años en la fila superior)
     vr = rows["MM_Vtas"]
@@ -486,6 +483,11 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     # previsión y la parte proporcional de los días naturales que quedan (hoy incluido)
     dias_mes = calendar.monthrange(today.year, today.month)[1]
     dias_quedan = dias_mes - today.day + 1
+    # f: parte de lo que queda del mes que habrá pasado cuando llegue la entrada (para la rotura antes de la entrada)
+    for es in E.values():
+        for e in es:
+            if e["m"] == 0 and e["d"] > today.isoformat():
+                e["f"] = round((dt.date.fromisoformat(e["d"]) - today).days / dias_quedan, 3)
 
     # Universo: PT activos con alguna señal, más los lanzamientos (altas de los últimos LANZ_MESES
     # meses) aunque todavía no tengan nada, y los que solo tienen previsión más allá del horizonte
@@ -497,7 +499,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         if not (st > 0 or (pv and any(x > 0 for x in pv)) or (pd and any(x > 0 for x in pd)) or en or (vt and any(x > 0 for x in vt))
                 or (a["alta"] and a["alta"] >= lanz_desde) or k in PFUTV):
             continue
-        mand = MAND.get(k) or ("Yunsey" if k in TLY else "Belloch")
+        mand = "Yunsey" if k.startswith("5") else "Belloch"
         lote, mn = TLY[k] if (mand == "Yunsey" and k in TLY) else (a["lote"], a["min"])
         prev = [round(x) for x in pv] if pv else [0] * H
         v0 = vt[12] if vt else 0.0
@@ -519,10 +521,17 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
 
 
 # ---------------------------------------------------------------- evaluación
+SIN_ENT_MESES = 6  # aviso de "sin stock ni entradas" si la demanda empieza en los 6 próximos meses
+
+
+def _cuenta(t: str, esc: str) -> bool:
+    return t == "OF" or (esc != "OF" and t == "PF") or (esc == "ALL" and t == "P")
+
+
 def project(r: dict, esc: str, pv: str = "T"):
     """pv: "T" previsión tal cual, "C" corregida por el sesgo (si la carga la trae)."""
     def inc(t):
-        return t == "OF" or (esc != "OF" and t == "PF") or (esc == "ALL" and t == "P")
+        return _cuenta(t, esc)
 
     p, p0 = (r["pvc"], r["pv0rc"]) if pv == "C" and "pvc" in r else (r["pv"], r["pv0r"])
     dem = [max(p0 if m == 0 else p[m], r["pd"][m]) for m in range(H)]
@@ -554,9 +563,13 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     d12 = sum(allp["dem"])
     late_of = any(e["t"] == "OF" and e["late"] for e in r["en"])
     has_p = any(e["t"] == "P" and e["m"] < hz for e in r["en"])
+    cs = r.get("gp") == "Contra Stock"  # los bajo pedido se fabrican contra pedido: sin estos avisos
     sem, why = "verde", "Cubierto en el horizonte"
     if d12 <= 0 and r["st"] >= 0:
-        sem, why = "gris", "Sin demanda prevista" if r["st"] > 0 else "Sin demanda ni stock"
+        if r["en"] and cs:
+            sem, why = "amarillo", "OF o propuestas sin demanda prevista"
+        else:
+            sem, why = "gris", "Sin demanda prevista" if r["st"] > 0 else "Sin demanda ni stock"
     elif 0 <= rot < hz:
         sem = "rojo"
         if rot == 0 and r["at"] > r["st"]:
@@ -569,6 +582,23 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
         sem, why = "naranja", "Por debajo del stock mínimo"
     elif ((0 <= rot_of < hz) or (0 <= bmin_of < hz)) and has_p and escenario == "ALL":
         sem, why = "amarillo", "Depende de propuestas sin fijar"
-    if late_of and sem == "verde":
-        sem, why = "amarillo", "OF con fecha pasada"
+    if sem == "verde":
+        antes = cs and rotura_antes(r, allp["dem"][0], escenario)
+        if antes:
+            sem, why = "amarillo", f"Rotura antes de la entrada del {antes[8:10]}/{antes[5:7]}"
+        elif late_of:
+            sem, why = "amarillo", "OF con fecha pasada"
+        elif cs and r["st"] <= 0 and not r["en"] and any(x > 0 for x in allp["dem"][:SIN_ENT_MESES]):
+            sem, why = "amarillo", "Sin stock ni entradas para la demanda prevista"
     return {"sem": sem, "why": why, "rot": rot}
+
+
+def rotura_antes(r: dict, d0: float, esc: str) -> str:
+    """Fecha de la primera entrada de este mes antes de la cual se acaba el stock, con la demanda
+    del mes repartida por igual en los días que quedan; "" si no la hay."""
+    s = r["st"]
+    for e in sorted((e for e in r["en"] if e["m"] == 0 and _cuenta(e["t"], esc)), key=lambda e: e["d"]):
+        if s - d0 * e.get("f", 0) < 0:
+            return e["d"]
+        s += e["q"]
+    return ""
