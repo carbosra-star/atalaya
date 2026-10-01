@@ -70,6 +70,13 @@ check("ruido en el lote: se propone el ERP", calc([ref(lt=2050)])["P1"]["ltp"] =
 igual = calc([ref(mn=600, lt=2000)])["P1"]
 check("igual al ERP", igual["estado"] == "igual" and igual["de"] == 0, igual["estado"])
 check("sin lote en el ERP y sin decisión: stock máximo nulo", calc([ref(lt=0)])["P1"]["smax"] is None)
+# Sin previsión o a extinguir: no se propone nada automático (ni lote 0 ni la mitad del SS), se decide a mano
+ext = calc([ref(ext=True)])["P1"]
+check("a extinguir: a decidir con el ERP", ext["tipo"] == "extinguir" and ext["estado"] == "decidir" and ext["ssp"] == 1000 and ext["ltp"] == 20000 and ext["est"] is None and ext["de"] == 0, ext)
+sp = calc([ref(pv=[0] * 12)])["P1"]
+check("sin previsión en 12 meses: a decidir con el ERP", sp["tipo"] == "sin_prev" and sp["estado"] == "decidir" and sp["ssp"] == 1000 and sp["ltp"] == 20000, sp)
+tq = calc([ref(pv=[2000, 0, 0, 0] + [3000] * 8)])["P1"]
+check("sin previsión el próximo trimestre (temporada): a decidir con el ERP", tq["tipo"] == "sin_prev" and tq["estado"] == "decidir" and tq["ssp"] == 1000, tq)
 check("bajo pedido fuera", calc([ref(gp="Bajo Pedido")]) == {})
 check("ABC NA fuera", calc([ref(abc="NA")]) == {})
 check("sin precio: Δ € 0", calc([ref(pr=0)])["P1"]["de"] == 0 and calc([ref(pr=None)])["P1"]["de"] == 0)

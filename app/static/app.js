@@ -622,7 +622,7 @@ async function pageData(main) {
 
 // ---------------------------------------------------------------- Stock mínimo y lotes
 const PEST = { decidir: 'Decidir a mano', cambio: 'Con cambio', igual: 'Igual', decidido: 'Pendiente de ABAS', aplicado: 'Aplicado' };
-const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia' };
+const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia', extinguir: 'a extinguir', sin_prev: 'sin previsión' };
 // Fuentes que corresponden a la propuesta, para aceptarla tal cual
 const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'estadistico' }, lote: { src: p.ltp === p.lt ? 'erp' : 'calculado' } });
 async function pageParams(main) {

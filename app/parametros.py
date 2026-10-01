@@ -69,10 +69,15 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
         xl = round100(lc * ss_pct[md][i] / 100)
         dx = int(extra.get(k, 0))
         est, tipo, etr, sesgo, flag = _estadistico(r, ns[md][i], dx)
+        # A extinguir o sin previsión (en 12 meses o en el próximo trimestre, p. ej. temporada): sin propuesta
+        # automática (daría lote 0 o la mitad del SS por el límite ×0,5), se decide a mano partiendo del ERP
+        sin = "extinguir" if r.get("ext") else "sin_prev" if not sum(r["pv"]) or not sum(r["pv"][1:4]) else ""
+        if sin:
+            est, tipo = None, sin
         ssp = est if tipo == "ok" else mn
         if _ruido(ssp, mn):
             ssp = mn
-        ltp = lt if _ruido(lc, lt) else lc
+        ltp = lt if sin or _ruido(lc, lt) else lc
         d = dec.get(k)
         if d and d.get("aplicado") and (d["ss"] != mn or d["lote"] != lt):
             d = None  # se aplicó y después se cambió en ABAS: la decisión ya no manda

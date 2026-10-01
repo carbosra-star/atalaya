@@ -80,6 +80,8 @@ contra stock con `abc` en A–D. Entradas por referencia (ya en el dataset): `md
   4. Yunsey: `v = max(v, mn)`.
   5. `sx_st = round100(v)`; `tipo = "ok"`.
 
+**Sin propuesta automática** (añadido en la revisión final): las referencias **a extinguir** (`tipo = "extinguir"`) y las que no tienen previsión en 12 meses o en el próximo trimestre (`tipo = "sin_prev"`, p. ej. temporada) no reciben estadístico ni lote calculado como propuesta: darían lote 0 o la mitad del SS por el límite ×0,5 y falsearían el total en €. Su propuesta es el ERP y quedan para decidir a mano.
+
 **Propuesta**:
 - `ss_p` = `sx_st` si `tipo == "ok"`; si no, `mn` (y `tipo` queda marcado para
   decidir a mano).
@@ -170,7 +172,7 @@ Configuración nueva en `config` (clave `ns`): `{"Belloch": [95, 90, 85, 85],
    - En cada fila: selector de fuente para SS (ERP / Excel / Estadístico /
      Manual) y para lote (ERP / Calculado / Manual), con campo numérico si es
      manual, y botón "Decidir". Si hay manual, pide el motivo.
-   - "Aceptar propuesta en las N filtradas", con un motivo común (opcional).
+   - "Aceptar las N propuestas con cambio" de lo filtrado (solo estado `cambio`: las de decidir a mano no se resuelven en bloque), con un motivo común (opcional).
    - Lector: la misma lista sin controles.
 3. **Ficha de referencia**: bloque "Parámetros" con ERP, Excel, estadístico,
    propuesta, decisión vigente, plazo extra (editable) e historial.
