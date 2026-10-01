@@ -117,7 +117,7 @@ window.addEventListener('hashchange', render);
 
 const ROUTES = {
   '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, reunion: pageMeeting, porfolio: pagePortfolio,
-  datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon,
+  datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon, parametros: pageParams,
 };
 async function render() {
   const { parts } = parseHash();
@@ -143,7 +143,7 @@ const LOGO = '<img src="/static/img/atalaya.svg" width="34" height="34" alt="">'
 let globalBound = false;
 function shell() {
   if ($('#main') && $('#side')) { updateChrome(); return; }
-  const soon = [['stock-minimo', 'Stock mínimo y lotes'], ['desviacion', 'Desviación de previsiones'], ['consolidador', 'Consolidador de previsiones']];
+  const soon = [['desviacion', 'Desviación de previsiones'], ['consolidador', 'Consolidador de previsiones']];
   $('#app').innerHTML = `<div class="shell">
     <nav class="side" id="side" aria-label="Menú principal">
       <a class="brand" href="#/">${LOGO}<span><b>Atalaya</b><span>Supply · bellochapplab</span></span></a>
@@ -156,7 +156,7 @@ function shell() {
         <a role="listitem" href="#/reunion" data-nav="reunion">Reunión semanal <span class="badge" id="bAct" hidden></span></a>
       </div>
       <div class="nav-g" id="g2">Parámetros y previsión</div>
-      <div class="nav" role="list" aria-labelledby="g2">${soon.map(([k, t]) => `<a role="listitem" class="soon" href="#/pronto/${k}" data-nav="pronto/${k}">${t} <span class="badge">pronto</span></a>`).join('')}</div>
+      <div class="nav" role="list" aria-labelledby="g2"><a role="listitem" href="#/parametros" data-nav="parametros">Stock mínimo y lotes</a>${soon.map(([k, t]) => `<a role="listitem" class="soon" href="#/pronto/${k}" data-nav="pronto/${k}">${t} <span class="badge">pronto</span></a>`).join('')}</div>
       ${can('admin') ? `<div class="nav-g" id="g3">Administración</div><div class="nav" role="list" aria-labelledby="g3">
         <a role="listitem" href="#/datos" data-nav="datos">Datos</a><a role="listitem" href="#/usuarios" data-nav="usuarios">Usuarios</a></div>` : ''}
       <div class="side-foot"><img src="/static/img/lab_belloch.png" alt="Belloch International Group" height="22"></div>
@@ -607,6 +607,76 @@ async function pageData(main) {
   $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target; try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(f.hz.value, 10), exceso: { Belloch: parseInt(f.exB.value, 10), Yunsey: parseInt(f.exY.value, 10) } } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
 }
 
+// ---------------------------------------------------------------- Stock mínimo y lotes
+const PEST = { decidir: 'Decidir a mano', cambio: 'Con cambio', igual: 'Igual', decidido: 'Pendiente de ABAS', aplicado: 'Aplicado' };
+const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia' };
+// Fuentes que corresponden a la propuesta, para aceptarla tal cual
+const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'estadistico' }, lote: { src: p.ltp === p.lt ? 'erp' : 'calculado' } });
+async function pageParams(main) {
+  if (!S.ds) return noData(main, 'Stock mínimo y lotes');
+  const P = await api('/api/parametros');
+  if (P.empty) return noData(main, 'Stock mínimo y lotes');
+  const canW = can('admin', 'planificador'), { q } = parseHash();
+  const estF = (q.get('estado') || 'decidir,cambio').split(','), md = q.get('md') || '', abc = q.get('abc') || '', ln = q.get('ln') || '';
+  const xs = P.rows.filter(p => estF.includes(p.estado) && (!md || p.md === md) && (!abc || p.abc === abc) && (!ln || (p.ln || '—') === ln))
+    .sort((a, b) => Math.abs(b.de) - Math.abs(a.de) || (a.k < b.k ? -1 : 1));
+  const E = P.resumen.estados, nAbas = E.decidido || 0;
+  const tot = (k) => P.resumen.grupos.reduce((s, g) => s + g[k], 0);
+  const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const cnt = (est, t) => `<a class="kpi kpi-link" href="#/parametros?estado=${est}"><div class="v">${fmt(E[est] || 0)}</div><div class="l">${t}</div></a>`;
+  const pct = (x) => x == null ? '<span class="muted">—</span>' : Math.round(x * 100) + ' %';
+  const n0 = (v) => v == null ? '<span class="muted">—</span>' : fmt(v);
+  const fila = (p) => {
+    const marca = [PTIPO[p.tipo], p.flag ? 'corregir previsión' : ''].filter(Boolean).join(' · ');
+    const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock de seguridad de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="manual">Manual</option></select>
+        <input type="number" min="0" step="100" data-ssv="${esc(p.k)}" hidden aria-label="Stock de seguridad manual" style="width:90px">
+        <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="manual">Manual</option></select>
+        <input type="number" min="0" step="100" data-ltv="${esc(p.k)}" hidden aria-label="Lote manual" style="width:90px">
+        <button class="btn ghost sm" data-dec="${esc(p.k)}">Decidir</button></td>` : '';
+    return `<tr>${refCell({ k: p.k, n: p.n })}<td>${abcTag(p.abc)}</td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
+      <td class="r num">${fmt(p.mn)}</td><td class="r num">${fmt(p.xl)}</td><td class="r num">${n0(p.est)}</td><td class="r num"><b>${fmt(p.d ? p.ss : p.ssp)}</b></td>
+      <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
+      <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
+  };
+  const lim = 300;
+  main.innerHTML = `<h1>Stock mínimo y lotes</h1>
+    <p class="lead">Contra stock con ABC. Stock de seguridad: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: estadístico si hay cifra; si no, el ERP.</p>
+    <div class="tw"><table class="fit"><caption class="sr">Valor por mandante y clase</caption><thead><tr><th scope="col">Mandante · clase</th><th scope="col" class="r">Refs</th><th scope="col" class="r">SS ERP</th><th scope="col" class="r">SS propuesta</th><th scope="col" class="r">SS decidido</th><th scope="col" class="r">Stock medio ERP</th><th scope="col" class="r">Stock medio propuesta</th><th scope="col" class="r">Stock medio decidido</th></tr></thead><tbody>
+      ${P.resumen.grupos.map(g => `<tr><th scope="row">${esc(g.md)} · ${abcTag(g.abc)}</th><td class="r num">${fmt(g.n)}</td><td class="r num">${keur(g.ss_erp)}</td><td class="r num">${keur(g.ss_prop)}</td><td class="r num">${keur(g.ss_dec)}</td><td class="r num">${keur(g.med_erp)}</td><td class="r num">${keur(g.med_prop)}</td><td class="r num">${keur(g.med_dec)}</td></tr>`).join('')}
+      <tr><th scope="row"><b>Total</b></th><td class="r num"><b>${fmt(tot('n'))}</b></td>${['ss_erp', 'ss_prop', 'ss_dec', 'med_erp', 'med_prop', 'med_dec'].map(k => `<td class="r num"><b>${keur(tot(k))}</b></td>`).join('')}</tr></tbody></table></div>
+    <div class="kpis">${cnt('decidir', 'Por decidir a mano')}${cnt('cambio', 'Con cambio propuesto')}${cnt('decidido', 'Decididos, pendientes de ABAS')}${cnt('aplicado', 'Aplicados')}</div>
+    <p>${nAbas ? `<a class="btn" href="/api/parametros/abas.csv" download>Descargar cambios para ABAS (${fmt(nAbas)})</a>` : '<span class="muted">No hay cambios pendientes de cargar en ABAS.</span>'}</p>
+    <form class="filters" id="pF" onsubmit="return false">
+      <label class="fld">Estado<select name="estado">${[['decidir,cambio', 'Por decidir y con cambio'], ['decidir', PEST.decidir], ['cambio', PEST.cambio], ['decidido', PEST.decidido], ['aplicado', PEST.aplicado], ['igual', PEST.igual]].map(([v, t]) => `<option value="${v}" ${estF.join(',') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
+      <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
+      <label class="fld">Línea<select name="ln">${opts([...new Set(P.rows.map(p => p.ln || '—'))].sort(), ln, 'Todas')}</select></label>
+      ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot"></label>` : ''}
+    </form>
+    <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
+      ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
+    <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión/mes</th><th scope="col" class="r">Error</th>
+      <th scope="col" class="r">SS ERP</th><th scope="col" class="r">SS Excel</th><th scope="col" class="r">SS estadístico</th><th scope="col" class="r">SS propuesta</th><th scope="col" class="r">Lote ERP</th><th scope="col" class="r">Lote propuesta</th><th scope="col" class="r">Δ € stock medio</th><th scope="col">Estado</th>${canW ? '<th scope="col">Decisión</th>' : ''}</tr></thead>
+      <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 13 : 12}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
+    <p class="muted small">Δ € = variación del stock medio (stock de seguridad + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.</p>`;
+  xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
+  $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo') return; setQuery({ [n]: ev.target.value }); pageParams(main); });
+  const motivo = () => ($('#pMot') ? $('#pMot').value.trim() : '');
+  const enviar = async (items) => { try { const r = await api('/api/parametros/decisiones', { method: 'POST', body: { items, motivo: motivo() } }); toast(`${r.n} ${r.n === 1 ? 'decisión guardada' : 'decisiones guardadas'}`); await pageParams(main); } catch (e) { toast(e.message); } };
+  $$('[data-ss],[data-lt]', main).forEach(s => s.onchange = () => { const k = s.dataset.ss || s.dataset.lt, inp = $(`[data-${s.dataset.ss ? 'ssv' : 'ltv'}="${CSS.escape(k)}"]`, main); inp.hidden = s.value !== 'manual'; if (!inp.hidden) inp.focus(); });
+  $$('[data-dec]', main).forEach(b => b.onclick = () => {
+    const k = b.dataset.dec, e = CSS.escape(k), it = { ref: k };
+    for (const [key, sel, val] of [['ss', 'ss', 'ssv'], ['lote', 'lt', 'ltv']]) {
+      const src = $(`[data-${sel}="${e}"]`, main).value;
+      it[key] = src === 'manual' ? { src, v: parseInt($(`[data-${val}="${e}"]`, main).value, 10) } : { src };
+      if (src === 'manual' && !(it[key].v >= 0)) { toast('Escribe el valor manual'); return; }
+    }
+    enviar([it]);
+  });
+  const bulk = $('#pBulk');
+  if (bulk) bulk.onclick = () => { const its = xs.filter(p => p.estado === 'cambio').map(p => ({ ref: p.k, ...srcProp(p) })); if (confirm(`¿Aceptar la propuesta en ${its.length} referencias?`)) enviar(its); };
+}
+
 // ---------------------------------------------------------------- Usuarios (admin)
 async function pageUsers(main) {
   if (!can('admin')) return pageNotFound(main);
@@ -645,7 +715,6 @@ async function pageAccount(main) {
   };
 }
 const SOON = {
-  'stock-minimo': ['Stock mínimo y lotes', 'Cálculo del stock mínimo según el error de previsión y el plazo, y del lote según la frecuencia de fabricación de cada clase, con la comparación contra los valores de ABAS y el fichero de carga.'],
   'desviacion': ['Desviación de previsiones', 'Acierto y sesgo de cada versión de previsión frente a la venta real, por referencia, marca y mandante, y cuánto mejora cada revisión trimestral.'],
   'consolidador': ['Consolidador de previsiones', 'Validación de la previsión de controlling contra el maestro (extinguir, sucesores, inactivos, lanzamientos) y generación del fichero de carga para ABAS y Power BI.'],
 };

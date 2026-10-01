@@ -220,3 +220,4 @@ th.c,td.c{text-align:center}
   main{padding:16px 12px 50px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.ptab select{font-size:13px;padding:2px 4px}.ptab td{vertical-align:middle}
