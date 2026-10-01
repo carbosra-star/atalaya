@@ -21,11 +21,12 @@ from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from flask import Flask, g, jsonify, request, send_from_directory, session
+from flask import Flask, Response, g, jsonify, request, send_from_directory, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import core
+import parametros
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,15 @@ CREATE TABLE IF NOT EXISTS actions(
   created_by INTEGER NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL, load_id INTEGER);
 CREATE INDEX IF NOT EXISTS actions_ref ON actions(ref);
 CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS param_dec(
+  id INTEGER PRIMARY KEY, ref TEXT NOT NULL, md TEXT NOT NULL, ss INTEGER NOT NULL, lote INTEGER NOT NULL,
+  src_ss TEXT NOT NULL CHECK(src_ss IN ('erp','excel','estadistico','manual')),
+  src_lote TEXT NOT NULL CHECK(src_lote IN ('erp','calculado','manual')),
+  ss_antes INTEGER, lote_antes INTEGER, motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL,
+  aplicado TEXT);
+CREATE INDEX IF NOT EXISTS param_dec_ref ON param_dec(ref, id);
+CREATE TABLE IF NOT EXISTS param_extra(
+  ref TEXT PRIMARY KEY, dias INTEGER NOT NULL, motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL);
 """
 
 
@@ -135,7 +145,8 @@ def init_db() -> None:
 
 
 def get_config() -> dict:
-    cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF)), "exceso": dict(core.EXCESO_DEF)}
+    cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF)), "exceso": dict(core.EXCESO_DEF),
+           "ns": json.loads(json.dumps(parametros.NS_DEF))}
     for r in db().execute("SELECT key,value FROM config"):
         cfg[r["key"]] = json.loads(r["value"])
     return cfg
@@ -338,6 +349,11 @@ def upload():
                        (now(), g.user["id"], f.filename, ds["meta"]["version"], ds["meta"]["base"], ds["meta"]["hoy"], ds["meta"]["n"],
                         json.dumps(counts), json.dumps(sem), blob))
     db().execute("DELETE FROM loads WHERE id NOT IN (SELECT id FROM loads ORDER BY hoy DESC, id DESC LIMIT ?)", (KEEP_LOADS,))
+    # Decisiones de parámetros que la carga nueva ya trae en el ERP: aplicadas
+    erp = {r["k"]: (r["mn"], r["lt"]) for r in ds["refs"]}
+    for d in _decisiones().values():
+        if not d["aplicado"] and erp.get(d["ref"]) == (d["ss"], d["lote"]):
+            db().execute("UPDATE param_dec SET aplicado=? WHERE id=?", (ds["meta"]["hoy"], d["id"]))
     db().commit()
     return jsonify({"ok": True, "id": cur.lastrowid, "summary": summary})
 
@@ -350,7 +366,7 @@ def config():
     if g.user["role"] != "admin":
         return err("Solo un administrador puede cambiar los criterios", 403)
     b = request.get_json(silent=True) or {}
-    if not any(k in b for k in ("horizonte", "abc", "exceso")):
+    if not any(k in b for k in ("horizonte", "abc", "exceso", "ns")):
         return err("No hay nada que guardar")
     save = {}
     if "horizonte" in b:
@@ -369,6 +385,13 @@ def config():
         if not ok:
             return err("Los meses de exceso deben ser números enteros entre 1 y 12 para Belloch y Yunsey")
         save["exceso"] = {md: ex[md] for md in ("Belloch", "Yunsey")}
+    if "ns" in b:
+        ns = b["ns"]
+        num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+        if not (isinstance(ns, dict) and all(isinstance(ns.get(md), list) and len(ns[md]) == 4 and all(num(x) and 50 <= x <= 99.9 for x in ns[md])
+                                             for md in ("Belloch", "Yunsey"))):
+            return err("Los niveles de servicio deben ser cuatro porcentajes entre 50 y 99,9 para Belloch y Yunsey")
+        save["ns"] = {md: ns[md] for md in ("Belloch", "Yunsey")}
     antes = get_config()["abc"]["cortes"]
     for k, v in save.items():
         db().execute("INSERT INTO config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, json.dumps(v)))
@@ -396,6 +419,117 @@ def abc_invalido(a) -> str:
             if not (isinstance(v, list) and len(v) == 4 and all(num(x) and lo < x <= hi for x in v)):
                 return f"{nombre} de {md} debe tener un valor por clase (A, B, C y D) entre {lo + 1} y {hi}"
     return ""
+
+
+# ---------------------------------------------------------------- parámetros
+def _refs(row) -> list[dict]:
+    return json.loads(zlib.decompress(row["data"]))["refs"]
+
+
+def _decisiones() -> dict:
+    """Decisión vigente (la última) de cada referencia."""
+    q = "SELECT d.* FROM param_dec d JOIN (SELECT ref, MAX(id) AS id FROM param_dec GROUP BY ref) u ON u.id=d.id"
+    return {r["ref"]: dict(r) for r in db().execute(q)}
+
+
+def _param_rows(refs: list[dict]) -> list[dict]:
+    cfg = get_config()
+    extra = {r["ref"]: r["dias"] for r in db().execute("SELECT ref,dias FROM param_extra")}
+    return parametros.parametros(refs, cfg["abc"]["freq"], cfg["abc"]["ss"], cfg["ns"], _decisiones(), extra)
+
+
+@app.get("/api/parametros")
+@need()
+def param_list():
+    row = _load_row()
+    if not row:
+        return jsonify({"empty": True})
+    rows = _param_rows(_refs(row))
+    out = {"rows": rows, "resumen": parametros.resumen(rows), "hoy": row["hoy"]}
+    if request.args.get("ref"):
+        out["rows"] = [p for p in rows if p["k"] == request.args["ref"]]
+    return jsonify(out)
+
+
+SRC_SS, SRC_LOTE = {"erp": "mn", "excel": "xl", "estadistico": "est", "manual": None}, {"erp": "lt", "calculado": "lc", "manual": None}
+
+
+@app.post("/api/parametros/decisiones")
+@need("admin", "planificador")
+def param_decidir():
+    b = request.get_json(silent=True) or {}
+    items, motivo = b.get("items"), (b.get("motivo") or "").strip()[:500]
+    if not isinstance(items, list) or not 1 <= len(items) <= 1000:
+        return err("Indica entre 1 y 1.000 referencias")
+    row = _load_row()
+    if not row:
+        return err("No hay datos cargados")
+    P = {p["k"]: p for p in _param_rows(_refs(row))}
+    ins = []
+    for it in items:
+        p = P.get(it.get("ref")) if isinstance(it, dict) else None
+        if not p:
+            return err("Alguna referencia no está entre los productos contra stock con ABC de la carga vigente")
+        vals = []
+        for key, SRC in (("ss", SRC_SS), ("lote", SRC_LOTE)):
+            x = it.get(key) if isinstance(it.get(key), dict) else {}
+            src = x.get("src")
+            if src not in SRC:
+                return err("Fuente no válida")
+            if src == "manual":
+                v = x.get("v")
+                if not (isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100_000_000):
+                    return err("Los valores manuales deben ser números enteros, cero o mayores")
+                if not motivo:
+                    return err("Indica el motivo de los valores manuales")
+            else:
+                v = p[SRC[src]]
+                if v is None:
+                    return err(f"{p['k']}: el método estadístico no da cifra (irregular o sin historia)")
+            vals.append((src, int(v)))
+        (sss, ss), (srl, lote) = vals
+        aplicado = row["hoy"] if (ss, lote) == (p["mn"], p["lt"]) else None  # mantener el ERP: ya está aplicado
+        ins.append((p["k"], p["md"], ss, lote, sss, srl, p["mn"], p["lt"], motivo, g.user["id"], now(), aplicado))
+    db().executemany("INSERT INTO param_dec(ref,md,ss,lote,src_ss,src_lote,ss_antes,lote_antes,motivo,user_id,created,aplicado) "
+                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", ins)
+    db().commit()
+    return jsonify({"ok": True, "n": len(ins)})
+
+
+@app.get("/api/parametros/<ref>/historial")
+@need()
+def param_historial(ref):
+    if not REF_RE.fullmatch(ref):
+        return err("La referencia no es válida")
+    q = ("SELECT d.ss,d.lote,d.src_ss,d.src_lote,d.ss_antes,d.lote_antes,d.motivo,d.created,d.aplicado,u.name AS by "
+         "FROM param_dec d LEFT JOIN users u ON u.id=d.user_id WHERE d.ref=? ORDER BY d.id DESC")
+    return jsonify([dict(r) for r in db().execute(q, (ref,))])
+
+
+@app.put("/api/parametros/<ref>/plazo")
+@need("admin", "planificador")
+def param_plazo(ref):
+    b = request.get_json(silent=True) or {}
+    dias = b.get("dias")
+    if not REF_RE.fullmatch(ref) or not (isinstance(dias, int) and not isinstance(dias, bool) and 0 <= dias <= 250):
+        return err("El plazo extra debe ser un número entero de días laborables entre 0 y 250")
+    db().execute("INSERT INTO param_extra(ref,dias,motivo,user_id,created) VALUES(?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET "
+                 "dias=excluded.dias, motivo=excluded.motivo, user_id=excluded.user_id, created=excluded.created",
+                 (ref, dias, (b.get("motivo") or "").strip()[:500], g.user["id"], now()))
+    db().commit()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/parametros/abas.csv")
+@need()
+def param_csv():
+    row = _load_row()
+    if not row:
+        return err("No hay datos cargados")
+    rows = [p for p in _param_rows(_refs(row)) if p["estado"] == "decidido"]
+    txt = "Referencia;Mandante;Stock mínimo;Lote\r\n" + "".join(f'{p["k"]};{p["md"]};{p["ss"]};{p["lote"]}\r\n' for p in rows)
+    nombre = f'parametros_abas_{today():%Y%m%d}.csv'
+    return Response(txt.encode("latin-1"), mimetype="text/csv", headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 # ---------------------------------------------------------------- notas y acciones

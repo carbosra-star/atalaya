@@ -119,6 +119,56 @@ c2.post("/api/me/password", json={"current": pw, "new": "nueva-clave-1"}, header
 check("tras cambiarla sí hay datos", c2.get("/api/dataset").status_code == 200)
 check("un lector no puede crear acciones", c2.post("/api/actions", json={"ref": k, "text": "x"}, headers=H).status_code == 403)
 
+# Parámetros de planificación: stock mínimo, lote y stock máximo
+check("niveles de servicio por defecto", c.get("/api/me").json["config"].get("ns") == {"Belloch": [95, 90, 85, 85], "Yunsey": [95, 90, 85, 85]})
+check("nivel de servicio no válido se rechaza", c.put("/api/config", json={"ns": {"Belloch": [100, 90, 85, 85], "Yunsey": [95, 90, 85, 85]}}, headers=H).status_code == 400)
+check("guardar niveles de servicio", c.put("/api/config", json={"ns": {"Belloch": [95, 90, 85, 85], "Yunsey": [95, 90, 85, 85]}}, headers=H).status_code == 200)
+pr_ = c.get("/api/parametros").json
+rows = {p["k"]: p for p in pr_["rows"]}
+check("parámetros: filas solo contra stock con ABC", rows and all(p["abc"] in "ABCD" for p in rows.values()), len(rows))
+check("parámetros: resumen por mandante y clase", len(pr_["resumen"]["grupos"]) == 8, [(g["md"], g["abc"]) for g in pr_["resumen"]["grupos"]])
+cam = [p for p in rows.values() if p["estado"] == "cambio" and p["est"] is not None]
+igu = next(p for p in rows.values() if p["estado"] in ("cambio", "igual") and p is not cam[0])
+k1, k2 = cam[0]["k"], igu["k"]
+dec = lambda items, motivo="", cl=c: cl.post("/api/parametros/decisiones", json={"items": items, "motivo": motivo}, headers=H)  # noqa: E731
+check("decidir: manual sin motivo se rechaza", dec([{"ref": k1, "ss": {"src": "manual", "v": 1234}, "lote": {"src": "erp"}}]).status_code == 400)
+check("decidir: fuente no válida se rechaza", dec([{"ref": k1, "ss": {"src": "otra"}, "lote": {"src": "erp"}}]).status_code == 400)
+check("decidir: referencia fuera de ámbito se rechaza", dec([{"ref": "999999999999", "ss": {"src": "erp"}, "lote": {"src": "erp"}}]).status_code == 400)
+check("decidir: un lector no puede", dec([{"ref": k1, "ss": {"src": "erp"}, "lote": {"src": "erp"}}], cl=c2).status_code == 403)
+r = dec([{"ref": k1, "ss": {"src": "manual", "v": cam[0]["mn"] + 700}, "lote": {"src": "calculado"}}], "Prueba de decisión")
+check("decidir: manual con motivo", r.status_code == 200 and r.json["n"] == 1, r.json)
+p1 = c.get(f"/api/parametros?ref={k1}").json["rows"][0]
+check("decisión vigente: decidida con sus valores", p1["estado"] == "decidido" and p1["ss"] == cam[0]["mn"] + 700 and p1["lote"] == cam[0]["lc"], p1)
+check("stock máximo con lo decidido en el dataset", next(x for x in c.get("/api/dataset").json["refs"] if x["k"] == k1).get("sx") == p1["ss"] + p1["lote"])
+r = dec([{"ref": k2, "ss": {"src": "erp"}, "lote": {"src": "erp"}}], "Mantener")
+check("mantener el ERP: aplicada al momento", c.get(f"/api/parametros?ref={k2}").json["rows"][0]["estado"] == "aplicado")
+csv = c.get("/api/parametros/abas.csv")
+txt = csv.data.decode("latin-1")
+check("CSV para ABAS: cabecera y formato", csv.status_code == 200 and txt.startswith("Referencia;Mandante;Stock mínimo;Lote\r\n") and "attachment" in csv.headers.get("Content-Disposition", ""), txt[:80])
+check("CSV para ABAS: trae lo decidido", f'{k1};{p1["md"]};{p1["ss"]};{p1["lote"]}\r\n' in txt)
+check("CSV para ABAS: no trae lo aplicado", k2 not in txt)
+h = c.get(f"/api/parametros/{k1}/historial").json
+check("historial con autor, motivo y valores de antes", len(h) == 1 and h[0]["motivo"] == "Prueba de decisión" and h[0]["ss_antes"] == cam[0]["mn"] and h[0]["by"], h)
+check("plazo extra fuera de rango se rechaza", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 300}, headers=H).status_code == 400)
+check("plazo extra", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 21, "motivo": "Tubos 66 días"}, headers=H).status_code == 200
+      and c.get(f"/api/parametros?ref={k1}").json["rows"][0]["dx"] == 21)
+# Aplicado al publicar: se fuerza una decisión igual al ERP sin marcar y se republica
+import sqlite3  # noqa: E402
+con = sqlite3.connect(A.DB_PATH)
+k3 = cam[1]["k"]
+con.execute("INSERT INTO param_dec(ref,md,ss,lote,src_ss,src_lote,ss_antes,lote_antes,motivo,user_id,created) VALUES(?,?,?,?,'manual','manual',?,?,'x',1,'2026-10-01T10:00:00')",
+            (k3, cam[1]["md"], cam[1]["mn"], cam[1]["lt"], cam[1]["mn"], cam[1]["lt"]))
+con.commit()
+check("antes de publicar: decidida", c.get(f"/api/parametros?ref={k3}").json["rows"][0]["estado"] == "decidido")
+upload(c, False)
+check("al publicar se marca como aplicada", c.get(f"/api/parametros?ref={k3}").json["rows"][0]["estado"] == "aplicado")
+# Aplicada y cambiada después en ABAS: se ignora
+con.execute("UPDATE param_dec SET ss=ss+500 WHERE ref=?", (k3,))
+con.commit()
+p3 = c.get(f"/api/parametros?ref={k3}").json["rows"][0]
+check("aplicada y cambiada en ABAS: se ignora", p3["estado"] != "aplicado" and not p3["d"] and k3 not in c.get("/api/parametros/abas.csv").data.decode("latin-1"), p3["estado"])
+con.close()
+
 # Límite de intentos: la IP de X-Forwarded-For no cuenta si no hay proxy de confianza
 c3 = A.app.test_client()
 for i in range(8):
