@@ -70,6 +70,19 @@ r = upload(c, True)
 check("la comprobación del fichero resume altas y bajas", r.json["preview"].get("cambios") == {"entran": 0, "salen": 0}, r.json["preview"].get("cambios"))
 bel = [r for r in ds["refs"] if r["md"] == "Belloch" and r["gp"] == "Contra Stock"]
 check("stock mínimo de Belloch desde mindest del maestro", sum(r["mn"] > 0 for r in bel) > len(bel) // 3, f'{sum(r["mn"] > 0 for r in bel)} de {len(bel)}')
+# Pedidos de compra a proveedor (MM_PedCompras): entrada «PC»; los de LABORATORIOS BELLOCH (intragrupo) no cuentan
+pcs = {r["k"]: [e for e in r["en"] if e["t"] == "PC"] for r in ds["refs"]}
+bri = pcs.get("012080002400", [])
+check("pedido de compra leído (Brillantina Nelly, Talento y Experiencia)", any(e["q"] == 20000 and e["d"] == "2026-10-06" and e["id"] == "637475" and "TALENTO" in e["pv"] for e in bri), bri)
+check("pedidos intragrupo (LABORATORIOS BELLOCH) excluidos", not pcs.get("506110000000") and not pcs.get("017810000000"), (pcs.get("506110000000"), pcs.get("017810000000")))
+check("pedido de compra con fecha pasada marcado atrasado", any(e["late"] for e in pcs.get("018220000000", [])), pcs.get("018220000000"))
+check("solo PT: ningún pedido de material entra en las referencias", sum(len(v) for v in pcs.values()) == 18, sum(len(v) for v in pcs.values()))
+# ZT del escandallo de los PT fabricados fuera (018220000000 Color Mask Marrón: ZT 01822000ZT)
+cm = next((r for r in ds["refs"] if r["k"] == "018220000000"), {})
+z = (cm.get("zt") or [{}])[0]
+check("ZT del escandallo en el PT fabricado fuera", z.get("k") == "01822000ZT" and z.get("q") == 1 and z.get("st") == 2838 and sorted(e["q"] for e in z.get("en", [])) == [6050, 8500], z)
+check("falta ZT para el pedido (Color Mask Marrón)", core.evaluate(cm)["why"] == "Falta ZT para el pedido", core.evaluate(cm)["why"] if cm else None)
+check("solo los PT con pedido de compra llevan ZT", all(any(e["t"] == "PC" for e in r["en"]) for r in ds["refs"] if r.get("zt")), sum(1 for r in ds["refs"] if r.get("zt")))
 laca = next((r for r in ds["refs"] if r["k"] == "010010001200"), None)
 check("la laca 010010001200 tiene stock mínimo 20.000", laca is not None and laca["mn"] == 20000, laca and laca["mn"])
 check("previsión operativa: todos los meses tienen versión", all(ds["meta"]["prev_src"]), ds["meta"]["prev_src"])

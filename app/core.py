@@ -22,6 +22,10 @@ ABC_DEF = dict(cortes=[45, 80, 95], freq={"Belloch": [12, 6, 4, 2], "Yunsey": [6
 ABC_VIDA, ABC_MIN = 12, 3  # meses de venta para un ABC definitivo / mínimos para anualizarla  # porfolio: ventana de lanzamientos y antigüedad máxima de un "alta nueva"
 EXCESO_DEF = {"Belloch": 6, "Yunsey": 12}  # exceso: stock para más de N meses de demanda (provisional hasta el módulo de stock mínimo)
 SHEETS = ["MM_Art", "MM_TLY", "MM_Stocks", "MM_Vtas", "MM_PedVentas", "MM_Prev", "MM_PROP", "MM_OF", "MM_Maq"]
+SHEETS_OPC = ["MM_PedCompras", "Escandallos"]  # si faltan, la carga sigue (avisa): PT fabricados fuera sin entradas ni ZT
+# Pedidos de compra entre empresas del grupo: son producción propia que ya entra por la OF de Belloch
+PROV_INTRAGRUPO = ("LABORATORIOS BELLOCH",)
+FIRMES = ("OF", "PC")  # entradas firmes: cuentan en todos los escenarios (OF y pedidos de compra a proveedor)
 MESES = {"ene": 0, "feb": 1, "mar": 2, "abr": 3, "may": 4, "jun": 5, "jul": 6, "ago": 7, "sep": 8, "oct": 9, "nov": 10, "dic": 11}
 
 
@@ -39,14 +43,14 @@ def read_workbook(path: str) -> dict[str, list[list]]:
 
         wb = CalamineWorkbook.from_path(path)
         names = set(wb.sheet_names)
-        for n in SHEETS:
+        for n in SHEETS + SHEETS_OPC:
             if n in names:
                 rows[n] = wb.get_sheet_by_name(n).to_python()
     except ImportError:
         import openpyxl
 
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        for n in SHEETS:
+        for n in SHEETS + SHEETS_OPC:
             if n in wb.sheetnames:
                 rows[n] = [list(r) for r in wb[n].iter_rows(values_only=True)]
     missing = [n for n in SHEETS if n not in rows]
@@ -97,6 +101,13 @@ def _date(v):
             except ValueError:
                 pass
     return None
+
+
+def _id(v) -> str:
+    """Número de documento (pedido, OF) como texto: sin el «.0» que añade Excel a los números."""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return _norm(v)
 
 
 def _true(v) -> bool:
@@ -489,6 +500,25 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             continue
         E.setdefault(k, []).append(dict(t="OF", q=round(q), m=mi, d=d.isoformat() if d else "", late=bool(d and d < today),
                                         id=_norm(_get(r, jn)), mq=_norm(_get(r, js))))
+    # Pedidos de compra a proveedor pendientes (PT fabricados fuera): entrada firme «PC», como una OF.
+    # Los del grupo (LABORATORIOS BELLOCH) no cuentan: ya entran por la OF.
+    if rows.get("MM_PedCompras"):
+        tc = _Table(rows["MM_PedCompras"], "Articulo", "MM_PedCompras")
+        jc, jq, jf, jp, jv = tc.col("Articulo"), tc.col("SumCantidad_Pendiente"), tc.col("Fecha Entrega"), tc.opt("Nº Pedido"), tc.opt("Nombre proveedor")
+        for r in tc.data:
+            k = _code(_get(r, jc))
+            q = _num(_get(r, jq))
+            prov = _norm(_get(r, jv))
+            if k not in A or q <= 0 or any(x in prov.upper() for x in PROV_INTRAGRUPO):
+                continue
+            d = _date(_get(r, jf))
+            mi = max(0, midx(d)) if d else 0
+            if mi >= H:
+                continue
+            E.setdefault(k, []).append(dict(t="PC", q=round(q), m=mi, d=d.isoformat() if d else "", late=bool(d and d < today),
+                                            id=_id(_get(r, jp)), pv=prov))
+    else:
+        warn.append("El fichero no trae la hoja MM_PedCompras: los PT fabricados por proveedores quedan sin entradas")
     tr = _Table(rows["MM_PROP"], "nummer", "MM_PROP")
     jc, j9, jw, jqp, jf = tr.col("nummer"), tr.col("num9"), tr.col("wtterm"), tr.col("mge"), tr.col("fix")
     for r in tr.data:
@@ -504,6 +534,20 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             continue
         E.setdefault(k, []).append(dict(t="PF" if _true(_get(r, jf)) else "P", q=round(q), m=mi,
                                         d=d.isoformat() if d else "", late=bool(d and d < today)))
+
+    # PT fabricados fuera: el proveedor necesita el ZT (semiterminado) que fabricamos nosotros. Del escandallo,
+    # los ZT de cada PT con pedido de compra y cuántos lleva cada PT (QNivelPT); su stock, OF y propuestas ya están leídos
+    ZTS: dict[str, dict[str, float]] = {}
+    con_pc = {k for k, es in E.items() if any(e["t"] == "PC" for e in es)}
+    if rows.get("Escandallos") and con_pc:
+        tb = _Table(rows["Escandallos"], "Nº Articulo", "Escandallos")
+        jk, jz, jzq = tb.col("Nº Articulo"), tb.col("NivelPT"), tb.col("QNivelPT")
+        for r in tb.data:
+            k, z = _code(_get(r, jk)), _code(_get(r, jz))
+            if k in con_pc and z and z != k and (z.endswith("ZT") or A.get(z, {}).get("estado") == "Semiterminado"):
+                ZTS.setdefault(k, {})[z] = _num(_get(r, jzq)) or 1.0
+    elif con_pc:
+        warn.append("El fichero no trae la hoja Escandallos: no se comprueba el ZT de los PT fabricados fuera")
 
     # Líneas (grupo de máquina)
     LIN, LNAME = {}, {}
@@ -546,6 +590,11 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),
             vt=[round(x) for x in vt[:12]] if vt else [0] * 12, v0=round(v0),
         ))
+        if k in ZTS:
+            refs[-1]["zt"] = [dict(k=z, n=A.get(z, {}).get("name", ""), q=q, st=round(ST.get(z, 0.0)),
+                                   en=[dict(t=e["t"], q=e["q"], d=e["d"], late=e["late"], **({"id": e["id"]} if e.get("id") else {}))
+                                       for e in sorted(E.get(z, []), key=lambda e: e["d"]) if e["t"] in ("OF", "PF", "P")])
+                              for z, q in sorted(ZTS[k].items())]
 
     clasificar(refs, cortes or ABC_DEF["cortes"])
     acierto(refs, dias_quedan, dias_mes)
@@ -563,7 +612,7 @@ SIN_ENT_MESES = 6  # aviso de "sin stock ni entradas" si la demanda empieza en l
 
 
 def _cuenta(t: str, esc: str) -> bool:
-    return t == "OF" or (esc != "OF" and t == "PF") or (esc == "ALL" and t == "P")
+    return t in FIRMES or (esc != "OF" and t == "PF") or (esc == "ALL" and t == "P")
 
 
 def project(r: dict, esc: str, pv: str = "T"):
@@ -600,12 +649,13 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     bmin_of = first_below(ofp, r["mn"]) if r["mn"] > 0 else -1
     d12 = sum(allp["dem"])
     late_of = any(e["t"] == "OF" and e["late"] for e in r["en"])
+    late_pc = any(e["t"] == "PC" and e["late"] for e in r["en"])
     has_p = any(e["t"] == "P" and e["m"] < hz for e in r["en"])
     cs = r.get("gp") == "Contra Stock"  # los bajo pedido se fabrican contra pedido: sin estos avisos
     sem, why = "verde", "Cubierto en el horizonte"
     if d12 <= 0 and r["st"] >= 0:
         if r["en"] and cs:
-            sem, why = "amarillo", "OF o propuestas sin demanda prevista"
+            sem, why = "amarillo", "Entradas sin demanda"
         else:
             sem, why = "gris", "Sin demanda prevista" if r["st"] > 0 else "Sin demanda ni stock"
     elif 0 <= rot < hz:
@@ -625,8 +675,12 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
         antes = cs and rd and rd[0] < hz and rd[1]
         if antes:
             sem, why = "amarillo", f"Rotura antes de la entrada del {antes[8:10]}/{antes[5:7]}/{antes[2:4]}"
+        elif cs and falta_zt(r):
+            sem, why = "amarillo", "Falta ZT para el pedido"
         elif late_of:
             sem, why = "amarillo", "OF con fecha pasada"
+        elif late_pc:
+            sem, why = "amarillo", "Pedido de compra con fecha pasada"
         elif cs and r["st"] <= 0 and not r["en"] and any(x > 0 for x in allp["dem"][:SIN_ENT_MESES]):
             sem, why = "amarillo", "Sin stock ni entradas para la demanda prevista"
     # Exceso: por encima del stock máximo (stock mínimo + lote) si lo hay; si no, lo que seguiría
@@ -642,6 +696,15 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     # Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
     fa = max(0, round(-min(allp["stk"][:hz])))
     return {"sem": sem, "why": why, "rot": rot, "ex": ex, "fa": fa}
+
+
+def falta_zt(r: dict) -> bool:
+    """PT fabricado fuera: los pedidos de compra pendientes superan lo que cubre algún ZT del escandallo con lo firme
+    (su stock y sus OF, en PT: ÷ ZT por PT). Las propuestas del ZT no cuentan: aún no está fabricado."""
+    pend = sum(e["q"] for e in r["en"] if e["t"] == "PC")
+    if not pend or not r.get("zt"):
+        return False
+    return any((max(z["st"], 0) + sum(e["q"] for e in z["en"] if e["t"] == "OF")) / (z["q"] or 1) < pend - 0.5 for z in r["zt"])
 
 
 def _fraccion(e: dict) -> float:

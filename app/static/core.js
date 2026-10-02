@@ -3,8 +3,8 @@
   const H = 12;
   const SIN_ENT_MESES = 6;  // aviso de "sin stock ni entradas" si la demanda empieza en los 6 próximos meses
   const EXCESO_DEF = { Belloch: 6, Yunsey: 12 };  // exceso: stock para más de N meses de demanda (gemela de core.EXCESO_DEF)
-  // escenario: 'OF' | 'OFPF' (OF + propuestas fijadas) | 'ALL' (OF + todas las propuestas)
-  const counts = (t, esc) => t === 'OF' || (esc !== 'OF' && t === 'PF') || (esc === 'ALL' && t === 'P');
+  // escenario: 'OF' (solo firmes: OF y pedidos de compra a proveedor) | 'OFPF' (+ propuestas fijadas) | 'ALL' (+ todas las propuestas)
+  const counts = (t, esc) => t === 'OF' || t === 'PC' || (esc !== 'OF' && t === 'PF') || (esc === 'ALL' && t === 'P');
   // pv: 'T' previsión tal cual, 'C' corregida por el sesgo (si la carga la trae)
   function project(r, esc, pv) {
     const inc = (t) => counts(t, esc);
@@ -69,6 +69,14 @@
     return d.toISOString().slice(0, 10);
   }
 
+  // PT fabricado fuera: los pedidos de compra pendientes superan lo que cubre algún ZT del escandallo con lo firme
+  // (su stock y sus OF, en PT: ÷ ZT por PT). Las propuestas del ZT no cuentan: aún no está fabricado. Gemela de core.falta_zt
+  const ztCubre = (z) => (Math.max(z.st, 0) + z.en.filter(e => e.t === 'OF').reduce((t, e) => t + e.q, 0)) / (z.q || 1);
+  function faltaZT(r) {
+    const pend = r.en.filter(e => e.t === 'PC').reduce((t, e) => t + e.q, 0);
+    return !!(pend && r.zt && r.zt.length && r.zt.some(z => ztCubre(z) < pend - 0.5));
+  }
+
   function evaluate(r, cfg) {
     const hz = cfg.horizonte || 3, pv = cfg.prevision === 'C' ? 'C' : 'T';
     const all = project(r, cfg.escenario || 'ALL', pv), of = project(r, 'OF', pv);
@@ -83,19 +91,21 @@
     const kp = 1 + Math.min(r.er == null ? 0 : r.er, 1);
     const cobp = !r.pvc ? null : cobertura(r.st, project(r, 'ALL', 'C').dem.map(x => x * kp), cfg.dias);  // null: carga antigua sin previsión corregida
     const next = r.en.filter(e => counts(e.t, cfg.escenario || 'ALL')).sort((a, b) => a.d < b.d ? -1 : 1)[0] || null;
-    const lateOF = r.en.some(e => e.t === 'OF' && e.late);
+    const lateOF = r.en.some(e => e.t === 'OF' && e.late), latePC = r.en.some(e => e.t === 'PC' && e.late);
     const hasP = r.en.some(e => e.t === 'P' && e.m < hz);
     let sem = 'verde', why = 'Cubierto en el horizonte';
     const d12 = all.dem.reduce((s, x) => s + x, 0);
     const cs = r.gp === 'Contra Stock';  // los bajo pedido se fabrican contra pedido: sin estos avisos
-    if (d12 <= 0 && r.st >= 0) { if (r.en.length && cs) { sem = 'amarillo'; why = 'OF o propuestas sin demanda prevista'; } else { sem = 'gris'; why = r.st > 0 ? 'Sin demanda prevista' : 'Sin demanda ni stock'; } }
+    if (d12 <= 0 && r.st >= 0) { if (r.en.length && cs) { sem = 'amarillo'; why = 'Entradas sin demanda'; } else { sem = 'gris'; why = r.st > 0 ? 'Sin demanda prevista' : 'Sin demanda ni stock'; } }
     else if (rot >= 0 && rot < hz) { sem = 'rojo'; why = (rot === 0 && r.at > r.st) ? 'Pedidos atrasados por encima del stock' : rot === 0 ? 'Rotura este mes' : 'Rotura en ' + rot + (rot === 1 ? ' mes' : ' meses'); }
     else if (bmin >= 0 && bmin < hz) { sem = 'naranja'; why = 'Por debajo del stock mínimo'; }
     else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = 'Depende de propuestas sin fijar'; }
     if (sem === 'verde') {
       const antes = cs && rd && rd.m < hz && rd.antes;
       if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}/${antes.slice(2, 4)}`; }
+      else if (cs && faltaZT(r)) { sem = 'amarillo'; why = 'Falta ZT para el pedido'; }
       else if (lateOF) { sem = 'amarillo'; why = 'OF con fecha pasada'; }
+      else if (latePC) { sem = 'amarillo'; why = 'Pedido de compra con fecha pasada'; }
       else if (cs && r.st <= 0 && !r.en.length && all.dem.slice(0, SIN_ENT_MESES).some(x => x > 0)) { sem = 'amarillo'; why = 'Sin stock ni entradas para la demanda prevista'; }
     }
     // Exceso: por encima del stock máximo (stock mínimo + lote) si lo hay; si no, lo que seguiría
@@ -109,5 +119,5 @@
     return { all, of, rot, rf, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
-  root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt };
+  root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre };
 })(window);

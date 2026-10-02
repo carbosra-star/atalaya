@@ -177,12 +177,26 @@ cs2 = dict(cs, st=1500)
 check("rotura antes de la entrada del mes siguiente", ev(dict(cs2, en=[fm(3000, "2026-11-21", 1)]))["why"] == "Rotura antes de la entrada del 21/11/26", ev(dict(cs2, en=[fm(3000, "2026-11-21", 1)]))["why"])
 check("entrada del mes siguiente a tiempo", ev(dict(cs2, en=[fm(3000, "2026-11-05", 1)]))["sem"] == "verde")
 check("rotura antes de la entrada fuera del horizonte no avisa", ev(dict(cs, st=3500, en=[fm(3000, "2027-01-21", 3)]))["sem"] == "verde")
+# Pedidos de compra a proveedor (PT fabricados fuera): entrada firme como una OF
+pc = lambda q, d, m=0, late=False, f=None: dict(t="PC", q=q, m=m, d=d, late=late, id="637475", pv="TALENTO Y EXPERIENCIA S.L.U.", **({"f": f} if f is not None else {}))  # noqa: E731
+check("pedido de compra evita la rotura (también con solo firmes)", ev(dict(cs, en=[pc(9000, "2026-10-02", 0, False, 0.0)]), "OF")["sem"] not in ("rojo", "naranja"), ev(dict(cs, en=[pc(9000, "2026-10-02", 0, False, 0.0)]), "OF"))
+check("pedido de compra con fecha pasada", ev(dict(cs, en=[pc(9000, "2026-09-11", 0, True)]))["why"] == "Pedido de compra con fecha pasada", ev(dict(cs, en=[pc(9000, "2026-09-11", 0, True)]))["why"])
+check("OF con fecha pasada tiene prioridad en el motivo", ev(dict(cs, en=[pc(9000, "2026-09-11", 0, True), dict(of(9000, "2026-09-10", 0), late=True)]))["why"] == "OF con fecha pasada")
+# PT fabricado fuera: el pedido de compra necesita el ZT (semiterminado) que fabricamos nosotros; cubre su stock + sus OF
+zt = lambda st, en=(): [dict(k="01822000ZT", n="COLOR MASK MARRON", q=1, st=st, en=list(en))]  # noqa: E731
+conpc = dict(cs, en=[pc(9000, "2026-10-02", 0, False, 0.0)])
+check("falta ZT para el pedido", ev(dict(conpc, zt=zt(2838)))["why"] == "Falta ZT para el pedido", ev(dict(conpc, zt=zt(2838)))["why"])
+check("el stock del ZT cubre el pedido", ev(dict(conpc, zt=zt(10000)))["why"] != "Falta ZT para el pedido")
+check("stock + OF del ZT cubren el pedido", ev(dict(conpc, zt=zt(2838, [dict(t="OF", q=7000, d="2026-10-20", late=False)])))["why"] != "Falta ZT para el pedido")
+check("las propuestas del ZT no cubren", ev(dict(conpc, zt=zt(2838, [dict(t="P", q=9000, d="2026-10-20", late=False)])))["why"] == "Falta ZT para el pedido")
+check("falta ZT manda sobre el pedido atrasado", ev(dict(cs, en=[pc(9000, "2026-09-11", 0, True)], zt=zt(0)))["why"] == "Falta ZT para el pedido")
+check("sin ZT en el escandallo no avisa", ev(conpc)["why"] != "Falta ZT para el pedido")
 check("propuesta que no cuenta en el escenario", ev(dict(cs, en=[of(3000, "2026-10-01", 0, "OF"), of(9, "2026-10-29", 0.95, "P")]), "OF")["sem"] == "verde")
 check("rotura antes de la entrada: bajo pedido no", ev(dict(cs, gp="Bajo Pedido", en=[of(3000, "2026-10-15", 0.5)]))["sem"] == "verde")
 futura = dict(cs, st=0, pv=[0] * 4 + [1000] * 8, pv0r=0)
 check("sin stock ni entradas con demanda en 6 meses", ev(futura)["why"] == "Sin stock ni entradas para la demanda prevista")
 check("sin stock ni entradas: demanda a más de 6 meses no avisa", ev(dict(futura, pv=[0] * 6 + [1000] * 6))["sem"] == "verde")
-check("entradas sin demanda", ev(dict(cs, pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["why"] == "OF o propuestas sin demanda prevista")
+check("entradas sin demanda", ev(dict(cs, pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["why"] == "Entradas sin demanda")
 check("entradas sin demanda: bajo pedido sigue en gris", ev(dict(cs, gp="Bajo Pedido", pv=[0] * 12, pv0r=0, en=[of(500, "2026-10-15", 0.5)]))["sem"] == "gris")
 
 # Exceso: stock por encima de la demanda de los próximos N meses (Belloch 6, Yunsey 12), solo contra stock

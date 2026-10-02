@@ -45,10 +45,21 @@ const prot = { ...cs, st: 10603, pv: [17126, 12730, 26416, 14824, ...new Array(8
 check('fecha de rotura en un mes siguiente (017380000600 con solo OF)', evaluate(prot, { ...cfgF, escenario: 'OF' }).rf === '2026-11-24', evaluate(prot, { ...cfgF, escenario: 'OF' }).rf);
 check('sin rotura, sin fecha', evaluate({ ...cs, st: 1e6 }, cfgF).rf === '');
 check('sin fecha de hoy (carga antigua), sin fecha', evaluate(cs, cfg).rf === '');
+const pc = (q, d, late = false, f = 0) => ({ t: 'PC', q, m: 0, d, late, f, id: '637475', pv: 'TALENTO Y EXPERIENCIA S.L.U.' });
+check('pedido de compra evita la rotura (también con solo firmes)', !['rojo', 'naranja'].includes(evaluate({ ...cs, en: [pc(9000, '2026-10-02')] }, { ...cfg, escenario: 'OF' }).sem));
+check('pedido de compra con fecha pasada', evaluate({ ...cs, en: [pc(9000, '2026-09-11', true)] }, cfg).why === 'Pedido de compra con fecha pasada', evaluate({ ...cs, en: [pc(9000, '2026-09-11', true)] }, cfg).why);
+check('pedido de compra es la próxima entrada', evaluate({ ...cs, en: [pc(9000, '2026-10-20', false, 0.6)] }, { ...cfg, escenario: 'OF' }).next?.t === 'PC');
+const zt = (st, en = []) => [{ k: '01822000ZT', n: 'COLOR MASK MARRON', q: 1, st, en }];
+const conpc = { ...cs, en: [pc(9000, '2026-10-02')] };
+check('falta ZT para el pedido', evaluate({ ...conpc, zt: zt(2838) }, cfg).why === 'Falta ZT para el pedido', evaluate({ ...conpc, zt: zt(2838) }, cfg).why);
+check('el stock del ZT cubre el pedido', evaluate({ ...conpc, zt: zt(10000) }, cfg).why !== 'Falta ZT para el pedido');
+check('stock + OF del ZT cubren el pedido', evaluate({ ...conpc, zt: zt(2838, [{ t: 'OF', q: 7000, d: '2026-10-20', late: false }]) }, cfg).why !== 'Falta ZT para el pedido');
+check('las propuestas del ZT no cubren', evaluate({ ...conpc, zt: zt(2838, [{ t: 'P', q: 9000, d: '2026-10-20', late: false }]) }, cfg).why === 'Falta ZT para el pedido');
+check('falta ZT manda sobre el pedido atrasado', evaluate({ ...cs, en: [pc(9000, '2026-09-11', true)], zt: zt(0) }, cfg).why === 'Falta ZT para el pedido');
 check('la entrada llega antes de acabar el stock', evaluate({ ...cs, en: [of(3000, '2026-10-02', 0.05)] }, cfg).sem === 'verde');
 const futura = { ...cs, st: 0, pv: [0, 0, 0, 0, ...new Array(8).fill(1000)], pv0r: 0 };
 check('sin stock ni entradas con demanda en 6 meses', evaluate(futura, cfg).why === 'Sin stock ni entradas para la demanda prevista');
-check('entradas sin demanda', evaluate({ ...cs, pv: new Array(12).fill(0), pv0r: 0, en: [of(500, '2026-10-15', 0.5)] }, cfg).why === 'OF o propuestas sin demanda prevista');
+check('entradas sin demanda', evaluate({ ...cs, pv: new Array(12).fill(0), pv0r: 0, en: [of(500, '2026-10-15', 0.5)] }, cfg).why === 'Entradas sin demanda');
 
 // Exceso y faltante (gemelos de core.py, ver test_core.py)
 const exb = { ...base, gp: 'Contra Stock', md: 'Belloch', st: 700 };
