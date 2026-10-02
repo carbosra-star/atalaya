@@ -1,9 +1,10 @@
 :root{
-  --paper:#F2F4F1; --sheet:#FFFFFF; --ink:#1B2733; --ink2:#4F5E6C; --rule:#D6DDD8; --soft:#EAEEEA; --side:#1B2733; --sideInk:#E8EDF0; --sideMute:#9FB0BE;
+  --paper:#F2F4F1; --sheet:#FFFFFF; --ink:#1B2733; --ink2:#4F5E6C; --rule:#D6DDD8; --soft:#EAEEEA; --side:#3B5166; --sideInk:#EEF2F5; --sideMute:#BCC8D3;
   --rojo:#B83227; --naranja:#C86A12; --amarillo:#A88410; --verde:#327A4C; --gris:#7C8791; --exceso:#4F5BB5;
   --rojoBg:#F7E1DE; --naranjaBg:#FBE8D6; --amarilloBg:#F6EDCB; --verdeBg:#DCEEE2; --grisBg:#E6E9EC; --excesoBg:#E3E5F6;
   --focus:#1F63A8; --sel:#E3ECF5; --link:#1F5E9C;
   --th:var(--sheet); --thInk:#1C1C1A; --thMute:#5F5E5A; --thAcc:#1B8CC4; --thLine:rgba(28,28,26,.20); --rowHover:rgba(0,0,0,.02);
+  --acc:#1B8CC4; --accBg:#E0F2FB; --accLine:rgba(27,140,196,.30); --accHover:#D2EBF8; --muted:#EEF1F5; --line2:rgba(28,28,26,.20);
   --abcA:#1F4E7A; --abcAt:#FFFFFF; --abcB:#3A6E9F; --abcBt:#FFFFFF; --abcC:#C9DBEE; --abcD:#3A6E9F; --abcDbg:#E9F0F7;
   --font:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Roboto,Arial,sans-serif;
   --narrow:"Segoe UI Semibold","Arial Narrow","Roboto Condensed","Helvetica Neue",Arial,sans-serif;
@@ -15,6 +16,7 @@
   --rojoBg:#3A1E1B; --naranjaBg:#3A2A17; --amarilloBg:#353018; --verdeBg:#183324; --grisBg:#262E35; --excesoBg:#23263F;
   --focus:#7CB6F0; --sel:#22364A; --link:#8CC2F5;
   --th:var(--sheet); --thInk:#E6EBEF; --thMute:#A3B0BB; --thAcc:#5DB4E3; --thLine:rgba(230,235,239,.22); --rowHover:rgba(255,255,255,.03);
+  --acc:#5DB4E3; --accBg:#16313F; --accLine:rgba(93,180,227,.35); --accHover:#1B3B4C; --muted:#212B34; --line2:rgba(230,235,239,.22);
   --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; --abcDbg:#1E2A36; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --paper:#12181E; --sheet:#1A222A; --ink:#E6EBEF; --ink2:#A3B0BB; --rule:#2D3842; --soft:#212B34; --side:#0D1318; --sideInk:#E6EBEF; --sideMute:#8697A5;
@@ -22,6 +24,7 @@
   --rojoBg:#3A1E1B; --naranjaBg:#3A2A17; --amarilloBg:#353018; --verdeBg:#183324; --grisBg:#262E35; --excesoBg:#23263F;
   --focus:#7CB6F0; --sel:#22364A; --link:#8CC2F5;
   --th:var(--sheet); --thInk:#E6EBEF; --thMute:#A3B0BB; --thAcc:#5DB4E3; --thLine:rgba(230,235,239,.22); --rowHover:rgba(255,255,255,.03);
+  --acc:#5DB4E3; --accBg:#16313F; --accLine:rgba(93,180,227,.35); --accHover:#1B3B4C; --muted:#212B34; --line2:rgba(230,235,239,.22);
   --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; --abcDbg:#1E2A36; color-scheme:dark;}
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
@@ -244,3 +247,17 @@ thead th.grp{color:var(--thAcc);font-weight:600;letter-spacing:.6px;padding-top:
 thead tr+tr th{color:var(--thMute);padding-top:5px}
 thead th button.sort{text-transform:inherit;letter-spacing:inherit}
 tbody tr:hover>td,tbody tr:hover>th{background:var(--rowHover)}
+
+/* Resto del estilo de BellFlow: barra superior, botones, selector, estados y barra de color por fila */
+.bar{border-bottom:2px solid var(--acc)}
+.btn{background:var(--accBg);color:var(--acc);border:1px solid var(--accLine);font-weight:500;font-size:14px;border-radius:8px}
+.btn:hover{background:var(--accHover)}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line2);font-weight:400}
+.btn.ghost:hover{background:var(--rowHover);background:rgba(0,0,0,.04)}
+.btn.sm{font-size:13px;padding:4px 10px}
+.seg{border:0;background:var(--muted);border-radius:8px;padding:3px;gap:2px}
+.seg button{border-radius:6px;padding:5px 11px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--sheet);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.pill{font-size:12px;font-weight:500;border-radius:8px;padding:2px 8px 2px 7px;gap:6px;color:var(--c)}
+.pill::before{width:7px;height:7px}
+table.oneline tbody tr[class*="s-"]>td:first-child{box-shadow:inset 3px 0 0 color-mix(in srgb,var(--c) 60%,transparent)}

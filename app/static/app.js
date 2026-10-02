@@ -381,7 +381,7 @@ async function pageList(main) {
     $('#count').textContent = fmt(rows.length) + ' referencias';
     $('#leyenda').innerHTML = leyendaCob(rows);
     const tb = $('#tbl tbody');
-    tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
+    tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr class="s-${e.sem}">
       ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
       <td>${lnLink(r.ln)}</td><td>${abcRef(r)}</td>
       <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}
@@ -570,7 +570,7 @@ async function pageLine(main, [ln]) {
     <p class="muted small">Entradas: ${ESC_TXT[S.esc]}${S.pv === 'C' ? '; demanda con previsión corregida' : ''}.</p>
     <div class="toolbar"><h2>Referencias</h2><button class="btn ghost sm" id="csv">Descargar lista (CSV)</button></div>
     <div class="tw"><table class="oneline"><thead>${head2([thc('Referencia'), thc('Stock', 'r'), { g: 'Demanda', c: [thc('Media/mes', 'r', 'Demanda media de los 3 próximos meses'), thc('Resto/mes', 'r', 'Demanda que queda del mes en curso')] }, thc('Rotura'), thc('Entrada', '', 'Próxima entrada'), thc('Estado')])}</thead><tbody>
-    ${rows.map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Sin referencias.</td></tr>'}
+    ${rows.map(({ r, e }) => `<tr class="s-${e.sem}">${refCell(r)}<td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Sin referencias.</td></tr>'}
     </tbody></table></div>`;
   $('#csv').onclick = () => downloadCSV(rows, 'linea_' + (ln === '—' ? 'sin_linea' : lnNom(ln).replace(/[^\w-]+/g, '_')));
 }
