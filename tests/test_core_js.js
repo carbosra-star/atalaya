@@ -32,7 +32,19 @@ check('evaluate usa la cobertura desde hoy', Math.abs(evaluate({ ...base, st: 34
 // Avisos en amarillo (gemelos de core.py, ver test_core.py)
 const cs = { ...base, gp: 'Contra Stock', st: 100, pv: new Array(12).fill(1000), pv0r: 1000 };
 const of = (q, d, f, t = 'OF') => ({ t, q, m: 0, d, late: false, f });
-check('rotura antes de la entrada', evaluate({ ...cs, en: [of(3000, '2026-10-15', 0.5)] }, cfg).why === 'Rotura antes de la entrada del 15/10');
+check('rotura antes de la entrada', evaluate({ ...cs, en: [of(3000, '2026-10-15', 0.5)] }, cfg).why === 'Rotura antes de la entrada del 15/10/26');
+const fm = (q, d, m, t = 'OF') => ({ t, q, m, d, late: false });
+const cs2 = { ...cs, st: 1500 };
+check('rotura antes de la entrada del mes siguiente', evaluate({ ...cs2, en: [fm(3000, '2026-11-21', 1)] }, cfg).why === 'Rotura antes de la entrada del 21/11/26', evaluate({ ...cs2, en: [fm(3000, '2026-11-21', 1)] }, cfg).why);
+check('entrada del mes siguiente a tiempo', evaluate({ ...cs2, en: [fm(3000, '2026-11-05', 1)] }, cfg).sem === 'verde');
+check('rotura antes de la entrada fuera del horizonte no avisa', evaluate({ ...cs, st: 3500, en: [fm(3000, '2027-01-21', 3)] }, cfg).sem === 'verde');
+// Fecha estimada de rotura: hoy 02/10 con 30 días por delante en octubre
+const cfgF = { ...cfg, hoy: '2026-10-02', dias: [30, 31] };
+check('fecha de rotura en el mes en curso', evaluate(cs, cfgF).rf === '2026-10-05', evaluate(cs, cfgF).rf);
+const prot = { ...cs, st: 10603, pv: [17126, 12730, 26416, 14824, ...new Array(8).fill(15000)], pv0r: 16574, en: [{ t: 'OF', q: 16000, m: 0, d: '2026-10-13', late: false, f: 0.367 }] };
+check('fecha de rotura en un mes siguiente (017380000600 con solo OF)', evaluate(prot, { ...cfgF, escenario: 'OF' }).rf === '2026-11-24', evaluate(prot, { ...cfgF, escenario: 'OF' }).rf);
+check('sin rotura, sin fecha', evaluate({ ...cs, st: 1e6 }, cfgF).rf === '');
+check('sin fecha de hoy (carga antigua), sin fecha', evaluate(cs, cfg).rf === '');
 check('la entrada llega antes de acabar el stock', evaluate({ ...cs, en: [of(3000, '2026-10-02', 0.05)] }, cfg).sem === 'verde');
 const futura = { ...cs, st: 0, pv: [0, 0, 0, 0, ...new Array(8).fill(1000)], pv0r: 0 };
 check('sin stock ni entradas con demanda en 6 meses', evaluate(futura, cfg).why === 'Sin stock ni entradas para la demanda prevista');

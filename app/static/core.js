@@ -34,15 +34,39 @@
   }
   const cobTxt = (v) => v == null || v >= 99 ? '—' : v > 12 ? '> 12 m' : Math.max(0, v).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m';
 
-  // Primera entrada de este mes antes de la cual se acaba el stock, con la demanda del mes repartida
-  // por igual en los días que quedan (e.f: parte de esos días que habrá pasado al llegar)
-  function roturaAntes(r, d0, esc) {
+  // Parte del mes que ha pasado al llegar la entrada: en el mes en curso la trae la carga (e.f, sobre los días
+  // que quedan); en los siguientes, (día − 1) ÷ días del mes
+  const diasMes = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();  // m de 1 a 12
+  function fraccion(e) {
+    if (e.m === 0) return e.f || 0;
+    if (!e.d) return 0;
+    return (+e.d.slice(8, 10) - 1) / diasMes(+e.d.slice(0, 4), +e.d.slice(5, 7));
+  }
+  // Rotura día a día: la demanda de cada mes repartida por igual en sus días (el mes en curso, en los que quedan)
+  // y cada entrada en su fecha. Devuelve el primer momento sin stock { m: mes, t: parte del mes, antes: fecha de la
+  // entrada que llega tarde o '' si no la hay ese mes } o null
+  function roturaDia(r, p, esc) {
     let s = r.st;
-    for (const e of r.en.filter(e => e.m === 0 && counts(e.t, esc)).sort((a, b) => a.d < b.d ? -1 : 1)) {
-      if (s - d0 * (e.f || 0) < 0) return e.d;
-      s += e.q;
+    const at = (m, d) => ({ m, t: d > 0 ? Math.max(0, s / d) : 0 });
+    for (let m = 0; m < H; m++) {
+      const d = p.dem[m];
+      const es = r.en.filter(e => e.m === m && counts(e.t, esc)).map(e => [fraccion(e), e]).sort((a, b) => a[0] - b[0] || (a[1].d < b[1].d ? -1 : 1));
+      for (const [f, e] of es) {
+        if (s - d * f < -1e-9) return { ...at(m, d), antes: e.d };
+        s += e.q;
+      }
+      if (s - d < -1e-9) return { ...at(m, d), antes: '' };
+      s -= d;
     }
-    return '';
+    return null;
+  }
+  // Fecha estimada (ISO) de la rotura; '' sin rotura o sin fecha de hoy (cargas antiguas)
+  function fechaRotura(rd, hoy, dias) {
+    if (!rd || !hoy || !dias) return '';
+    const y = +hoy.slice(0, 4), m0 = +hoy.slice(5, 7) - 1;
+    const d = rd.m === 0 ? new Date(Date.UTC(y, m0, +hoy.slice(8, 10) + Math.min(dias[0] - 1, Math.floor(rd.t * dias[0]))))
+      : new Date(Date.UTC(y, m0 + rd.m, 1 + Math.min(diasMes(y, m0 + rd.m + 1) - 1, Math.floor(rd.t * diasMes(y, m0 + rd.m + 1)))));
+    return d.toISOString().slice(0, 10);
   }
 
   function evaluate(r, cfg) {
@@ -51,6 +75,7 @@
     const firstBelow = (p, lim) => { for (let m = 0; m < H; m++) if (p.stk[m] < lim) return m; return -1; };
     const rot = firstBelow(all, 0), bmin = r.mn > 0 ? firstBelow(all, r.mn) : -1;
     const rotOF = firstBelow(of, 0), bminOF = r.mn > 0 ? firstBelow(of, r.mn) : -1;
+    const rd = roturaDia(r, all, cfg.escenario || 'ALL'), rf = fechaRotura(rd, cfg.hoy, cfg.dias);
     // Demanda/mes: media de los 3 próximos meses completos (sin el mes en curso, que solo trae lo que queda)
     const d3 = all.dem.slice(1, 4).reduce((s, x) => s + x, 0) / 3;
     const cob = cobertura(r.st, all.dem, cfg.dias);
@@ -68,12 +93,12 @@
     else if (bmin >= 0 && bmin < hz) { sem = 'naranja'; why = 'Por debajo del stock mínimo'; }
     else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = 'Depende de propuestas sin fijar'; }
     if (sem === 'verde') {
-      const antes = cs && roturaAntes(r, all.dem[0], cfg.escenario || 'ALL');
-      if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}`; }
+      const antes = cs && rd && rd.m < hz && rd.antes;
+      if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}/${antes.slice(2, 4)}`; }
       else if (lateOF) { sem = 'amarillo'; why = 'OF con fecha pasada'; }
       else if (cs && r.st <= 0 && !r.en.length && all.dem.slice(0, SIN_ENT_MESES).some(x => x > 0)) { sem = 'amarillo'; why = 'Sin stock ni entradas para la demanda prevista'; }
     }
-    // Exceso: por encima del stock máximo (stock de seguridad + lote) si lo hay; si no, lo que seguiría
+    // Exceso: por encima del stock máximo (stock mínimo + lote) si lo hay; si no, lo que seguiría
     // en el almacén pasados N meses sin fabricar nada más (solo contra stock)
     const md = r.md || 'Belloch', n = Math.trunc((cfg.exceso && cfg.exceso[md]) || EXCESO_DEF[md] || 6), sx = r.sx;
     let ex = Math.max(0, Math.round(r.st - (sx ? sx : all.dem.slice(0, n).reduce((s, x) => s + x, 0))));
@@ -81,7 +106,7 @@
     if (sem !== 'exceso') ex = 0;
     // Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
     const fa = Math.max(0, Math.round(-Math.min(...all.stk.slice(0, hz))));
-    return { all, of, rot, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
+    return { all, of, rot, rf, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
   root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt };

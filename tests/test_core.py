@@ -168,9 +168,15 @@ check("carga antigua: corregida = tal cual", core.evaluate(base, 6, "ALL", "C") 
 cs = dict(base, gp="Contra Stock", st=100, pv=[1000] * 12, pv0r=1000)
 of = lambda q, d, f=None, t="OF": dict(t=t, q=q, m=0, d=d, late=False, **({"f": f} if f is not None else {}))  # noqa: E731
 ev = lambda r, esc="ALL": core.evaluate(r, 3, esc)  # noqa: E731
-check("rotura antes de la entrada", ev(dict(cs, en=[of(3000, "2026-10-15", 0.5)]))["why"] == "Rotura antes de la entrada del 15/10")
+check("rotura antes de la entrada", ev(dict(cs, en=[of(3000, "2026-10-15", 0.5)]))["why"] == "Rotura antes de la entrada del 15/10/26")
 check("la entrada llega antes de acabar el stock", ev(dict(cs, en=[of(3000, "2026-10-02", 0.05)]))["sem"] == "verde")
-check("la segunda entrada llega tarde", ev(dict(cs, en=[of(400, "2026-10-02", 0.05), of(3000, "2026-10-20", 0.7)]))["why"] == "Rotura antes de la entrada del 20/10")
+check("la segunda entrada llega tarde", ev(dict(cs, en=[of(400, "2026-10-02", 0.05), of(3000, "2026-10-20", 0.7)]))["why"] == "Rotura antes de la entrada del 20/10/26")
+# Rotura antes de la entrada en meses siguientes (dentro del horizonte): la demanda del mes se reparte por igual en sus días
+fm = lambda q, d, m, t="OF": dict(t=t, q=q, m=m, d=d, late=False)  # noqa: E731
+cs2 = dict(cs, st=1500)
+check("rotura antes de la entrada del mes siguiente", ev(dict(cs2, en=[fm(3000, "2026-11-21", 1)]))["why"] == "Rotura antes de la entrada del 21/11/26", ev(dict(cs2, en=[fm(3000, "2026-11-21", 1)]))["why"])
+check("entrada del mes siguiente a tiempo", ev(dict(cs2, en=[fm(3000, "2026-11-05", 1)]))["sem"] == "verde")
+check("rotura antes de la entrada fuera del horizonte no avisa", ev(dict(cs, st=3500, en=[fm(3000, "2027-01-21", 3)]))["sem"] == "verde")
 check("propuesta que no cuenta en el escenario", ev(dict(cs, en=[of(3000, "2026-10-01", 0, "OF"), of(9, "2026-10-29", 0.95, "P")]), "OF")["sem"] == "verde")
 check("rotura antes de la entrada: bajo pedido no", ev(dict(cs, gp="Bajo Pedido", en=[of(3000, "2026-10-15", 0.5)]))["sem"] == "verde")
 futura = dict(cs, st=0, pv=[0] * 4 + [1000] * 8, pv0r=0)

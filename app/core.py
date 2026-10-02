@@ -621,14 +621,15 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     elif ((0 <= rot_of < hz) or (0 <= bmin_of < hz)) and has_p and escenario == "ALL":
         sem, why = "amarillo", "Depende de propuestas sin fijar"
     if sem == "verde":
-        antes = cs and rotura_antes(r, allp["dem"][0], escenario)
+        rd = rotura_dia(r, allp, escenario)
+        antes = cs and rd and rd[0] < hz and rd[1]
         if antes:
-            sem, why = "amarillo", f"Rotura antes de la entrada del {antes[8:10]}/{antes[5:7]}"
+            sem, why = "amarillo", f"Rotura antes de la entrada del {antes[8:10]}/{antes[5:7]}/{antes[2:4]}"
         elif late_of:
             sem, why = "amarillo", "OF con fecha pasada"
         elif cs and r["st"] <= 0 and not r["en"] and any(x > 0 for x in allp["dem"][:SIN_ENT_MESES]):
             sem, why = "amarillo", "Sin stock ni entradas para la demanda prevista"
-    # Exceso: por encima del stock máximo (stock de seguridad + lote) si lo hay; si no, lo que seguiría
+    # Exceso: por encima del stock máximo (stock mínimo + lote) si lo hay; si no, lo que seguiría
     # en el almacén pasados N meses sin fabricar nada más (solo contra stock)
     sx = r.get("sx")
     md = r.get("md") or "Belloch"
@@ -643,12 +644,30 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     return {"sem": sem, "why": why, "rot": rot, "ex": ex, "fa": fa}
 
 
-def rotura_antes(r: dict, d0: float, esc: str) -> str:
-    """Fecha de la primera entrada de este mes antes de la cual se acaba el stock, con la demanda
-    del mes repartida por igual en los días que quedan; "" si no la hay."""
+def _fraccion(e: dict) -> float:
+    """Parte del mes que ha pasado al llegar la entrada: en el mes en curso la trae la carga (f, sobre los días
+    que quedan); en los siguientes, (día − 1) ÷ días del mes."""
+    if e["m"] == 0:
+        return e.get("f", 0)
+    if not e.get("d"):
+        return 0
+    y, m, d = int(e["d"][:4]), int(e["d"][5:7]), int(e["d"][8:10])
+    return (d - 1) / calendar.monthrange(y, m)[1]
+
+
+def rotura_dia(r: dict, p: dict, esc: str):
+    """Rotura día a día: la demanda de cada mes repartida por igual en sus días (el mes en curso, en los que quedan)
+    y cada entrada en su fecha. Primer mes sin stock y fecha de la entrada que llega tarde ("" si no la hay ese mes),
+    o None. Gemela de roturaDia en core.js (que además da la fecha estimada)."""
     s = r["st"]
-    for e in sorted((e for e in r["en"] if e["m"] == 0 and _cuenta(e["t"], esc)), key=lambda e: e["d"]):
-        if s - d0 * e.get("f", 0) < 0:
-            return e["d"]
-        s += e["q"]
-    return ""
+    for m in range(H):
+        d = p["dem"][m]
+        es = sorted(((_fraccion(e), e["d"], e) for e in r["en"] if e["m"] == m and _cuenta(e["t"], esc)), key=lambda x: (x[0], x[1]))
+        for f, _, e in es:
+            if s - d * f < -1e-9:
+                return m, e["d"]
+            s += e["q"]
+        if s - d < -1e-9:
+            return m, ""
+        s -= d
+    return None
