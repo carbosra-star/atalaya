@@ -275,5 +275,21 @@ table.oneline tbody tr[class*="s-"]>td:first-child{box-shadow:inset 3px 0 0 colo
 /* Tipo de entrada: OF azul relleno, propuesta fijada con borde azul, propuesta con borde gris (ancho fijo para alinear cantidades) */
 .ent{display:inline-block;min-width:38px;text-align:center;font:600 10px/1.6 var(--font);letter-spacing:.03em;border-radius:6px;padding:0 4px;border:1px solid transparent;vertical-align:1px}
 .ent-OF{background:var(--entOF);color:var(--entOFInk);border-color:var(--entOF)}
+.ent-PC{background:var(--exceso);color:#fff;border-color:var(--exceso)}
 .ent-PF{background:var(--accBg);color:var(--acc);border-color:var(--accLine)}
 .ent-P{background:transparent;color:var(--entP);border-color:var(--line2)}
+/* Cabecera fija: la caja de la tabla mide como mucho la pantalla (menos la barra superior) y las filas se desplazan
+   dentro con la cabecera pegada arriba; las tablas cortas no cambian */
+.tw{max-height:calc(100vh - 90px);max-height:calc(100dvh - 90px);overflow:auto}
+.tw>table>thead{position:sticky;top:0;z-index:2}
+.tw>table>thead th{box-shadow:inset 0 -1px 0 var(--thLine)}
+.tw>table>thead th.grp{box-shadow:none}
+/* Líneas agrupadas por área: fila de área con sus totales */
+tr.area-row>th,tr.area-row>td{background:var(--muted);font-weight:600;border-top:1px solid var(--thLine)}
+tr.area-row>th{text-align:left;color:var(--ink)}
+/* Botón de copiar código (como el de BellFlow): en tablas y buscador aparece al pasar por la fila; verde ✓ al copiar */
+.copy{background:none;border:0;padding:2px 3px;margin:0 0 0 2px;cursor:pointer;color:var(--thMute);border-radius:5px;vertical-align:-2px;line-height:0;opacity:0;transition:opacity 100ms}
+.copy:hover{color:var(--acc);background:var(--accBg)}
+.copy .i-ok{display:none}
+.copy.ok{color:var(--verde);opacity:1}.copy.ok .i-copy{display:none}.copy.ok .i-ok{display:inline}
+tr:hover .copy,li:hover .copy,li[aria-selected="true"] .copy,.copy:focus-visible,.copy.on{opacity:1}

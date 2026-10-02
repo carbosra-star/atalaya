@@ -20,19 +20,23 @@ const lnNom = (c) => !c || c === '—' ? '—' : ((S.ds && S.ds.alias) || {})[c]
 const lnTit = (c) => !c || c === '—' ? 'Sin línea asignada' : c + (((S.ds && S.ds.meta.lineas) || {})[c] ? ' · ' + S.ds.meta.lineas[c] : '');
 // Lo que acompaña al nombre en gris, sin repetir lo que ya se ve: el código si hay nombre corto y el nombre en ABAS si es distinto
 const lnSub = (c) => { if (!c || c === '—') return 'Sin línea asignada'; const ab = ((S.ds && S.ds.meta.lineas) || {})[c]; return [lnNom(c) !== c ? c : '', ab && ab !== c && ab !== lnNom(c) ? ab : ''].filter(Boolean).join(' · '); };
+// Área: agrupa varias líneas; maestro de la app (se edita en Líneas). '' = sin área
+const lnArea = (c) => !c || c === '—' ? '' : ((S.ds && S.ds.areas) || {})[c] || '';
+const SIN_AREA = 'Sin área';
 const lnSpan = (c) => `<span title="${esc(lnTit(c))}">${esc(lnNom(c))}</span>`;
 const lnLink = (c) => c ? `<a class="nowrap" href="#/linea/${encodeURIComponent(c)}" title="${esc(lnTit(c))}">${esc(lnNom(c))}</a>` : '—';
 const lnOpts = (codes, cur) => '<option value="">Todas</option>' + codes.slice().sort((a, b) => lnNom(a).localeCompare(lnNom(b), 'es')).map(c => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c === '—' ? 'Sin línea' : lnNom(c))}</option>`).join('');
 const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['verde', 'Cubierto'], ['exceso', 'Exceso'], ['gris', 'Sin demanda']];
 const SEMT = Object.fromEntries(SEM);
 const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, exceso: 4, gris: 5 };
-const ESC = { OF: 'Solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };
-const ESC_TXT = { OF: 'solo OF', OFPF: 'OF y propuestas fijadas', ALL: 'OF y todas las propuestas' };  // para mitad de frase
+// Firmes: OF y pedidos de compra a proveedor (PT fabricados fuera); cuentan en todos los escenarios
+const ESC = { OF: 'Solo firmes: OF y pedidos de compra', OFPF: 'Firmes y propuestas fijadas', ALL: 'Firmes y todas las propuestas' };
+const ESC_TXT = { OF: 'solo OF y pedidos de compra', OFPF: 'OF, pedidos de compra y propuestas fijadas', ALL: 'OF, pedidos de compra y todas las propuestas' };  // para mitad de frase
 const escLower = () => ESC_TXT[S.esc] + (S.pv === 'C' ? ' y previsión corregida' : '');
 const PV = { T: 'Tal cual', C: 'Corregida' };
 const pvKey = () => S.esc + (S.pv === 'C' ? '_C' : '');  // clave de la carga anterior evaluada
 const cobTxt = (v) => Cob.cobTxt(v);  // stock negativo: 0 m
-const ENT = { OF: 'OF', PF: 'PROP fijada', P: 'PROP' };
+const ENT = { OF: 'OF', PC: 'Compra', PF: 'PROP fijada', P: 'PROP' };
 // Valor que importa según el estado (a coste, Precio Mixto): exceso, lo que falta en rotura o el stock.
 // null = sin precio (con algo que valorar); 0 = nada que valorar
 function valor(r, e) {
@@ -56,6 +60,27 @@ async function api(path, opt = {}) {
   if (!res.ok) throw new Error((data && data.error) || ('Error ' + res.status));
   return data;
 }
+// Copiar al portapapeles (como en BellFlow): navigator.clipboard solo existe en contexto seguro (HTTPS o localhost);
+// en el NAS, por HTTP, se cae al textarea + execCommand, que funciona sin TLS
+function copiar(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); return Promise.resolve(); } catch (e) { return Promise.reject(e); } finally { ta.remove(); }
+}
+const ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" class="i-copy"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+  + '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" class="i-ok"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// Botón de copiar; en las tablas aparece al pasar por la fila (siempre: visible también fuera de ellas)
+const copyBtn = (text, que = 'código', siempre = false) => `<button type="button" class="copy${siempre ? ' on' : ''}" data-copy="${esc(text)}" title="Copiar ${que} ${esc(text)}" aria-label="Copiar ${que} ${esc(text)}">${ICON_COPY}</button>`;
+// Un solo manejador para todos (en captura: que el clic no abra además la fila del buscador)
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest && ev.target.closest('button[data-copy]');
+  if (!b) return;
+  ev.preventDefault(); ev.stopPropagation();
+  copiar(b.dataset.copy).then(() => { b.classList.add('ok'); clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('ok'), 1200); toast('Copiado: ' + b.dataset.copy); },
+    () => toast('No se ha podido copiar'));
+}, true);
 function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 2600); }
 function announce(t) { $('#live').textContent = t; }
 const can = (...roles) => S.me && roles.includes(S.me.role);
@@ -217,7 +242,7 @@ function markNav(key) {
 function setupSearch() {
   const inp = $('#gs'), ul = $('#gsList'); let items = [], act = -1;
   const draw = () => {
-    ul.innerHTML = items.map((x, i) => `<li role="option" id="gso${i}" aria-selected="${i === act}" data-k="${esc(x.r.k)}"><span class="pill s-${x.e.sem}"><span class="sr">${SEMT[x.e.sem]}</span></span><span><b>${esc(x.r.k)}</b> ${x.r.ext ? EXT_TAG : ''}${esc(x.r.n)}</span></li>`).join('') || '<li role="option" aria-disabled="true">Sin resultados</li>';
+    ul.innerHTML = items.map((x, i) => `<li role="option" id="gso${i}" aria-selected="${i === act}" data-k="${esc(x.r.k)}"><span class="pill s-${x.e.sem}"><span class="sr">${SEMT[x.e.sem]}</span></span><span><b>${esc(x.r.k)}</b>${copyBtn(x.r.k)} ${x.r.ext ? EXT_TAG : ''}${esc(x.r.n)}</span></li>`).join('') || '<li role="option" aria-disabled="true">Sin resultados</li>';
     ul.hidden = false; inp.setAttribute('aria-expanded', 'true'); inp.setAttribute('aria-activedescendant', act >= 0 ? 'gso' + act : '');
     $$('li[data-k]', ul).forEach(li => li.onclick = () => { closeSearch(); go(refHref(li.dataset.k)); });
   };
@@ -243,9 +268,19 @@ const pill = (sem, text) => `<span class="pill s-${sem}">${esc(text || SEMT[sem]
 // Estado corto para las tablas: el mes de rotura ya está en su columna y el motivo completo va en el title
 function semCorto(e) {
   if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : 'Rotura';
-  if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
-    : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why.startsWith('OF o propuestas') ? 'Entradas sin demanda' : 'Propuestas';
+  if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why === 'Falta ZT para el pedido' ? 'Falta ZT' : e.why === 'Pedido de compra con fecha pasada' ? 'Compra atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
+    : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why === 'Entradas sin demanda' ? 'Entradas sin demanda' : 'Propuestas';
   return { naranja: 'Bajo mínimo', verde: 'Cubierto', exceso: 'Exceso', gris: 'Sin demanda' }[e.sem];
+}
+// PT fabricado fuera: el ZT (semiterminado) que fabricamos y enviamos al proveedor; cubre su stock + sus OF (no las propuestas)
+function ztBloque(r) {
+  if (!r.zt || !r.zt.length) return '';
+  const pend = r.en.filter(e => e.t === 'PC').reduce((t, e) => t + e.q, 0);
+  return `<h2>Semiterminado (ZT)</h2><p class="muted small">Lo fabricamos nosotros y lo recibe el proveedor para el pedido de compra. Cubre el pedido con su stock y sus OF; las propuestas aún no están fabricadas.</p>
+    ${r.zt.map(z => { const c = Math.floor(Cob.ztCubre(z)), falta = c < pend - 0.5;
+      return `<p><b>${esc(z.k)}</b>${copyBtn(z.k, 'código', true)} ${esc(z.n)} · stock <b class="num">${fmt(z.st)}</b>${z.q !== 1 ? ` · ${String(z.q).replace('.', ',')} por PT` : ''}</p>
+      ${z.en.length ? `<ul class="list">${z.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${copyBtn(v.id, 'nº de OF', true)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF ni propuestas del ZT.</p>'}
+      <p class="${falta ? 'neg' : ''}">Cubre <b class="num">${fmt(c)}</b> de <b class="num">${fmt(pend)}</b> uds pendientes de pedido${falta ? ` · faltan ${fmt(pend - c)}` : ''}.</p>`; }).join('')}`;
 }
 const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${semCorto(e)}<span class="sr"> (${esc(e.why)})</span></span>`;
 // ABC: una sola tinta de más a menos intensa (A → D), NA con borde discontinuo
@@ -282,17 +317,17 @@ const refLink = (r) => `<a href="${refHref(r.k)}">${esc(r.k)}</a>`;
 const esExt = (r) => r.ext != null ? !!r.ext : !!(S.byK[r.k] && S.byK[r.k].r.ext);
 const EXT_TAG = '<span class="tag ext" title="A extinguir: se consume el stock y no se repone">A extinguir</span> ';
 const EXT_CORTA = '<span class="tag ext" title="A extinguir: se consume el stock y no se repone">EXT</span> ';  // en tablas, delante del código
-const refCell = (r, extra = '') => `<td class="art" title="${esc(r.k + ' ' + r.n)}${esExt(r) ? ' · a extinguir' : ''}">${esExt(r) ? EXT_CORTA : ''}${refLink(r)} ${extra}<span class="nm">${esc(r.n)}</span></td>`;
+const refCell = (r, extra = '') => `<td class="art" title="${esc(r.k + ' ' + r.n)}${esExt(r) ? ' · a extinguir' : ''}">${esExt(r) ? EXT_CORTA : ''}${refLink(r)}${copyBtn(r.k)} ${extra}<span class="nm">${esc(r.n)}</span></td>`;
 // Demanda que queda del mes en curso (máx. de previsión restante y pedidos): la demanda/mes no la incluye.
 // Se resalta si supera al stock actual: aunque entre algo este mes, puede romper antes de que llegue.
 const mesCell = (r, e) => { const d = e.all.dem[0]; return `<td class="r num${d > Math.max(r.st, 0) ? ' neg' : ''}"${d > Math.max(r.st, 0) ? ' title="Supera el stock actual"' : ''}>${fmt(d)}</td>`; };
 // Tipo de entrada como etiqueta: OF azul relleno, propuesta fijada con borde azul, propuesta con borde gris
-const ENT_CORTO = { OF: 'OF', PF: 'PROP F', P: 'PROP' }, ENT_TIT = { OF: 'Orden de fabricación', PF: 'Propuesta fijada', P: 'Propuesta sin fijar' };
+const ENT_CORTO = { OF: 'OF', PC: 'COMPRA', PF: 'PROP F', P: 'PROP' }, ENT_TIT = { OF: 'Orden de fabricación', PC: 'Pedido de compra a proveedor', PF: 'Propuesta fijada', P: 'Propuesta sin fijar' };
 const entTag = (t, corto = true) => `<span class="ent ent-${t}" title="${ENT_TIT[t]}">${corto ? ENT_CORTO[t] : ENT[t]}</span>`;
 function nextEntry(e) {
   const n = e.next;
   if (!n) return '<span class="muted" title="Sin entradas">—<span class="sr"> sin entradas</span></span>';
-  return `<span class="nowrap">${entTag(n.t)} ${fmt(n.q)} · <span class="${n.late ? 'neg' : ''}"${n.late ? ' title="OF con fecha pasada"' : ''}>${fdate(n.d, true)}</span></span>`;
+  return `<span class="nowrap">${entTag(n.t)} ${fmt(n.q)} · <span class="${n.late ? 'neg' : ''}"${n.late ? ` title="${n.t === 'PC' ? 'Pedido de compra' : 'OF'} con fecha pasada"` : ''}>${fdate(n.d, true)}</span></span>`;
 }
 // Fecha estimada de rotura (demanda de cada mes repartida por igual entre sus días, entradas en su fecha)
 const rfTxt = (e) => e.rf ? '≈ ' + fdate(e.rf, true) : e.rot < 0 ? '' : monthLabel(e.rot);
@@ -310,7 +345,7 @@ function strip(list, hrefFor, current) {
     ${Object.keys(cx).length && list.some(x => !x.r.ext) ? `<p class="strip-x">${EXT_TAG}${SEM.filter(([k]) => cx[k]).map(([k, t]) => `${cx[k]} ${t.toLowerCase()}`).join(' · ')}</p>` : ''}</section>`;
 }
 function scenarioCtl() {
-  return `<div class="fld"><span id="escL">Entradas que se cuentan</span><div class="seg" role="group" aria-labelledby="escL">${Object.entries(ESC).map(([k, t]) => `<button type="button" data-esc="${k}" aria-pressed="${S.esc === k}">${k === 'OF' ? 'Solo OF' : k === 'OFPF' ? '+ fijadas' : '+ todas las propuestas'}<span class="sr"> (${t})</span></button>`).join('')}</div></div>
+  return `<div class="fld"><span id="escL">Entradas que se cuentan</span><div class="seg" role="group" aria-labelledby="escL">${Object.entries(ESC).map(([k, t]) => `<button type="button" data-esc="${k}" aria-pressed="${S.esc === k}">${k === 'OF' ? 'Solo firmes' : k === 'OFPF' ? '+ fijadas' : '+ todas las propuestas'}<span class="sr"> (${t})</span></button>`).join('')}</div></div>
     <div class="fld"><span id="pvL">Previsión</span><div class="seg" role="group" aria-labelledby="pvL">${Object.entries(PV).map(([k, t]) => `<button type="button" data-pv="${k}" aria-pressed="${S.pv === k}">${t}</button>`).join('')}</div></div>`;
 }
 function bindScenario(root, rerender) {
@@ -378,9 +413,9 @@ const LIST_GET = {
   d0: x => x.e.all.dem[0], d3: x => x.e.d3, val: x => { const v = valor(x.r, x.e); return v == null ? -1 : v; }, cob: x => x.e.cob, cobp: x => x.e.cobp == null ? 999 : x.e.cobp, rot: x => x.e.rf || (x.e.rot < 0 ? 'z' : String(x.e.rot)), next: x => x.e.next ? x.e.next.d : 'z',
 };
 function listFilter(q) {
-  const t = (q.get('q') || '').toLowerCase(), md = q.get('md') || '', ln = q.get('ln') || '', mc = q.get('mc') || '', abc = q.get('abc') || '', gp = q.has('gp') ? q.get('gp') : 'Contra Stock', ext = q.get('ext') || '';
+  const t = (q.get('q') || '').toLowerCase(), md = q.get('md') || '', ln = q.get('ln') || '', mc = q.get('mc') || '', abc = q.get('abc') || '', gp = q.has('gp') ? q.get('gp') : 'Contra Stock', ext = q.get('ext') || '', ar = q.get('ar') || '';
   const toks = t.split(/\s+/).filter(Boolean);
-  return (ignoreSem) => S.ev.filter(({ r, e }) => (!md || r.md === md) && (!ln || (r.ln || '—') === ln) && (!mc || r.mc === mc) && (!abc || r.abc === abc) && (!gp || r.gp === gp) && (!ext || (ext === '1') === !!r.ext) &&
+  return (ignoreSem) => S.ev.filter(({ r, e }) => (!md || r.md === md) && (!ln || (r.ln || '—') === ln) && (!mc || r.mc === mc) && (!abc || r.abc === abc) && (!gp || r.gp === gp) && (!ext || (ext === '1') === !!r.ext) && (!ar || (lnArea(r.ln) || SIN_AREA) === ar) &&
     (ignoreSem || !q.get('sem') || e.sem === q.get('sem')) && (!toks.length || toks.every(w => (r.k + ' ' + r.n).toLowerCase().includes(w))));
 }
 // Tabla de cobertura por referencia, la misma en Coberturas y en cada Línea (allí sin la columna Línea)
@@ -399,6 +434,7 @@ const covHead = (key, dir, conLn = true) => head2([thSort('Referencia', 'k', key
 function covSort(thead, key, dir, redraw) {
   $$('[data-sort]', thead).forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd0', 'd3', 'mn', 'val'].includes(k2) ? -1 : 1) }); redraw(); $(`[data-sort="${k2}"]`, thead).focus(); });
 }
+const areasUsadas = () => [...new Set(Object.values((S.ds && S.ds.areas) || {}))].sort((a, b) => a.localeCompare(b, 'es'));
 async function pageList(main) {
   if (!S.ds) return noData(main, 'Coberturas');
   const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -426,6 +462,7 @@ async function pageList(main) {
     <form class="filters" id="flt" role="search" aria-label="Filtros" onsubmit="return false">
       <label class="fld">Buscar<input type="search" name="q" value="${esc(q.get('q') || '')}" placeholder="Código o artículo"></label>
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], q.get('md'), 'Todos')}</select></label>
+      ${areasUsadas().length ? `<label class="fld">Área<select name="ar">${opts([...areasUsadas(), SIN_AREA], q.get('ar'), 'Todas')}</select></label>` : ''}
       <label class="fld">Línea<select name="ln">${lnOpts(lines, q.get('ln'))}</select></label>
       <label class="fld">Marca<select name="mc">${opts(brands, q.get('mc'), 'Todas')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D', 'NA'], q.get('abc'), 'Todas')}</select></label>
@@ -447,8 +484,8 @@ async function pageList(main) {
   draw();
 }
 function downloadCSV(rows, name = 'coberturas') {
-  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'A extinguir', 'Sucesor', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Fecha rotura (estimada)', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ext ? 'Sí' : '', r.sc || '', r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rf || (e.rot < 0 ? '' : monthLabel(e.rot)), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'A extinguir', 'Sucesor', 'Área', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Fecha rotura (estimada)', 'Próxima entrada', 'Cantidad', 'Fecha'];
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ext ? 'Sí' : '', r.sc || '', lnArea(r.ln), r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rf || (e.rot < 0 ? '' : monthLabel(e.rot)), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `${name}_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -486,7 +523,7 @@ async function pageRef(main, [k]) {
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1>${esc(r.n)}</h1>
-        <p class="meta">${esc(r.k)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
+        <p class="meta">${esc(r.k)}${copyBtn(r.k, 'código', true)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
         ${r.ext ? `<p class="extbar">${EXT_TAG}Se consume el stock y no se repone.${r.sc ? ` Sucesor: <a href="${refHref(r.sc)}">${esc(r.sc)}</a>${S.byK[r.sc] ? ' ' + esc(S.byK[r.sc].r.n) : ''}.` : ' Sin sucesor activo.'}</p>` : ''}
         <p>${pill(e.sem, e.why)}</p></div>
         <form onsubmit="return false">${scenarioCtl()}</form></div>
@@ -528,7 +565,7 @@ async function pageRef(main, [k]) {
           ${dvh.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.version)}</td><td>${esc(h.by || '')}</td><td class="r num">${pctTxt(h.pct)} <span class="muted small">${SRCD[h.src]}</span></td><td>${esc(h.motivo)}</td></tr>`).join('')}</tbody></table></div>` : ''}`; })()}
       <h2>Acierto de la previsión</h2>${aciertoHTML(r)}
       <div class="two">
-        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${v.mq ? ' · ' + esc(v.mq) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF ni propuestas.</p>'}
+        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}
           ${r.hp ? '' : `<h2>Venta de los últimos 12 meses</h2><div class="tw"><table class="mt" style="min-width:0"><thead><tr>${r.vt.map((_, i) => `<th scope="col" class="r">${monthLabel(i - 12)}</th>`).join('')}</tr></thead><tbody><tr>${r.vt.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>`}</section>
         <section><h2>Acciones</h2>
           ${acts.length ? acts.map(a => `<div class="act ${a.status !== 'abierta' ? 'done' : ''}"><div><div class="t">${esc(a.text)}</div><div class="st muted">${a.owner ? esc(a.owner) + ' · ' : ''}${a.due ? 'para el ' + fdate(a.due) + ' · ' : ''}${esc(a.status)}</div></div>
@@ -557,29 +594,48 @@ async function pageLines(main) {
   const rows = Object.entries(groupLines(cs)).map(([k, xs]) => { const c = {}; xs.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1); return { k, xs, c }; })
     .sort((a, b) => (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
   const canW = can('admin', 'planificador');
+  const barra = (c) => `<div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div>`;
+  const fila = ({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
+      <td>${barra(c)}</td><td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>`;
+  // Con áreas: cada área con su fila de totales y debajo sus líneas (las líneas sin área, al final)
+  const grupos = {}; rows.forEach(x => (grupos[lnArea(x.k) || SIN_AREA] = grupos[lnArea(x.k) || SIN_AREA] || []).push(x));
+  const nombresArea = Object.keys(grupos).sort((a, b) => (a === SIN_AREA) - (b === SIN_AREA) || a.localeCompare(b, 'es'));
+  const cuerpo = !areasUsadas().length ? rows.map(fila).join('') : nombresArea.map(a => {
+    const ls = grupos[a], c = {}; ls.forEach(x => SEM.forEach(([s]) => c[s] = (c[s] || 0) + (x.c[s] || 0)));
+    const n = ls.reduce((t, x) => t + x.xs.length, 0);
+    return `<tr class="area-row"><th scope="rowgroup">${esc(a)}</th><td class="r num">${n}</td><td>${barra(c)}</td>
+      <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>${ls.map(fila).join('')}`;
+  }).join('');
   main.innerHTML = `<h1>Líneas</h1><p class="lead">Contra stock, por grupo de máquina.</p>
-    <form onsubmit="return false" class="filters">${scenarioCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar nombres</button></div>' : ''}</form>
+    <form onsubmit="return false" class="filters">${scenarioCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar líneas</button></div>' : ''}</form>
     <div id="lnBox"></div>
     <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th></tr></thead><tbody>
-    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
-      <td><div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div></td>
-      <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>`).join('')}
+    ${cuerpo}
     </tbody></table></div>`;
   bindScenario(main, () => pageLines(main));
   $('#lnCsv').onclick = () => downloadCSV(cs.slice().sort((a, b) => lnNom(a.r.ln || '—').localeCompare(lnNom(b.r.ln || '—')) || SEMORD[a.e.sem] - SEMORD[b.e.sem]), 'lineas');
   const ed = $('#lnEd');
   if (ed) ed.onclick = async () => {
     const ls = await api('/api/lineas');
-    $('#lnBox').innerHTML = `<section class="card"><h2>Nombres de las líneas</h2><p class="muted small">Nombre corto para usar en toda la app. Vacío o igual al código: se muestra el código.</p>
-      <form class="form" id="lnF" style="max-width:none"><div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th></tr></thead><tbody>
-      ${ls.map(x => `<tr><th scope="row">${esc(x.codigo)}</th><td>${esc(x.abas)}</td><td class="r num">${fmt(x.n)}</td><td><input name="${esc(x.codigo)}" value="${esc(x.nombre)}" maxlength="40" aria-label="Nombre corto de ${esc(x.codigo)}" style="width:200px"></td></tr>`).join('')}
-      </tbody></table></div><div><button class="btn">Guardar nombres</button> <button type="button" class="btn ghost" id="lnX">Cerrar</button></div></form></section>`;
+    const yaAreas = [...new Set(ls.map(x => x.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+    $('#lnBox').innerHTML = `<section class="card"><h2>Líneas: nombre corto y área</h2><p class="muted small">Nombre corto para usar en toda la app (vacío o igual al código: se muestra el código). Área: agrupa varias líneas; vacío = sin área.</p>
+      <form class="form" id="lnF" style="max-width:none"><datalist id="lnAreas">${yaAreas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
+      <div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th><th scope="col">Área</th></tr></thead><tbody>
+      ${ls.map(x => `<tr><th scope="row">${esc(x.codigo)}</th><td>${esc(x.abas)}</td><td class="r num">${fmt(x.n)}</td><td><input name="${esc(x.codigo)}" value="${esc(x.nombre)}" maxlength="40" aria-label="Nombre corto de ${esc(x.codigo)}" style="width:200px"></td>
+        <td><input name="area:${esc(x.codigo)}" value="${esc(x.area)}" list="lnAreas" maxlength="40" aria-label="Área de ${esc(x.codigo)}" style="width:180px"></td></tr>`).join('')}
+      </tbody></table></div><div><button class="btn">Guardar</button> <button type="button" class="btn ghost" id="lnX">Cerrar</button></div></form></section>`;
     $('#lnX').onclick = () => { $('#lnBox').innerHTML = ''; };
     $('#lnF').onsubmit = async (ev) => {
       ev.preventDefault();
-      const nombres = {}; ls.forEach(x => { const v = ev.target.elements[x.codigo].value.trim(); if (v !== x.nombre) nombres[x.codigo] = v; });
-      if (!Object.keys(nombres).length) { toast('No hay cambios'); return; }
-      try { const r = await api('/api/lineas', { method: 'PUT', body: { nombres } }); S.ds.alias = Object.fromEntries(r.filter(x => x.nombre !== x.codigo).map(x => [x.codigo, x.nombre])); toast('Nombres guardados'); pageLines(main); } catch (e2) { toast(e2.message); }
+      const nombres = {}, areas = {}, el = ev.target.elements;
+      ls.forEach(x => { const v = el[x.codigo].value.trim(), a = el['area:' + x.codigo].value.trim(); if (v !== x.nombre) nombres[x.codigo] = v; if (a !== x.area) areas[x.codigo] = a; });
+      if (!Object.keys(nombres).length && !Object.keys(areas).length) { toast('No hay cambios'); return; }
+      try {
+        const r = await api('/api/lineas', { method: 'PUT', body: { nombres, areas } });
+        S.ds.alias = Object.fromEntries(r.filter(x => x.nombre !== x.codigo).map(x => [x.codigo, x.nombre]));
+        S.ds.areas = Object.fromEntries(r.filter(x => x.area).map(x => [x.codigo, x.area]));
+        toast('Cambios guardados'); pageLines(main);
+      } catch (e2) { toast(e2.message); }
     };
   };
 }
@@ -588,7 +644,7 @@ async function pageLine(main, [ln]) {
   const xs = S.ev.filter(x => (x.r.ln || '—') === ln && x.r.gp === 'Contra Stock');
   const n = Cob.H, dem = new Array(n).fill(0), ent = new Array(n).fill(0);
   xs.forEach(({ e }) => { for (let i = 0; i < n; i++) { dem[i] += e.all.dem[i]; ent[i] += e.all.ent[i]; } });
-  main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(lnNom(ln))}</p><h1>${esc(lnNom(ln))}</h1><p class="lead">${[lnSub(ln), xs.length + ' referencias contra stock.'].filter(Boolean).map(esc).join(' · ')}</p>
+  main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(lnNom(ln))}</p><h1>${esc(lnNom(ln))}</h1><p class="lead">${[lnArea(ln) ? 'Área ' + lnArea(ln) : '', lnSub(ln), xs.length + ' referencias contra stock.'].filter(Boolean).map(esc).join(' · ')}</p>
     ${strip(xs, k => `#/coberturas?ln=${encodeURIComponent(ln)}&sem=${k}`)}
     <h2>Demanda y entradas de la línea</h2>
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>

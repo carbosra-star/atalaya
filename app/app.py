@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS prev_dec(
 CREATE INDEX IF NOT EXISTS prev_dec_ref ON prev_dec(ref, version, id);
 CREATE INDEX IF NOT EXISTS prev_dec_ver ON prev_dec(version, ref, id);
 CREATE TABLE IF NOT EXISTS linea_alias(codigo TEXT PRIMARY KEY, nombre TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS linea_area(codigo TEXT PRIMARY KEY, area TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 """
 
 
@@ -291,6 +292,7 @@ def dataset():
     ds = json.loads(zlib.decompress(row["data"]))
     _con_sx(ds["refs"])
     ds["alias"] = _alias()
+    ds["areas"] = _areas()
     by = db().execute("SELECT name FROM users WHERE id=?", (row["user_id"],)).fetchone()
     ds["load"] = {"id": row["id"], "created": row["created"], "by": by["name"] if by else "", "filename": row["filename"]}
     prev = db().execute("SELECT id,created,hoy,data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (row["hoy"],)).fetchone()
@@ -655,6 +657,28 @@ def _alias() -> dict:
     return {r["codigo"]: r["nombre"] for r in db().execute("SELECT codigo,nombre FROM linea_alias")}
 
 
+def _areas() -> dict:
+    """Área de cada grupo de máquinas (un área agrupa varias líneas); maestro de la app, no viene de ABAS."""
+    return {r["codigo"]: r["area"] for r in db().execute("SELECT codigo,area FROM linea_area")}
+
+
+def _guardar(tabla: str, campo: str, valores: dict, n: dict) -> str | None:
+    """Guarda nombres cortos o áreas: vacío (o igual al código, en los nombres) borra el valor. Error o None."""
+    for cod, v in valores.items():
+        if cod not in n:
+            return f"La línea {cod} no está en la carga vigente"
+        if not isinstance(v, str) or len(v.strip()) > 40:
+            return "Los nombres cortos y las áreas deben tener como mucho 40 caracteres"
+    for cod, v in valores.items():
+        v = " ".join(v.split())
+        if not v or (campo == "nombre" and v == cod):
+            db().execute(f"DELETE FROM {tabla} WHERE codigo=?", (cod,))
+        else:
+            db().execute(f"INSERT INTO {tabla}(codigo,{campo},user_id,updated) VALUES(?,?,?,?) ON CONFLICT(codigo) DO UPDATE SET "
+                         f"{campo}=excluded.{campo}, user_id=excluded.user_id, updated=excluded.updated", (cod, v, g.user["id"], now()))
+    return None
+
+
 @app.route("/api/lineas", methods=["GET", "PUT"])
 @need()
 def lineas():
@@ -669,24 +693,18 @@ def lineas():
     if request.method == "PUT":
         if g.user["role"] not in ("admin", "planificador"):
             return err("Tu usuario no tiene permiso para esta acción", 403)
-        nombres = (request.get_json(silent=True) or {}).get("nombres")
-        if not isinstance(nombres, dict) or not nombres:
-            return err("No hay nombres que guardar")
-        for cod, nom in nombres.items():
-            if cod not in n:
-                return err(f"La línea {cod} no está en la carga vigente")
-            if not isinstance(nom, str) or len(nom.strip()) > 40:
-                return err("Los nombres cortos deben tener como mucho 40 caracteres")
-        for cod, nom in nombres.items():
-            nom = " ".join(nom.split())
-            if not nom or nom == cod:  # vacío o igual al código: vuelve al código
-                db().execute("DELETE FROM linea_alias WHERE codigo=?", (cod,))
-            else:
-                db().execute("INSERT INTO linea_alias(codigo,nombre,user_id,updated) VALUES(?,?,?,?) ON CONFLICT(codigo) DO UPDATE SET "
-                             "nombre=excluded.nombre, user_id=excluded.user_id, updated=excluded.updated", (cod, nom, g.user["id"], now()))
+        body = request.get_json(silent=True) or {}
+        nombres, areas = body.get("nombres") or {}, body.get("areas") or {}
+        if not isinstance(nombres, dict) or not isinstance(areas, dict) or not (nombres or areas):
+            return err("No hay cambios que guardar")
+        for tabla, campo, valores in (("linea_alias", "nombre", nombres), ("linea_area", "area", areas)):
+            e = _guardar(tabla, campo, valores, n)
+            if e:
+                db().rollback()
+                return err(e)
         db().commit()
-    al, abas = _alias(), ds["meta"].get("lineas") or {}
-    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k)} for k in sorted(n)])
+    al, ar, abas = _alias(), _areas(), ds["meta"].get("lineas") or {}
+    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k), "area": ar.get(k, "")} for k in sorted(n)])
 
 
 # ---------------------------------------------------------------- notas y acciones
