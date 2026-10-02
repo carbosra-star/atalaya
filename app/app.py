@@ -422,7 +422,7 @@ def abc_invalido(a) -> str:
     c = a.get("cortes")
     if not (isinstance(c, list) and len(c) == 3 and all(isinstance(x, int) and 1 <= x <= 99 for x in c) and c[0] < c[1] < c[2]):
         return "Los cortes del ABC deben ser tres porcentajes crecientes entre 1 y 99 (por ejemplo 45, 80 y 95)"
-    for clave, nombre, lo, hi in (("freq", "La frecuencia de fabricación", 0, 365), ("ss", "El % de SS", -1, 300)):
+    for clave, nombre, lo, hi in (("freq", "La frecuencia de fabricación", 0, 365), ("ss", "El % de stock mínimo", -1, 300)):
         d = a.get(clave)
         for md in ("Belloch", "Yunsey"):
             v = d.get(md) if isinstance(d, dict) else None

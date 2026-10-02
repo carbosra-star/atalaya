@@ -1,4 +1,4 @@
-"""Parámetros de planificación de los PT contra stock: lote, stock de seguridad (método del Excel y
+"""Parámetros de planificación de los PT contra stock: lote, stock mínimo (método del Excel y
 estadístico) frente al ERP, propuesta, estado de la decisión y stock máximo.
 
 Se calcula en el servidor y no tiene gemela en JS: la evaluación del semáforo solo usa el stock
@@ -34,7 +34,7 @@ def _ruido(p: float, erp: float) -> bool:
 
 
 def _estadistico(r: dict, ns: float, dias_extra: int):
-    """(stock de seguridad | None, tipo, error típico relativo, sesgo, marca)."""
+    """(stock mínimo | None, tipo, error típico relativo, sesgo, marca)."""
     meses = [(v, p) for v, p in zip(r.get("vt") or [], r.get("hp") or []) if p > 0]  # cargas antiguas sin hp: sin historia
     vm = mean(v for v, _ in meses) if meses else 0
     if len(meses) < HMIN or vm <= 0:
@@ -70,9 +70,9 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
         xl = round100(lc * ss_pct[md][i] / 100)
         dx = int(extra.get(k, 0))
         est, tipo, etr, sesgo, flag = _estadistico(r, ns[md][i], dx)
-        # A extinguir: se consume el stock del PT y no se repone (SS y lote 0); si hay que fabricar para
+        # A extinguir: se consume el stock del PT y no se repone (stock mínimo y lote 0); si hay que fabricar para
         # gastar material, se decide a mano. Sin previsión en 12 meses o en el próximo trimestre (p. ej.
-        # temporada): sin propuesta automática (daría lote 0 o la mitad del SS), se decide a mano desde el ERP
+        # temporada): sin propuesta automática (daría lote 0 o la mitad del stock mínimo), se decide a mano desde el ERP
         sin = "extinguir" if r.get("ext") else "sin_prev" if not sum(r["pv"]) or not sum(r["pv"][1:4]) else ""
         if sin:
             est, tipo = None, sin
@@ -99,7 +99,7 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
 
 
 def resumen(rows: list[dict]) -> dict:
-    """€ del stock de seguridad y del stock medio (SS + lote/2) por mandante y clase: ERP, propuesta y decidido."""
+    """€ del stock mínimo y del stock medio (stock mínimo + lote/2) por mandante y clase: ERP, propuesta y decidido."""
     g: dict[tuple, dict] = {}
     for p in rows:
         x = g.setdefault((p["md"], p["abc"]), dict(md=p["md"], abc=p["abc"], n=0, ss_erp=0.0, ss_prop=0.0, ss_dec=0.0,

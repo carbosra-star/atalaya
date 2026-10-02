@@ -3,6 +3,7 @@
   --rojo:#B83227; --naranja:#C86A12; --amarillo:#A88410; --verde:#327A4C; --gris:#7C8791; --exceso:#4F5BB5;
   --rojoBg:#F7E1DE; --naranjaBg:#FBE8D6; --amarilloBg:#F6EDCB; --verdeBg:#DCEEE2; --grisBg:#E6E9EC; --excesoBg:#E3E5F6;
   --focus:#1F63A8; --sel:#E3ECF5; --link:#1F5E9C;
+  --th:#F1F5F8; --thInk:#4F5E6C; --thOn:#1B2733; --thG:#DCEBF6; --thGInk:#005E95; --thG2:#EAF3FA; --thLine:#9CC6E4;
   --abcA:#1F4E7A; --abcAt:#FFFFFF; --abcB:#3A6E9F; --abcBt:#FFFFFF; --abcC:#C9DBEE; --abcD:#3A6E9F; --abcDbg:#E9F0F7;
   --font:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Roboto,Arial,sans-serif;
   --narrow:"Segoe UI Semibold","Arial Narrow","Roboto Condensed","Helvetica Neue",Arial,sans-serif;
@@ -13,12 +14,14 @@
   --rojo:#F07466; --naranja:#F0A052; --amarillo:#E3C24D; --verde:#6CC08A; --gris:#94A0AA; --exceso:#9AA4F0;
   --rojoBg:#3A1E1B; --naranjaBg:#3A2A17; --amarilloBg:#353018; --verdeBg:#183324; --grisBg:#262E35; --excesoBg:#23263F;
   --focus:#7CB6F0; --sel:#22364A; --link:#8CC2F5;
+  --th:#1F2830; --thInk:#A3B0BB; --thOn:#E6EBEF; --thG:#1E3346; --thGInk:#8CC2F5; --thG2:#1C2C3A; --thLine:#2F5677;
   --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; --abcDbg:#1E2A36; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --paper:#12181E; --sheet:#1A222A; --ink:#E6EBEF; --ink2:#A3B0BB; --rule:#2D3842; --soft:#212B34; --side:#0D1318; --sideInk:#E6EBEF; --sideMute:#8697A5;
   --rojo:#F07466; --naranja:#F0A052; --amarillo:#E3C24D; --verde:#6CC08A; --gris:#94A0AA; --exceso:#9AA4F0;
   --rojoBg:#3A1E1B; --naranjaBg:#3A2A17; --amarilloBg:#353018; --verdeBg:#183324; --grisBg:#262E35; --excesoBg:#23263F;
   --focus:#7CB6F0; --sel:#22364A; --link:#8CC2F5;
+  --th:#1F2830; --thInk:#A3B0BB; --thOn:#E6EBEF; --thG:#1E3346; --thGInk:#8CC2F5; --thG2:#1C2C3A; --thLine:#2F5677;
   --abcA:#8CC2F5; --abcAt:#12181E; --abcB:#4F86B8; --abcBt:#0D1318; --abcC:#2A4460; --abcD:#6FA6DA; --abcDbg:#1E2A36; color-scheme:dark;}
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
@@ -222,3 +225,20 @@ th.c,td.c{text-align:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .ptab select{font-size:13px;padding:2px 4px}.ptab td{vertical-align:middle}
 tr.sel th,tr.sel td{background:var(--soft)}
+/* hidden siempre gana a los display de las clases (botón "Mostrar más", menús, badges) */
+[hidden]{display:none!important}
+/* Encabezados agrupados: nombre común arriba, centrado sobre sus columnas */
+thead th.grp{text-align:center;border-bottom:1px solid var(--rule);padding-bottom:4px}
+thead th[rowspan]{vertical-align:middle}
+/* Tablas de referencias: cada referencia en un solo renglón (el nombre del artículo se corta con …) */
+table.oneline td{white-space:nowrap}
+table.oneline th,table.oneline td{padding-left:8px;padding-right:8px}
+table.oneline td.art{min-width:170px}
+/* Cabeceras de tabla: fondo claro; grupos en azul suave con el nombre en el azul del logo */
+thead th{background:var(--th);color:var(--thInk);border-bottom:1px solid var(--thLine)}
+.mt thead th:first-child{background:var(--th)}
+thead th[aria-sort],thead th[aria-sort] button.sort{color:var(--thOn)}
+thead th button.sort:hover{color:var(--thOn)}
+thead th.grp{background:var(--thG);color:var(--thGInk);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;padding-top:6px;padding-bottom:6px;border-bottom:0;border-left:2px solid var(--sheet)}
+thead tr+tr th{background:var(--thG2)}
+thead th[data-g1]{border-left:2px solid var(--sheet)}

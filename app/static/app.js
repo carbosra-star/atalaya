@@ -11,15 +11,17 @@ const keur = (n) => Math.abs(n) >= 1e6 ? (n / 1e6).toLocaleString('es-ES', { max
 // Fechas siempre en números: 29/09/2026, 29/09 (corta), 29/09/2026 10:25 (con hora), 09/26 (mes)
 const pad = (n) => String(n).padStart(2, '0');
 const toDate = (iso) => new Date(iso.length <= 10 ? iso + 'T12:00:00' : iso);
-const fdate = (iso, short) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + (short ? '' : '/' + d.getFullYear()); };
+const fdate = (iso, short) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + (short ? String(d.getFullYear()).slice(2) : d.getFullYear()); };  // short: año con dos cifras
 const fdt = (iso) => { if (!iso) return ''; const d = toDate(iso); if (isNaN(d)) return esc(iso); return fdate(iso) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
 const refHref = (k) => '#/ref/' + encodeURIComponent(k);
 // Líneas: nombre corto ("piedra Rosetta", se edita en Líneas); sin nombre, el código. Al pasar el ratón, código y nombre en ABAS
 const lnNom = (c) => !c || c === '—' ? '—' : ((S.ds && S.ds.alias) || {})[c] || c;
 const lnTit = (c) => !c || c === '—' ? 'Sin línea asignada' : c + (((S.ds && S.ds.meta.lineas) || {})[c] ? ' · ' + S.ds.meta.lineas[c] : '');
+// Lo que acompaña al nombre en gris, sin repetir lo que ya se ve: el código si hay nombre corto y el nombre en ABAS si es distinto
+const lnSub = (c) => { if (!c || c === '—') return 'Sin línea asignada'; const ab = ((S.ds && S.ds.meta.lineas) || {})[c]; return [lnNom(c) !== c ? c : '', ab && ab !== c && ab !== lnNom(c) ? ab : ''].filter(Boolean).join(' · '); };
 const lnSpan = (c) => `<span title="${esc(lnTit(c))}">${esc(lnNom(c))}</span>`;
-const lnLink = (c) => c ? `<a href="#/linea/${encodeURIComponent(c)}" title="${esc(lnTit(c))}">${esc(lnNom(c))}</a>` : '—';
+const lnLink = (c) => c ? `<a class="nowrap" href="#/linea/${encodeURIComponent(c)}" title="${esc(lnTit(c))}">${esc(lnNom(c))}</a>` : '—';
 const lnOpts = (codes, cur) => '<option value="">Todas</option>' + codes.slice().sort((a, b) => lnNom(a).localeCompare(lnNom(b), 'es')).map(c => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c === '—' ? 'Sin línea' : lnNom(c))}</option>`).join('');
 const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['verde', 'Cubierto'], ['exceso', 'Exceso'], ['gris', 'Sin demanda']];
 const SEMT = Object.fromEntries(SEM);
@@ -30,7 +32,7 @@ const escLower = () => ESC_TXT[S.esc] + (S.pv === 'C' ? ' y previsión corregida
 const PV = { T: 'Tal cual', C: 'Corregida' };
 const pvKey = () => S.esc + (S.pv === 'C' ? '_C' : '');  // clave de la carga anterior evaluada
 const cobTxt = (v) => Cob.cobTxt(v);  // stock negativo: 0 m
-const ENT = { OF: 'OF', PF: 'Propuesta fijada', P: 'Propuesta' };
+const ENT = { OF: 'OF', PF: 'PROP fijada', P: 'PROP' };
 // Valor que importa según el estado (a coste, Precio Mixto): exceso, lo que falta en rotura o el stock.
 // null = sin precio (con algo que valorar); 0 = nada que valorar
 function valor(r, e) {
@@ -38,7 +40,7 @@ function valor(r, e) {
   return !u ? 0 : r.pr > 0 ? u * r.pr : null;
 }
 const valorCell = (r, e) => { const v = valor(r, e), t = e.sem === 'exceso' ? 'Exceso' : e.sem === 'rojo' ? 'Falta' : 'Stock';
-  return v == null ? '<td class="r"><span class="muted">sin precio</span></td>' : `<td class="r num" title="${t}">${v ? eur(v) : '–'}</td>`; };
+  return v == null ? '<td class="r"><span class="muted" title="Sin precio">—<span class="sr"> sin precio</span></span></td>' : `<td class="r num" title="${t}">${v ? eur(v) : '–'}</td>`; };
 
 const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL',
   pv: (() => { try { return localStorage.getItem('prev') === 'C' ? 'C' : 'T'; } catch (e) { return 'T'; } })() };
@@ -94,7 +96,7 @@ function aciertoHTML(r) {
     <tr><th scope="row">Versión</th>${src.map(v => `<td class="r small muted">${esc(v)}</td>`).join('')}</tr></tbody></table></div>`;
 }
 function recompute() {
-  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv, exceso: S.cfg.exceso, dias: S.ds && S.ds.meta.dias };
+  const cfg = { horizonte: S.cfg.horizonte || 3, escenario: S.esc, prevision: S.pv, exceso: S.cfg.exceso, dias: S.ds && S.ds.meta.dias, hoy: S.ds && S.ds.meta.hoy };
   S.ev = S.ds ? S.ds.refs.map(r => ({ r, e: Cob.evaluate(r, cfg) })) : [];
   S.byK = {}; for (const x of S.ev) S.byK[x.r.k] = x;
 }
@@ -264,10 +266,10 @@ function pico(e) {
   const d = e.all.dem, m = d.indexOf(Math.max(...d));
   return d[m] > 1.5 * e.d3 && d[m] > 0 ? `<div class="kpi"><div class="v">${monthLabel(m)}</div><div class="l">Pico de demanda · ${fmt(d[m])}</div></div>` : '';
 }
-// Cobertura normal y prudente en una celda: "1,1 m · 0,8 m"
+// Cobertura normal y prudente, en dos columnas bajo el grupo «Cobertura»
 function cobCell(e) {
-  if (e.cob >= 99) return '<td class="r num"><span class="muted">—</span></td>';
-  return `<td class="r num cobc">${cobTxt(e.cob)}${e.cobp == null ? '' : ` <span class="cobp">· ${cobTxt(e.cobp)}</span>`}</td>`;
+  if (e.cob >= 99) return '<td class="r num"><span class="muted">—</span></td><td class="r num"><span class="muted">—</span></td>';
+  return `<td class="r num cobc">${cobTxt(e.cob)}</td><td class="r num cobc cobp">${e.cobp == null ? '<span class="muted">—</span>' : cobTxt(e.cobp)}</td>`;
 }
 function leyendaCob(rows) {
   const n = {}; rows.forEach(({ r }) => n[r.abc] = (n[r.abc] || 0) + 1);
@@ -280,8 +282,15 @@ const refCell = (r, extra = '') => `<td class="art" title="${esc(r.k + ' ' + r.n
 // Demanda que queda del mes en curso (máx. de previsión restante y pedidos): la demanda/mes no la incluye.
 // Se resalta si supera al stock actual: aunque entre algo este mes, puede romper antes de que llegue.
 const mesCell = (r, e) => { const d = e.all.dem[0]; return `<td class="r num${d > Math.max(r.st, 0) ? ' neg' : ''}"${d > Math.max(r.st, 0) ? ' title="Supera el stock actual"' : ''}>${fmt(d)}</td>`; };
-function nextEntry(e) { const n = e.next; return n ? `<span class="nowrap">${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, true)}</span>` : '<span class="muted">Sin entradas</span>'; }
-function rotCell(e) { return e.rot < 0 ? '<span class="muted" title="Sin rotura en 12 meses">—<span class="sr"> sin rotura en 12 meses</span></span>' : `<span class="${e.rot < (S.cfg.horizonte || 3) ? 'neg' : ''}">${monthLabel(e.rot)}</span>`; }
+function nextEntry(e) { const n = e.next; return n ? `<span class="nowrap">${ENT[n.t]} ${fmt(n.q)} · ${fdate(n.d, true)}</span>` : '<span class="muted nowrap">Sin entradas</span>'; }
+// Fecha estimada de rotura (demanda de cada mes repartida por igual entre sus días, entradas en su fecha)
+const rfTxt = (e) => e.rf ? '≈ ' + fdate(e.rf, true) : e.rot < 0 ? '' : monthLabel(e.rot);
+const RF_TIP = 'Fecha estimada: la demanda de cada mes repartida por igual entre sus días y cada entrada en su fecha';
+function rotCell(e) {
+  if (e.rot < 0 && !e.rf) return '<span class="muted" title="Sin rotura en 12 meses">—<span class="sr"> sin rotura en 12 meses</span></span>';
+  const tip = e.rot < 0 ? 'Se queda sin stock hasta la siguiente entrada. ' + RF_TIP : RF_TIP;
+  return `<span class="nowrap${e.rot >= 0 && e.rot < (S.cfg.horizonte || 3) ? ' neg' : ''}" title="${tip}">${rfTxt(e)}</span>`;
+}
 function strip(list, hrefFor, current) {
   const c = {}; list.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1);
   return `<section class="strip" aria-label="Referencias por estado">
@@ -300,9 +309,16 @@ function noData(main, title) {
   main.innerHTML = `<h1>${title}</h1><p class="lead">Todavía no hay datos cargados.${can('admin') ? ' Sube el MM_Supply desde <a href="#/datos">Datos</a>.' : ' Cuando se cargue el MM_Supply aparecerán aquí las coberturas.'}</p>`;
 }
 function sortTable(rows, key, dir, getters) { const g = getters[key]; return rows.slice().sort((a, b) => { const va = g(a), vb = g(b); return (va < vb ? -1 : va > vb ? 1 : 0) * dir; }); }
-function thSort(label, key, cur, dir, cls = '') {
+// Encabezado simple; tip = nombre completo al pasar el ratón
+const thc = (label, cls = '', tip = '') => `<th scope="col"${cls ? ` class="${cls}"` : ''}${tip ? ` title="${tip}"` : ''}>${label}</th>`;
+// Encabezado en dos filas: columnas sueltas (ocupan las dos) y grupos { g, c: [th…] } con el nombre común arriba
+function head2(cols) {
+  return `<tr>${cols.map(c => typeof c === 'string' ? c.replace('<th ', '<th rowspan="2" ') : `<th scope="colgroup" colspan="${c.c.length}" class="grp">${c.g}</th>`).join('')}</tr>
+    <tr>${cols.filter(c => typeof c !== 'string').map(c => c.c.map((h, i) => i ? h : h.replace('<th ', '<th data-g1 ')).join('')).join('')}</tr>`;
+}
+function thSort(label, key, cur, dir, cls = '', tip = '') {
   const s = cur === key ? (dir > 0 ? 'ascending' : 'descending') : null;
-  return `<th scope="col" class="${cls}" ${s ? `aria-sort="${s}"` : ''}><button class="sort" data-sort="${key}">${label}${s ? (dir > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
+  return `<th scope="col" class="${cls}" ${s ? `aria-sort="${s}"` : ''}${tip ? ` title="${tip}"` : ''}><button class="sort" data-sort="${key}">${label}${s ? (dir > 0 ? ' ▲' : ' ▼') : ''}</button></th>`;
 }
 
 // ---------------------------------------------------------------- Inicio
@@ -334,7 +350,7 @@ async function pageHome(main) {
       <section class="card"><h2>Acciones abiertas</h2><p class="big">${S.actions.length}</p><p class="muted small">${late.length ? `<span class="neg">${late.length} con fecha vencida</span> · ` : ''}${wo} en rotura o bajo mínimo sin acción</p><p><a class="btn ghost sm" href="#/reunion">Ir a la reunión semanal</a></p></section>
     </div>
     <h2>Las 10 más urgentes</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción</th><th scope="col">Estado</th></tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda media/mes</th><th scope="col">Rotura</th><th scope="col" title="Próxima entrada">Entrada</th><th scope="col">Acción</th><th scope="col">Estado</th></tr></thead><tbody>
     ${urg.map(({ r, e }) => `<tr>${refCell(r)}<td>${lnSpan(r.ln)}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${openActs(r.k).length ? esc(openActs(r.k)[0].text) : '<span class="muted">Sin acción</span>'}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No hay referencias en rotura.</td></tr>'}
     </tbody></table></div>`;
 }
@@ -342,7 +358,7 @@ async function pageHome(main) {
 // ---------------------------------------------------------------- Coberturas
 const LIST_GET = {
   sem: x => SEMORD[x.e.sem] * 1e9 - x.e.d3, k: x => x.r.k, ln: x => x.r.ln ? lnNom(x.r.ln) : 'zzz', abc: x => x.r.abc, st: x => x.r.st, mn: x => x.r.mn,
-  d0: x => x.e.all.dem[0], d3: x => x.e.d3, val: x => { const v = valor(x.r, x.e); return v == null ? -1 : v; }, cob: x => x.e.cob, cobp: x => x.e.cobp == null ? 999 : x.e.cobp, rot: x => x.e.rot < 0 ? 99 : x.e.rot, next: x => x.e.next ? x.e.next.d : 'z',
+  d0: x => x.e.all.dem[0], d3: x => x.e.d3, val: x => { const v = valor(x.r, x.e); return v == null ? -1 : v; }, cob: x => x.e.cob, cobp: x => x.e.cobp == null ? 999 : x.e.cobp, rot: x => x.e.rf || (x.e.rot < 0 ? 'z' : String(x.e.rot)), next: x => x.e.next ? x.e.next.d : 'z',
 };
 function listFilter(q) {
   const t = (q.get('q') || '').toLowerCase(), md = q.get('md') || '', ln = q.get('ln') || '', mc = q.get('mc') || '', abc = q.get('abc') || '', gp = q.has('gp') ? q.get('gp') : 'Contra Stock';
@@ -368,11 +384,13 @@ async function pageList(main) {
     tb.innerHTML = rows.slice(0, limit).map(({ r, e }) => `<tr>
       ${refCell(r, (S.notes[r.k] ? `<span class="note-dot">${S.notes[r.k]} nota${S.notes[r.k] > 1 ? 's' : ''}</span>` : '') + (openActs(r.k).length ? '<span class="note-dot">acción abierta</span>' : ''))}
       <td>${lnLink(r.ln)}</td><td>${abcRef(r)}</td>
-      <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td>${mesCell(r, e)}<td class="r num">${fmt(e.d3)}</td>
+      <td class="r num">${fmt(r.st)}</td><td class="r num">${r.mn ? fmt(r.mn) : '–'}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}
       ${cobCell(e)}${valorCell(r, e)}
-      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="12" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
+      <td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="13" class="empty">Ninguna referencia cumple estos filtros.</td></tr>';
     $('#more').hidden = rows.length <= limit; $('#more').textContent = `Mostrar ${Math.min(200, rows.length - limit)} más`;
-    $('#thead').innerHTML = `<tr>${thSort('Referencia', 'k', key, dir)}${thSort('Línea', 'ln', key, dir)}${thSort('ABC', 'abc', key, dir)}${thSort('Stock', 'st', key, dir, 'r')}${thSort('Mínimo', 'mn', key, dir, 'r')}${thSort('Queda este mes', 'd0', key, dir, 'r')}${thSort('Demanda/mes', 'd3', key, dir, 'r')}${thSort('Cobertura · prudente', 'cob', key, dir, 'r')}${thSort('Valor', 'val', key, dir, 'r')}${thSort('Rotura', 'rot', key, dir)}${thSort('Próxima entrada', 'next', key, dir)}${thSort('Estado', 'sem', key, dir)}</tr>`;
+    $('#thead').innerHTML = head2([thSort('Referencia', 'k', key, dir), thSort('Línea', 'ln', key, dir), thSort('ABC', 'abc', key, dir), thSort('Stock', 'st', key, dir, 'r'), thSort('Mínimo', 'mn', key, dir, 'r', 'Stock mínimo'),
+      { g: 'Demanda', c: [thSort('Media/mes', 'd3', key, dir, 'r', 'Demanda media de los 3 próximos meses'), thSort('Resto/mes', 'd0', key, dir, 'r', 'Demanda que queda del mes en curso')] },
+      { g: 'Cobertura', c: [thSort('Meses', 'cob', key, dir, 'r', 'Meses que dura el stock de hoy con la demanda prevista'), thSort('Prudente', 'cobp', key, dir, 'r', 'Cobertura en meses con la previsión corregida y aumentada en su error')] }, thSort('Valor', 'val', key, dir, 'r'), thSort('Rotura', 'rot', key, dir), thSort('Entrada', 'next', key, dir, '', 'Próxima entrada'), thSort('Estado', 'sem', key, dir)]);
     $$('#thead [data-sort]').forEach(b => b.onclick = () => { const k2 = b.dataset.sort; setQuery({ sort: k2, dir: key === k2 ? -dir : (['st', 'd0', 'd3', 'mn', 'val'].includes(k2) ? -1 : 1) }); draw(); $(`#thead [data-sort="${k2}"]`).focus(); });
     main._rows = rows;
   };
@@ -390,9 +408,9 @@ async function pageList(main) {
     </form>
     <div class="toolbar"><span class="count" id="count" aria-live="polite"></span><button class="btn ghost sm" id="csv">Descargar lista (CSV)</button></div>
     <div class="leyenda" id="leyenda"></div>
-    <div class="tw"><table id="tbl"><caption class="sr">Referencias y su cobertura</caption><thead id="thead"></thead><tbody></tbody></table></div>
+    <div class="tw"><table id="tbl" class="oneline"><caption class="sr">Referencias y su cobertura</caption><thead id="thead"></thead><tbody></tbody></table></div>
     <button class="btn ghost more" id="more" hidden></button>
-    <p class="muted small">Cobertura: meses que dura el stock de hoy con la demanda prevista desde hoy, mes a mes (el mes en curso, por lo que queda). No cuenta las entradas. Prudente: igual, con la previsión corregida y aumentada en su error. Demanda/mes: media de los 3 próximos meses completos.</p>`;
+    <p class="muted small">Cobertura: meses que dura el stock de hoy con la demanda prevista desde hoy, mes a mes (el mes en curso, por lo que queda). No cuenta las entradas. Prudente: igual, con la previsión corregida y aumentada en su error. Media/mes: media de los 3 próximos meses completos. Resto/mes: demanda que falta del mes en curso.</p>`;
   const fl = $('#flt');
   fl.addEventListener('input', (ev) => { const n = ev.target.name; if (!n) return; if (n === 'q') { clearTimeout(fl.t); fl.t = setTimeout(() => { setQuery({ q: ev.target.value.trim() }); limit = 200; draw(); }, 200); } });
   fl.addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'q') return; setQuery({ [n]: n === 'gp' ? (ev.target.value || '') : ev.target.value }); if (n === 'gp' && !ev.target.value) { const { path, q: qq } = parseHash(); qq.set('gp', ''); history.replaceState(null, '', '#' + path + '?' + qq); } limit = 200; draw(); });
@@ -401,12 +419,12 @@ async function pageList(main) {
   $('#csv').onclick = () => downloadCSV(main._rows || []);
   draw();
 }
-function downloadCSV(rows) {
-  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Mes rotura', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rot < 0 ? '' : monthLabel(e.rot), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+function downloadCSV(rows, name = 'coberturas') {
+  const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Fecha rotura (estimada)', 'Próxima entrada', 'Cantidad', 'Fecha'];
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rf || (e.rot < 0 ? '' : monthLabel(e.rot)), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = `coberturas_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  a.download = `${name}_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 // ---------------------------------------------------------------- Ficha de referencia
@@ -447,10 +465,10 @@ async function pageRef(main, [k]) {
       <div class="kpis">
         <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
         <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? `<br>Exceso: ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : e.sem === 'rojo' && e.fa ? `<br>Falta: ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
-        <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · lote ${fmt(r.lt)}` : ''}</div></div>
+        <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · Lote ${fmt(r.lt)}` : ''}</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cob)}</div><div class="l">Cobertura</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cobp)}</div><div class="l">Cobertura prudente</div></div>
-        <div class="kpi"><div class="v">${e.rot < 0 ? 'No' : monthLabel(e.rot)}</div><div class="l">Primera rotura</div></div>${pico(e)}</div>
+        <div class="kpi"><div class="v">${e.rot < 0 && !e.rf ? 'No' : rfTxt(e)}</div><div class="l" title="${RF_TIP}">Primera rotura</div></div>${pico(e)}</div>
       <div class="chartbox">${chartSVG(r, e)}<p class="muted small">Línea: stock fin de mes · gris: demanda · azul: entradas (${ESC_TXT[S.esc]}) · discontinua: stock mínimo</p></div>
       <h2>Mes a mes</h2>
       <div class="tw"><table class="mt"><caption class="sr">Proyección mes a mes</caption><thead><tr><th scope="col">Concepto</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
@@ -464,21 +482,21 @@ async function pageRef(main, [k]) {
       ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
         const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', manual: 'manual', calculado: 'calculado' };
         return `<h2>Parámetros</h2>
-        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.mn)} · ${fmt(p.lt)}</div><div class="l">ERP: stock mínimo · lote</div></div>
-          <div class="kpi"><div class="v">${fmt(p.xl)} · ${p.est == null ? '—' : fmt(p.est)}</div><div class="l">SS Excel · estadístico${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}</div></div>
-          <div class="kpi"><div class="v">${fmt(p.ssp)} · ${fmt(p.ltp)}</div><div class="l">Propuesta: SS · lote</div></div>
-          <div class="kpi"><div class="v">${p.d ? fmt(p.ss) + ' · ' + fmt(p.lote) : '—'}</div><div class="l">${PEST[p.estado]}${p.smax ? ' · stock máximo ' + fmt(p.smax) : ''}</div></div></div>
+        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.mn)} · ${fmt(p.lt)}</div><div class="l">ERP: Stock mínimo · Lote</div></div>
+          <div class="kpi"><div class="v">${fmt(p.xl)} · ${p.est == null ? '—' : fmt(p.est)}</div><div class="l">Stock mínimo Excel · Estadístico${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}</div></div>
+          <div class="kpi"><div class="v">${fmt(p.ssp)} · ${fmt(p.ltp)}</div><div class="l">Propuesta: Stock mínimo · Lote</div></div>
+          <div class="kpi"><div class="v">${p.d ? fmt(p.ss) + ' · ' + fmt(p.lote) : '—'}</div><div class="l">${PEST[p.estado]}${p.smax ? ' · Stock máximo ' + fmt(p.smax) : ''}</div></div></div>
         ${can('admin', 'planificador') ? `<form class="form" id="plzF" style="max-width:none"><div class="row"><label>Plazo extra de material (días laborables)<input type="number" name="dias" min="0" max="250" value="${p.dx}"></label><label style="flex:1">Motivo<input name="motivo" maxlength="500"></label><button class="btn ghost">Guardar plazo</button></div></form>` : (p.dx ? `<p class="muted small">Plazo extra de material: ${p.dx} días laborables.</p>` : '')}
-        ${hist.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de decisiones</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Por</th><th scope="col" class="r">SS</th><th scope="col" class="r">Lote</th><th scope="col">Antes (ERP)</th><th scope="col">Motivo</th><th scope="col">Aplicado</th></tr></thead><tbody>
+        ${hist.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de decisiones</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Usuario</th><th scope="col" class="r">Stock mínimo</th><th scope="col" class="r">Lote</th><th scope="col">Antes (ERP)</th><th scope="col">Motivo</th><th scope="col">Aplicado</th></tr></thead><tbody>
           ${hist.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.by || '')}</td><td class="r num">${fmt(h.ss)} <span class="muted small">${SRC[h.src_ss]}</span></td><td class="r num">${fmt(h.lote)} <span class="muted small">${SRC[h.src_lote]}</span></td><td class="num">${fmt(h.ss_antes)} · ${fmt(h.lote_antes)}</td><td>${esc(h.motivo)}</td><td class="num">${h.aplicado ? fdate(h.aplicado) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Sin decisiones todavía. Se deciden en <a href="#/parametros">Stock mínimo y lotes</a>.</p>'}`; })()}
       ${(() => { const p = dvr && dvr.rows && dvr.rows[0]; if (!p) return '';
         const SRCD = { propuesta: 'propuesta', manual: 'manual', mantener: 'mantener' };
         return `<h2>Revisión de la previsión ${esc(dvr.version)}</h2>
-        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.p12)} · ${fmt(p.v12)}</div><div class="l">Previsión 12 m · venta 12 m</div></div>
-          <div class="kpi"><div class="v">${pctTxt(p.cr)} · ${pctTxt(p.cs)}</div><div class="l">Corrección por ritmo · por sesgo</div></div>
+        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.p12)} · ${fmt(p.v12)}</div><div class="l">Previsión 12 m · Venta 12 m</div></div>
+          <div class="kpi"><div class="v">${pctTxt(p.cr)} · ${pctTxt(p.cs)}</div><div class="l">Corrección por ritmo · Por sesgo</div></div>
           <div class="kpi"><div class="v">${pctTxt(p.cp)}</div><div class="l">Propuesta (${DEST[p.tipo]})</div></div>
-          <div class="kpi"><div class="v">${p.estado === 'acordado' ? pctTxt(p.ca) : '—'}</div><div class="l">${p.estado === 'acordado' ? 'Acordado · previsión corregida ' + fmt(p.pvc.reduce((s, x) => s + x, 0)) : 'Sin acuerdo · se decide en <a href="#/desviacion?mc=' + encodeURIComponent(p.mc) + '">Desviación</a>'}</div></div></div>
-        ${dvh.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de acuerdos de previsión</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Versión</th><th scope="col">Por</th><th scope="col" class="r">Corrección</th><th scope="col">Motivo</th></tr></thead><tbody>
+          <div class="kpi"><div class="v">${p.estado === 'acordado' ? pctTxt(p.ca) : '—'}</div><div class="l">${p.estado === 'acordado' ? 'Acordado · Previsión corregida ' + fmt(p.pvc.reduce((s, x) => s + x, 0)) : 'Sin acuerdo · se decide en <a href="#/desviacion?mc=' + encodeURIComponent(p.mc) + '">Desviación</a>'}</div></div></div>
+        ${dvh.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de acuerdos de previsión</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Versión</th><th scope="col">Usuario</th><th scope="col" class="r">Corrección</th><th scope="col">Motivo</th></tr></thead><tbody>
           ${dvh.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.version)}</td><td>${esc(h.by || '')}</td><td class="r num">${pctTxt(h.pct)} <span class="muted small">${SRCD[h.src]}</span></td><td>${esc(h.motivo)}</td></tr>`).join('')}</tbody></table></div>` : ''}`; })()}
       <h2>Acierto de la previsión</h2>${aciertoHTML(r)}
       <div class="two">
@@ -512,19 +530,20 @@ async function pageLines(main) {
     .sort((a, b) => (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
   const canW = can('admin', 'planificador');
   main.innerHTML = `<h1>Líneas</h1><p class="lead">Contra stock, por grupo de máquina.</p>
-    <form onsubmit="return false" class="filters">${scenarioCtl()}${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar nombres</button></div>' : ''}</form>
+    <form onsubmit="return false" class="filters">${scenarioCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar nombres</button></div>' : ''}</form>
     <div id="lnBox"></div>
     <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th></tr></thead><tbody>
-    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(k === '—' ? 'Sin línea asignada' : k + (L[k] ? ' · ' + L[k] : ''))}</span></td><td class="r num">${xs.length}</td>
+    ${rows.map(({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
       <td><div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div></td>
       <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>`).join('')}
     </tbody></table></div>`;
   bindScenario(main, () => pageLines(main));
+  $('#lnCsv').onclick = () => downloadCSV(cs.slice().sort((a, b) => lnNom(a.r.ln || '—').localeCompare(lnNom(b.r.ln || '—')) || SEMORD[a.e.sem] - SEMORD[b.e.sem]), 'lineas');
   const ed = $('#lnEd');
   if (ed) ed.onclick = async () => {
     const ls = await api('/api/lineas');
     $('#lnBox').innerHTML = `<section class="card"><h2>Nombres de las líneas</h2><p class="muted small">Nombre corto para usar en toda la app. Vacío o igual al código: se muestra el código.</p>
-      <form class="form" id="lnF" style="max-width:none"><div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Refs</th><th scope="col">Nombre corto</th></tr></thead><tbody>
+      <form class="form" id="lnF" style="max-width:none"><div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th></tr></thead><tbody>
       ${ls.map(x => `<tr><th scope="row">${esc(x.codigo)}</th><td>${esc(x.abas)}</td><td class="r num">${fmt(x.n)}</td><td><input name="${esc(x.codigo)}" value="${esc(x.nombre)}" maxlength="40" aria-label="Nombre corto de ${esc(x.codigo)}" style="width:200px"></td></tr>`).join('')}
       </tbody></table></div><div><button class="btn">Guardar nombres</button> <button type="button" class="btn ghost" id="lnX">Cerrar</button></div></form></section>`;
     $('#lnX').onclick = () => { $('#lnBox').innerHTML = ''; };
@@ -539,21 +558,21 @@ async function pageLines(main) {
 async function pageLine(main, [ln]) {
   if (!S.ds) return noData(main, 'Línea');
   const xs = S.ev.filter(x => (x.r.ln || '—') === ln && x.r.gp === 'Contra Stock');
-  const name = (S.ds.meta.lineas || {})[ln] || '';
   const n = Cob.H, dem = new Array(n).fill(0), ent = new Array(n).fill(0);
   xs.forEach(({ e }) => { for (let i = 0; i < n; i++) { dem[i] += e.all.dem[i]; ent[i] += e.all.ent[i]; } });
   const rows = xs.slice().sort((a, b) => SEMORD[a.e.sem] - SEMORD[b.e.sem] || b.e.d3 - a.e.d3);
-  main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(lnNom(ln))}</p><h1>${esc(lnNom(ln))}</h1><p class="lead">${ln === '—' ? 'Sin línea asignada' : esc(ln) + (name ? ' · ' + esc(name) : '')} · ${xs.length} referencias contra stock.</p>
+  main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(lnNom(ln))}</p><h1>${esc(lnNom(ln))}</h1><p class="lead">${[lnSub(ln), xs.length + ' referencias contra stock.'].filter(Boolean).map(esc).join(' · ')}</p>
     ${strip(xs, k => `#/coberturas?ln=${encodeURIComponent(ln)}&sem=${k}`)}
     <h2>Demanda y entradas de la línea</h2>
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
       <tr><th scope="row">Demanda</th>${dem.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr>
       <tr><th scope="row">Entradas</th>${ent.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>
     <p class="muted small">Entradas: ${ESC_TXT[S.esc]}${S.pv === 'C' ? '; demanda con previsión corregida' : ''}.</p>
-    <h2>Referencias</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Queda este mes</th><th scope="col" class="r">Demanda/mes</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Estado</th></tr></thead><tbody>
-    ${rows.map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.st)}</td>${mesCell(r, e)}<td class="r num">${fmt(e.d3)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Sin referencias.</td></tr>'}
+    <div class="toolbar"><h2>Referencias</h2><button class="btn ghost sm" id="csv">Descargar lista (CSV)</button></div>
+    <div class="tw"><table class="oneline"><thead>${head2([thc('Referencia'), thc('Stock', 'r'), { g: 'Demanda', c: [thc('Media/mes', 'r', 'Demanda media de los 3 próximos meses'), thc('Resto/mes', 'r', 'Demanda que queda del mes en curso')] }, thc('Rotura'), thc('Entrada', '', 'Próxima entrada'), thc('Estado')])}</thead><tbody>
+    ${rows.map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.st)}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${rotCell(e)}</td><td>${nextEntry(e)}</td><td>${pillShort(e)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Sin referencias.</td></tr>'}
     </tbody></table></div>`;
+  $('#csv').onclick = () => downloadCSV(rows, 'linea_' + (ln === '—' ? 'sin_linea' : lnNom(ln).replace(/[^\w-]+/g, '_')));
 }
 
 // ---------------------------------------------------------------- Reunión semanal
@@ -573,7 +592,7 @@ async function pageMeeting(main) {
       <label class="fld" style="flex-direction:row;align-items:center;gap:6px;padding-bottom:8px"><input type="checkbox" id="mSin" ${onlyNo ? 'checked' : ''}> Solo sin acción abierta</label>
       ${scenarioCtl()}</form>
     <h2>Por decidir (${list.length})</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col">Próxima entrada</th><th scope="col">Acción abierta</th><th scope="col">Estado</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col">Rotura</th><th scope="col" title="Próxima entrada">Entrada</th><th scope="col">Acción abierta</th><th scope="col">Estado</th>${canW ? '<th scope="col"><span class="sr">Añadir</span></th>' : ''}</tr></thead><tbody>
     ${list.map(({ r, e }) => { const a = openActs(r.k)[0]; return `<tr>${refCell(r)}<td>${lnSpan(r.ln)}</td><td>${rotCell(e)}</td><td>${nextEntry(e)}</td>
       <td>${a ? `${esc(a.text)}<br><span class="muted small">${a.owner ? esc(a.owner) : ''}${a.due ? ' · ' + fdate(a.due) : ''}</span>` : '<span class="muted">—</span>'}</td><td>${pillShort(e)}</td>
       ${canW ? `<td><button class="btn ghost sm" data-add="${esc(r.k)}" aria-label="Añadir acción a ${esc(r.k)}">Añadir acción</button></td>` : ''}</tr>
@@ -600,7 +619,7 @@ function abcForm() {
   return `<form class="form" id="abcF" style="max-width:none"><p class="muted small" style="margin:0">Pareto por mandante sobre la venta de 12 meses. Al guardar se recalcula la carga vigente.</p>
     <div class="row">${[0, 1, 2].map(i => `<label>Corte ${ABC_CL[i]} (% acumulado de venta)<input type="number" name="corte${i}" min="1" max="99" value="${a.cortes[i]}"></label>`).join('')}</div>
     <div class="tw"><table class="fit abcp"><thead><tr><th scope="col">Por clase</th>${ABC_CL.map(c => `<th scope="col">${abcTag(c)}</th>`).join('')}</tr></thead><tbody>
-      ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% SS (Excel)') + fila(md, 'ns', 'nivel de servicio %')).join('')}</tbody></table></div>
+      ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% stock mínimo (Excel)') + fila(md, 'ns', 'nivel de servicio %')).join('')}</tbody></table></div>
     <div><button class="btn ghost">Guardar parámetros del ABC</button></div></form>`;
 }
 async function pageData(main) {
@@ -618,10 +637,10 @@ async function pageData(main) {
       <form class="form" id="cfgF"><label>Horizonte de alerta (meses)<input type="number" name="hz" min="1" max="6" value="${S.cfg.horizonte}"></label>
         <div class="row"><label>Exceso Belloch (meses de stock)<input type="number" name="exB" min="1" max="12" value="${(S.cfg.exceso || {}).Belloch || 6}"></label><label>Exceso Yunsey (meses de stock)<input type="number" name="exY" min="1" max="12" value="${(S.cfg.exceso || {}).Yunsey || 12}"></label></div>
         <div><button class="btn ghost">Guardar criterios</button></div></form>
-      <p class="muted small">Rotura: stock proyectado &lt; 0 en el horizonte. Bajo mínimo: &lt; stock mínimo. A revisar: depende de propuestas sin fijar, OF atrasada, rotura antes de la entrada de este mes, sin stock ni entradas, o entradas sin demanda. Exceso (contra stock): el stock de hoy supera el stock máximo (stock de seguridad + lote); si no tiene lote, la demanda de los próximos meses indicados. Sin demanda: nada previsto en 12 meses.</p></section>
+      <p class="muted small">Rotura: stock proyectado &lt; 0 en el horizonte. Bajo mínimo: &lt; stock mínimo. A revisar: depende de propuestas sin fijar, OF atrasada, rotura antes de la entrada de este mes, sin stock ni entradas, o entradas sin demanda. Exceso (contra stock): el stock de hoy supera el stock máximo (stock mínimo + lote); si no tiene lote, la demanda de los próximos meses indicados. Sin demanda: nada previsto en 12 meses.</p></section>
     <section class="card"><h2>ABC y fabricación</h2>${abcForm()}</section></div>
     <h2>Historial de cargas</h2>
-    <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Por</th></tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Usuario</th></tr></thead><tbody>
     ${loads.map(l => `<tr><td>${fdt(l.created)}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>
       <td class="small">${SEM.map(([k, t]) => l.counts[k] ? `<span class="pill s-${k}">${l.counts[k]}<span class="sr"> ${t}</span></span>` : '').join(' ')}</td><td>${esc(l.by || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Todavía no hay cargas.</td></tr>'}
     </tbody></table></div>`;
@@ -675,8 +694,8 @@ async function pageParams(main) {
   const n0 = (v) => v == null ? '<span class="muted">—</span>' : fmt(v);
   const fila = (p) => {
     const marca = [PTIPO[p.tipo], p.flag ? 'corregir previsión' : ''].filter(Boolean).join(' · ');
-    const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock de seguridad de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="manual">Manual</option></select>
-        <input type="number" min="0" step="100" data-ssv="${esc(p.k)}" hidden aria-label="Stock de seguridad manual" style="width:90px">
+    const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock mínimo de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="manual">Manual</option></select>
+        <input type="number" min="0" step="100" data-ssv="${esc(p.k)}" hidden aria-label="Stock mínimo manual" style="width:90px">
         <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="manual">Manual</option></select>
         <input type="number" min="0" step="100" data-ltv="${esc(p.k)}" hidden aria-label="Lote manual" style="width:90px">
         <button class="btn ghost sm" data-dec="${esc(p.k)}">Decidir</button></td>` : '';
@@ -687,8 +706,10 @@ async function pageParams(main) {
   };
   const lim = 300;
   main.innerHTML = `<h1>Stock mínimo y lotes</h1>
-    <p class="lead">Contra stock con ABC. Stock de seguridad: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: estadístico si hay cifra; si no, el ERP.</p>
-    <div class="tw"><table class="fit"><caption class="sr">Valor por mandante y clase</caption><thead><tr><th scope="col">Mandante · clase</th><th scope="col" class="r">Refs</th><th scope="col" class="r">SS ERP</th><th scope="col" class="r">SS propuesta</th><th scope="col" class="r">SS decidido</th><th scope="col" class="r">Stock medio ERP</th><th scope="col" class="r">Stock medio propuesta</th><th scope="col" class="r">Stock medio decidido</th></tr></thead><tbody>
+    <p class="lead">Contra stock con ABC. Stock mínimo: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: estadístico si hay cifra; si no, el ERP.</p>
+    <div class="tw"><table class="fit"><caption class="sr">Valor por mandante y clase</caption><thead>${head2([thc('Mandante · Clase'), thc('Referencias', 'r'),
+      { g: 'Stock mínimo €', c: [thc('ERP', 'r', 'Stock mínimo del ERP'), thc('Prop.', 'r', 'Stock mínimo propuesto'), thc('Dec.', 'r', 'Stock mínimo decidido')] },
+      { g: 'Stock medio €', c: [thc('ERP', 'r', 'Stock medio del ERP'), thc('Prop.', 'r', 'Stock medio propuesto'), thc('Dec.', 'r', 'Stock medio decidido')] }])}</thead><tbody>
       ${P.resumen.grupos.map(g => `<tr><th scope="row">${esc(g.md)} · ${abcTag(g.abc)}</th><td class="r num">${fmt(g.n)}</td><td class="r num">${keur(g.ss_erp)}</td><td class="r num">${keur(g.ss_prop)}</td><td class="r num">${keur(g.ss_dec)}</td><td class="r num">${keur(g.med_erp)}</td><td class="r num">${keur(g.med_prop)}</td><td class="r num">${keur(g.med_dec)}</td></tr>`).join('')}
       <tr><th scope="row"><b>Total</b></th><td class="r num"><b>${fmt(tot('n'))}</b></td>${['ss_erp', 'ss_prop', 'ss_dec', 'med_erp', 'med_prop', 'med_dec'].map(k => `<td class="r num"><b>${keur(tot(k))}</b></td>`).join('')}</tr></tbody></table></div>
     <div class="kpis">${cnt('decidir', 'Por decidir a mano')}${cnt('cambio', 'Con cambio propuesto')}${cnt('decidido', 'Decididos, pendientes de ABAS')}${cnt('aplicado', 'Aplicados')}</div>
@@ -702,10 +723,12 @@ async function pageParams(main) {
     </form>
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
-    <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión/mes</th><th scope="col" class="r">Error</th>
-      <th scope="col" class="r">SS ERP</th><th scope="col" class="r">SS Excel</th><th scope="col" class="r">SS estadístico</th><th scope="col" class="r">SS propuesta · decidido</th><th scope="col" class="r">Lote ERP</th><th scope="col" class="r">Lote propuesta · decidido</th><th scope="col" class="r">Δ € stock medio</th><th scope="col">Estado</th>${canW ? '<th scope="col">Decisión</th>' : ''}</tr></thead>
+    <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([thc('Referencia'), thc('ABC'), thc('Previsión/mes', 'r'), thc('Error previsión', 'r'),
+      { g: 'Stock mínimo', c: [thc('ERP', 'r', 'Stock mínimo del ERP'), thc('Excel', 'r', 'Stock mínimo método Excel'), thc('Estadístico', 'r', 'Stock mínimo estadístico'), thc('Propuesta · Decidido', 'r', 'Stock mínimo propuesto · decidido')] },
+      { g: 'Lote', c: [thc('ERP', 'r', 'Lote del ERP'), thc('Propuesta · Decidido', 'r', 'Lote propuesto · decidido')] },
+      thc('Δ € stock medio', 'r'), thc('Estado'), ...(canW ? [thc('Decisión')] : [])])}</thead>
       <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 13 : 12}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
-    <p class="muted small">Δ € = variación del stock medio (stock de seguridad + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.</p>`;
+    <p class="muted small">Δ € = variación del stock medio (stock mínimo + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.</p>`;
   xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
   $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo') return; setQuery({ [n]: ev.target.value }); pageParams(main); });
   const motivo = () => ($('#pMot') ? $('#pMot').value.trim() : '');
@@ -748,10 +771,10 @@ async function pageDesv(main) {
     <td class="r num"><b>${p.estado === 'acordado' ? pctTxt(p.ca) : pctTxt(p.cp)}</b></td><td class="r num">${fmt(p.pvc.reduce((s, x) => s + x, 0))}</td><td class="r num">${p.pr > 0 ? eur(p.ee) : '<span class="muted">sin precio</span>'}</td><td class="nowrap">${DEST[p.estado]}</td>${ctl(p)}</tr>`;
   main.innerHTML = `<h1>Desviación de previsiones${mc ? ' · ' + esc(mc) : ''}</h1>
     <p class="lead">Contra stock con ABC · previsión ${esc(D.version)}. Corrección propuesta: la más prudente entre el ritmo de venta (venta de 12 meses frente a la previsión de 12 meses) y el sesgo histórico de la referencia; si se contradicen, revisar con comercial; menos del 10 %, sin corrección.</p>
-    <div class="tw"><table class="fit"><caption class="sr">Desviación por marca</caption><thead><tr><th scope="col">Marca</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Previsión / venta</th><th scope="col" class="r">Sesgo pasado</th><th scope="col" class="r">Error pasado</th><th scope="col" class="r">Con propuesta</th><th scope="col" class="r">A revisar</th><th scope="col" class="r">Acordadas</th><th scope="col" class="r">Efecto uds</th><th scope="col" class="r">Efecto €</th></tr></thead>
+    <div class="tw"><table class="fit"><caption class="sr">Desviación por marca</caption><thead><tr><th scope="col">Marca</th><th scope="col" class="r">Referencias</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r" title="Previsión 12 m ÷ venta 12 m">Prev./venta</th><th scope="col" class="r">Sesgo pasado</th><th scope="col" class="r">Error pasado</th><th scope="col" class="r">Con propuesta</th><th scope="col" class="r">A revisar</th><th scope="col" class="r">Acordadas</th><th scope="col" class="r">Efecto uds</th><th scope="col" class="r">Efecto €</th></tr></thead>
       <tbody>${D.marcas.map(marcaFila).join('')}</tbody></table></div>
     <h2>Acierto por versión${mc ? ' · ' + esc(mc) : ''}</h2>
-    ${D.vers ? `<div class="tw"><table class="fit"><caption class="sr">Acierto por versión</caption><thead><tr><th scope="col">Versión</th><th scope="col" class="r">Meses cerrados</th><th scope="col" class="r">Refs</th><th scope="col" class="r">Error</th><th scope="col" class="r">Sesgo</th></tr></thead><tbody>
+    ${D.vers ? `<div class="tw"><table class="fit"><caption class="sr">Acierto por versión</caption><thead><tr><th scope="col">Versión</th><th scope="col" class="r">Meses cerrados</th><th scope="col" class="r">Referencias</th><th scope="col" class="r">Error previsión</th><th scope="col" class="r">Sesgo</th></tr></thead><tbody>
       ${Object.keys(V).sort().map(v => `<tr><th scope="row">${esc(v)}</th><td class="r num">${V[v].m}</td><td class="r num">${fmt(V[v].n)}</td><td class="r num">${V[v].s ? Math.round(V[v].e / V[v].s * 100) + ' %' : '—'}</td><td class="r num">${pctTxt(ratio(V[v].p, V[v].s) == null ? null : V[v].p / V[v].s - 1)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin versiones con meses cerrados.</td></tr>'}
       </tbody></table></div><p class="muted small">Error = Σ |venta − previsión| ÷ Σ venta en los meses cerrados que cubría cada versión desde el inicio de su trimestre. Sesgo positivo: se previó más de lo vendido.</p>` : '<p class="muted">Esta carga no trae el acierto por versión. Vuelve a cargar el MM_Supply desde Datos para verlo.</p>'}
     <h2>Para la reunión</h2>
@@ -764,7 +787,9 @@ async function pageDesv(main) {
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más efecto` : ''}</span>
       ${canW && xs.some(p => p.estado === 'propuesta') ? `<button class="btn ghost sm" id="dBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'propuesta').length)} propuestas</button>` : ''}
       <a class="btn ghost sm" href="/api/desviacion/acuerdos.csv" download>Descargar acuerdos (CSV)</a></div>
-    <div class="tw"><table><caption class="sr">Referencias para la reunión</caption><thead><tr><th scope="col">Referencia</th><th scope="col">ABC</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r">Corrección por ritmo</th><th scope="col" class="r">Corrección por sesgo</th><th scope="col" class="r">Propuesta · acordado</th><th scope="col" class="r">Previsión corregida</th><th scope="col" class="r">Efecto €</th><th scope="col">Estado</th>${canW ? '<th scope="col">Acuerdo</th>' : ''}</tr></thead>
+    <div class="tw"><table><caption class="sr">Referencias para la reunión</caption><thead>${head2([thc('Referencia'), thc('ABC'), thc('Previsión 12 m', 'r'), thc('Venta 12 m', 'r'),
+      { g: 'Corrección', c: [thc('Ritmo', 'r', 'Corrección por ritmo de venta'), thc('Sesgo', 'r', 'Corrección por sesgo histórico')] },
+      thc('Propuesta · Acordado', 'r'), thc('Prev. corregida', 'r', 'Previsión corregida'), thc('Efecto €', 'r'), thc('Estado'), ...(canW ? [thc('Acuerdo')] : [])])}</thead>
       <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 11 : 10}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
     <p class="muted small">Las correcciones van en el sentido de lo que hay que hacer con la previsión (negativo: bajarla). Corrección por ritmo: venta de los 12 últimos meses cerrados ÷ previsión de los 12 próximos − 1. Corrección por sesgo: venta ÷ previsión vigente de los 12 meses pasados − 1 (solo con historia propia). En la tabla por marca, en cambio, el sesgo positivo indica que se previó de más. Efecto a coste.</p>`;
   $('#dF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n) return; setQuery({ [n]: ev.target.value }); pageDesv(main); });
@@ -822,7 +847,12 @@ const CATSM = { nada: 'Sin ningún dato', venta_antigua: 'Solo venta de hace má
 // Referencia de porfolio: enlaza a la ficha solo si está en seguimiento
 const pfRef = (k, n) => `<td class="art" title="${esc(k + ' ' + n)}">${S.byK[k] ? refLink({ k }) : `<b>${esc(k)}</b>`} <span class="nm">${esc(n)}</span></td>`;
 const chk = (v) => v == null ? '<span class="muted">—</span>' : v ? '<span class="ok">✓<span class="sr"> sí</span></span>' : '<span class="no">✗<span class="sr"> no</span></span>';
-const pfTabla = (rows, cols, empty, fit = true) => `<div class="tw"><table${fit ? ' class="fit"' : ''}><thead><tr>${cols.map(c => `<th scope="col"${c[1] ? ` class="${c[1]}"` : ''}>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+// cols: [nombre, clase, título] o { g, c: [cols…] } para un grupo
+const pfTabla = (rows, cols, empty, fit = true) => {
+  const th = (c) => thc(c[0], c[1], c[2]), n = cols.reduce((t, c) => t + (c.g ? c.c.length : 1), 0);
+  const head = cols.some(c => c.g) ? head2(cols.map(c => c.g ? { g: c.g, c: c.c.map(th) } : th(c))) : `<tr>${cols.map(th).join('')}</tr>`;
+  return `<div class="tw"><table${fit ? ' class="fit"' : ''}><thead>${head}</thead><tbody>${rows || `<tr><td colspan="${n}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+};
 // Columnas comunes de Porfolio: ABC (solo en seguimiento) y a extinguir con su sucesor si está activo
 const pfAbc = (k) => `<td>${S.byK[k] ? abcRef(S.byK[k].r) : '<span class="muted">—</span>'}</td>`;
 const pfExt = (x) => `<td class="nowrap">${x.ext ? `Sí${x.sc ? ` · sucesor ${S.byK[x.sc] ? refLink({ k: x.sc }) : `<b>${esc(x.sc)}</b>`}` : ''}` : '<span class="muted">—</span>'}</td>`;
@@ -880,12 +910,12 @@ const PF_BLOQUES = {
       const tot = con.reduce((s, x) => s + (x.r.abcm || 0), 0) || 1, sel = ABC_CL.includes(q.get('c' + md)) ? q.get('c' + md) : 'A';
       const cl = (c) => con.filter(x => x.r.abc === c), pct = (c) => (cl(c).reduce((s, x) => s + (x.r.abcm || 0), 0) / tot * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 });
       const filas = cl(sel).sort((a, b) => (b.r.abcm || 0) - (a.r.abcm || 0) || (a.r.k < b.r.k ? -1 : 1))
-        .map(({ r, e }) => `<tr>${refCell(r, r.ext ? '<span class="tag">A extinguir</span> ' : '')}<td class="r num">${fmt(r.abcm)}${r.abcp ? '*' : ''}</td>${mesCell(r, e)}<td class="r num">${fmt(e.d3)}</td><td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td>${cobCell(e)}</tr>`).join('');
+        .map(({ r, e }) => `<tr>${refCell(r, r.ext ? '<span class="tag">A extinguir</span> ' : '')}<td class="r num">${fmt(r.abcm)}${r.abcp ? '*' : ''}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td>${cobCell(e)}</tr>`).join('');
       const na = xs.length - con.length;
       return `<section class="card abcv" aria-label="${md}"><h2>${md} <span class="muted">· ${fmt(con.length)} referencias con ABC${na ? ` · ${fmt(na)} bajo pedido (NA)` : ''}</span></h2>
         <div class="abcc">${ABC_CL.map(c => `<button type="button" class="abc-${c}" data-abcsel="${md}" data-c="${c}" aria-pressed="${c === sel}"><b>${c}</b><span>${fmt(cl(c).length)} refs</span><span>${pct(c)} % venta</span></button>`).join('')}</div>
         <h3>Clase ${sel} <span class="muted small">(${esc(abcTxt(sel))})</span></h3>
-        ${pfTabla(filas, [['Referencia'], ['Venta 12 m', 'r'], ['Queda este mes', 'r'], ['Demanda/mes', 'r'], ['Estado'], ['Stock', 'r'], ['Cobertura · prudente', 'r']], 'Ninguna referencia en esta clase.')}</section>`;
+        ${pfTabla(filas, [['Referencia'], ['Venta 12 m', 'r'], { g: 'Demanda', c: [['Media/mes', 'r', 'Demanda media de los 3 próximos meses'], ['Resto/mes', 'r', 'Demanda que queda del mes en curso']] }, ['Estado'], ['Stock', 'r'], { g: 'Cobertura', c: [['Meses', 'r', 'Meses que dura el stock de hoy con la demanda prevista'], ['Prudente', 'r', 'Cobertura en meses con la previsión corregida y aumentada en su error']] }], 'Ninguna referencia en esta clase.')}</section>`;
     }).join('')}</div><p class="muted small">* ABC provisional (menos de 12 meses de venta).</p>`,
   },
 };
