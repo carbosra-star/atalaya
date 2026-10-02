@@ -191,6 +191,17 @@ check("stock + OF del ZT cubren el pedido", ev(dict(conpc, zt=zt(2838, [dict(t="
 check("las propuestas del ZT no cubren", ev(dict(conpc, zt=zt(2838, [dict(t="P", q=9000, d="2026-10-20", late=False)])))["why"] == "Falta ZT para el pedido")
 check("falta ZT manda sobre el pedido atrasado", ev(dict(cs, en=[pc(9000, "2026-09-11", 0, True)], zt=zt(0)))["why"] == "Falta ZT para el pedido")
 check("sin ZT en el escandallo no avisa", ev(conpc)["why"] != "Falta ZT para el pedido")
+# ZT a tiempo: sus OF tienen que terminar 7 días antes de la fecha del pedido (acumulando los pedidos)
+csz = dict(cs, st=3000)  # con stock del PT: sin rotura antes de la entrada
+pc20 = dict(csz, en=[pc(9000, "2026-10-20", 0, False, 0.6)])
+zof = lambda d: zt(2838, [dict(t="OF", q=7000, d=d, late=False)])  # noqa: E731
+check("OF del ZT 7 días antes del pedido: a tiempo", not ev(dict(pc20, zt=zof("2026-10-13")))["why"].startswith("ZT"), ev(dict(pc20, zt=zof("2026-10-13")))["why"])
+check("OF del ZT a menos de 7 días del pedido: tarde", ev(dict(pc20, zt=zof("2026-10-14")))["why"] == "ZT tarde para el pedido del 20/10/26", ev(dict(pc20, zt=zof("2026-10-14")))["why"])
+dos = dict(csz, en=[pc(2000, "2026-10-10", 0, False, 0.3), pc(7000, "2026-11-20", 1)])
+check("el stock cubre el primer pedido y la OF llega para el segundo", not ev(dict(dos, zt=zof("2026-11-05")))["why"].startswith("ZT"))
+check("el ZT llega tarde para el segundo pedido", ev(dict(dos, zt=zof("2026-11-15")))["why"] == "ZT tarde para el pedido del 20/11/26", ev(dict(dos, zt=zof("2026-11-15")))["why"])
+check("ZT tarde también en bajo pedido", ev(dict(pc20, gp="Bajo Pedido", zt=zof("2026-10-14")))["why"] == "ZT tarde para el pedido del 20/10/26", ev(dict(pc20, gp="Bajo Pedido", zt=zof("2026-10-14")))["why"])
+check("si falta cantidad manda falta ZT", ev(dict(pc20, zt=zt(0, [dict(t="OF", q=100, d="2026-10-25", late=False)])))["why"] == "Falta ZT para el pedido")
 check("propuesta que no cuenta en el escenario", ev(dict(cs, en=[of(3000, "2026-10-01", 0, "OF"), of(9, "2026-10-29", 0.95, "P")]), "OF")["sem"] == "verde")
 check("rotura antes de la entrada: bajo pedido no", ev(dict(cs, gp="Bajo Pedido", en=[of(3000, "2026-10-15", 0.5)]))["sem"] == "verde")
 futura = dict(cs, st=0, pv=[0] * 4 + [1000] * 8, pv0r=0)

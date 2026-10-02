@@ -675,8 +675,8 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
         antes = cs and rd and rd[0] < hz and rd[1]
         if antes:
             sem, why = "amarillo", f"Rotura antes de la entrada del {antes[8:10]}/{antes[5:7]}/{antes[2:4]}"
-        elif cs and falta_zt(r):
-            sem, why = "amarillo", "Falta ZT para el pedido"
+        elif falta_zt(r):  # también bajo pedido: el pedido de compra es firme
+            sem, why = "amarillo", falta_zt(r)
         elif late_of:
             sem, why = "amarillo", "OF con fecha pasada"
         elif late_pc:
@@ -698,13 +698,35 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     return {"sem": sem, "why": why, "rot": rot, "ex": ex, "fa": fa}
 
 
-def falta_zt(r: dict) -> bool:
-    """PT fabricado fuera: los pedidos de compra pendientes superan lo que cubre algún ZT del escandallo con lo firme
-    (su stock y sus OF, en PT: ÷ ZT por PT). Las propuestas del ZT no cuentan: aún no está fabricado."""
-    pend = sum(e["q"] for e in r["en"] if e["t"] == "PC")
+ZT_MARGEN = 7  # días naturales: el ZT tiene que estar hecho una semana antes de la fecha del pedido de compra
+
+
+def _zt_firme(z: dict, hasta: str | None = None) -> float:
+    """PT que cubre el ZT con lo firme (su stock y sus OF, las de fecha hasta `hasta` si se da), ÷ ZT por PT."""
+    return (max(z["st"], 0) + sum(e["q"] for e in z["en"] if e["t"] == "OF" and (hasta is None or e["d"] <= hasta))) / (z["q"] or 1)
+
+
+def falta_zt(r: dict) -> str:
+    """PT fabricado fuera: el proveedor necesita el ZT del escandallo que fabricamos nosotros. Las propuestas del ZT
+    no cuentan: aún no está fabricado. Devuelve el motivo o '':
+    - "Falta ZT para el pedido": los pedidos de compra pendientes superan lo que cubre algún ZT con lo firme.
+    - "ZT tarde para el pedido del dd/mm/aa": hay ZT, pero no estará ZT_MARGEN días antes de ese pedido
+      (cuenta lo acumulado de los pedidos hasta esa fecha)."""
+    pcs = sorted((e for e in r["en"] if e["t"] == "PC"), key=lambda e: e["d"])
+    pend = sum(e["q"] for e in pcs)
     if not pend or not r.get("zt"):
-        return False
-    return any((max(z["st"], 0) + sum(e["q"] for e in z["en"] if e["t"] == "OF")) / (z["q"] or 1) < pend - 0.5 for z in r["zt"])
+        return ""
+    if any(_zt_firme(z) < pend - 0.5 for z in r["zt"]):
+        return "Falta ZT para el pedido"
+    acum = 0
+    for e in pcs:
+        acum += e["q"]
+        if not e["d"]:
+            continue
+        hasta = (dt.date.fromisoformat(e["d"]) - dt.timedelta(days=ZT_MARGEN)).isoformat()
+        if any(_zt_firme(z, hasta) < acum - 0.5 for z in r["zt"]):
+            return f"ZT tarde para el pedido del {e['d'][8:10]}/{e['d'][5:7]}/{e['d'][2:4]}"
+    return ""
 
 
 def _fraccion(e: dict) -> float:

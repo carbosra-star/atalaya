@@ -93,6 +93,7 @@ Hojas que usa la app (las demás se ignoran):
   - Bajo mínimo: por debajo del stock mínimo.
   - A revisar (amarillo):
     - con solo las OF habría problema y lo resuelven propuestas sin fijar;
+    - PT fabricado fuera (con pedido de compra, también bajo pedido): el ZT del escandallo que fabricamos nosotros no cubre los pedidos con su stock y sus OF ("Falta ZT para el pedido"), o los cubre pero sus OF no terminan 7 días antes de la fecha de cada pedido, acumulando los pedidos ("ZT tarde para el pedido del dd/mm/aa"). Las propuestas del ZT no cuentan;
     - hay una OF con fecha pasada (o, si no, un pedido de compra a proveedor con fecha pasada);
     - rotura antes de la entrada: dentro del horizonte, el stock se acaba antes de que llegue una entrada del mismo mes (demanda del mes repartida por igual entre sus días; el mes en curso, en los que quedan);
     - sin stock ni entradas (OF, pedidos de compra o propuestas) para la demanda de los 6 próximos meses, aunque empiece más allá del horizonte;

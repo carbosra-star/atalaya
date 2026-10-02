@@ -69,12 +69,26 @@
     return d.toISOString().slice(0, 10);
   }
 
-  // PT fabricado fuera: los pedidos de compra pendientes superan lo que cubre algún ZT del escandallo con lo firme
-  // (su stock y sus OF, en PT: ÷ ZT por PT). Las propuestas del ZT no cuentan: aún no está fabricado. Gemela de core.falta_zt
-  const ztCubre = (z) => (Math.max(z.st, 0) + z.en.filter(e => e.t === 'OF').reduce((t, e) => t + e.q, 0)) / (z.q || 1);
+  // PT fabricado fuera: el proveedor necesita el ZT del escandallo que fabricamos nosotros. Las propuestas del ZT no
+  // cuentan: aún no está fabricado. Motivo o '': "Falta ZT para el pedido" si los pedidos de compra pendientes superan lo
+  // que cubre algún ZT con lo firme (stock + OF, en PT: ÷ ZT por PT); "ZT tarde para el pedido del dd/mm/aa" si lo hay
+  // pero no estará ZT_MARGEN días antes de ese pedido (con lo acumulado de los pedidos hasta esa fecha). Gemela de core.falta_zt
+  const ZT_MARGEN = 7;
+  const ztCubre = (z, hasta) => (Math.max(z.st, 0) + z.en.filter(e => e.t === 'OF' && (hasta == null || e.d <= hasta)).reduce((t, e) => t + e.q, 0)) / (z.q || 1);
+  const ztLimite = (d) => { const x = new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10) - ZT_MARGEN)); return x.toISOString().slice(0, 10); };
   function faltaZT(r) {
-    const pend = r.en.filter(e => e.t === 'PC').reduce((t, e) => t + e.q, 0);
-    return !!(pend && r.zt && r.zt.length && r.zt.some(z => ztCubre(z) < pend - 0.5));
+    const pcs = r.en.filter(e => e.t === 'PC').sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+    const pend = pcs.reduce((t, e) => t + e.q, 0);
+    if (!pend || !r.zt || !r.zt.length) return '';
+    if (r.zt.some(z => ztCubre(z) < pend - 0.5)) return 'Falta ZT para el pedido';
+    let acum = 0;
+    for (const e of pcs) {
+      acum += e.q;
+      if (!e.d) continue;
+      const hasta = ztLimite(e.d);
+      if (r.zt.some(z => ztCubre(z, hasta) < acum - 0.5)) return `ZT tarde para el pedido del ${e.d.slice(8, 10)}/${e.d.slice(5, 7)}/${e.d.slice(2, 4)}`;
+    }
+    return '';
   }
 
   function evaluate(r, cfg) {
@@ -103,7 +117,7 @@
     if (sem === 'verde') {
       const antes = cs && rd && rd.m < hz && rd.antes;
       if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}/${antes.slice(2, 4)}`; }
-      else if (cs && faltaZT(r)) { sem = 'amarillo'; why = 'Falta ZT para el pedido'; }
+      else if (faltaZT(r)) { sem = 'amarillo'; why = faltaZT(r); }  // también bajo pedido: el pedido de compra es firme
       else if (lateOF) { sem = 'amarillo'; why = 'OF con fecha pasada'; }
       else if (latePC) { sem = 'amarillo'; why = 'Pedido de compra con fecha pasada'; }
       else if (cs && r.st <= 0 && !r.en.length && all.dem.slice(0, SIN_ENT_MESES).some(x => x > 0)) { sem = 'amarillo'; why = 'Sin stock ni entradas para la demanda prevista'; }
@@ -119,5 +133,5 @@
     return { all, of, rot, rf, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
-  root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre };
+  root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN };
 })(window);

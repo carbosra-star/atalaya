@@ -268,19 +268,27 @@ const pill = (sem, text) => `<span class="pill s-${sem}">${esc(text || SEMT[sem]
 // Estado corto para las tablas: el mes de rotura ya está en su columna y el motivo completo va en el title
 function semCorto(e) {
   if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : 'Rotura';
-  if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why === 'Falta ZT para el pedido' ? 'Falta ZT' : e.why === 'Pedido de compra con fecha pasada' ? 'Compra atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
+  if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why === 'Falta ZT para el pedido' ? 'Falta ZT' : e.why.startsWith('ZT tarde') ? 'ZT tarde' : e.why === 'Pedido de compra con fecha pasada' ? 'Compra atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
     : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why === 'Entradas sin demanda' ? 'Entradas sin demanda' : 'Propuestas';
   return { naranja: 'Bajo mínimo', verde: 'Cubierto', exceso: 'Exceso', gris: 'Sin demanda' }[e.sem];
 }
 // PT fabricado fuera: el ZT (semiterminado) que fabricamos y enviamos al proveedor; cubre su stock + sus OF (no las propuestas)
 function ztBloque(r) {
   if (!r.zt || !r.zt.length) return '';
-  const pend = r.en.filter(e => e.t === 'PC').reduce((t, e) => t + e.q, 0);
-  return `<h2>Semiterminado (ZT)</h2><p class="muted small">Lo fabricamos nosotros y lo recibe el proveedor para el pedido de compra. Cubre el pedido con su stock y sus OF; las propuestas aún no están fabricadas.</p>
+  const pcs = r.en.filter(e => e.t === 'PC').sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0), pend = pcs.reduce((t, e) => t + e.q, 0);
+  return `<h2>Semiterminado (ZT)</h2><p class="muted small">Lo fabricamos nosotros y lo recibe el proveedor para el pedido de compra. Cubre el pedido con su stock y sus OF (terminadas ${Cob.ZT_MARGEN} días antes de la fecha del pedido); las propuestas aún no están fabricadas.</p>
     ${r.zt.map(z => { const c = Math.floor(Cob.ztCubre(z)), falta = c < pend - 0.5;
       return `<p><b>${esc(z.k)}</b>${copyBtn(z.k, 'código', true)} ${esc(z.n)} · stock <b class="num">${fmt(z.st)}</b>${z.q !== 1 ? ` · ${String(z.q).replace('.', ',')} por PT` : ''}</p>
       ${z.en.length ? `<ul class="list">${z.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">nº ${esc(v.id)}${copyBtn(v.id, 'nº de OF', true)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF ni propuestas del ZT.</p>'}
-      <p class="${falta ? 'neg' : ''}">Cubre <b class="num">${fmt(c)}</b> de <b class="num">${fmt(pend)}</b> uds pendientes de pedido${falta ? ` · faltan ${fmt(pend - c)}` : ''}.</p>`; }).join('')}`;
+      <p class="${falta ? 'neg' : ''}">Cubre <b class="num">${fmt(c)}</b> de <b class="num">${fmt(pend)}</b> uds pendientes de pedido${falta ? ` · faltan ${fmt(pend - c)}` : ''}.</p>
+      ${falta ? '' : ztPlazos(z, pcs)}`; }).join('')}`;
+}
+// Por cada pedido de compra: el ZT tiene que estar hecho ZT_MARGEN días antes (lo acumulado de los pedidos hasta esa fecha)
+function ztPlazos(z, pcs) {
+  let acum = 0;
+  const li = pcs.filter(e => e.d).map(e => { acum += e.q; const h = Cob.ztLimite(e.d), c = Math.floor(Cob.ztCubre(z, h)), tarde = c < acum - 0.5;
+    return `<li><span class="num">${fdate(e.d)}</span><span class="muted small">pedido · ZT antes del ${fdate(h)}</span><b class="num">${fmt(c)} / ${fmt(acum)}</b>${tarde ? `<span class="neg">ZT tarde · faltan ${fmt(acum - c)}</span>` : '<span class="muted small">a tiempo</span>'}</li>`; });
+  return li.length ? `<ul class="list">${li.join('')}</ul>` : '';
 }
 const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${semCorto(e)}<span class="sr"> (${esc(e.why)})</span></span>`;
 // ABC: una sola tinta de más a menos intensa (A → D), NA con borde discontinuo

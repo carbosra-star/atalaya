@@ -56,6 +56,17 @@ check('el stock del ZT cubre el pedido', evaluate({ ...conpc, zt: zt(10000) }, c
 check('stock + OF del ZT cubren el pedido', evaluate({ ...conpc, zt: zt(2838, [{ t: 'OF', q: 7000, d: '2026-10-20', late: false }]) }, cfg).why !== 'Falta ZT para el pedido');
 check('las propuestas del ZT no cubren', evaluate({ ...conpc, zt: zt(2838, [{ t: 'P', q: 9000, d: '2026-10-20', late: false }]) }, cfg).why === 'Falta ZT para el pedido');
 check('falta ZT manda sobre el pedido atrasado', evaluate({ ...cs, en: [pc(9000, '2026-09-11', true)], zt: zt(0) }, cfg).why === 'Falta ZT para el pedido');
+// ZT a tiempo: sus OF tienen que terminar 7 días antes de la fecha del pedido (acumulando los pedidos)
+const csz = { ...cs, st: 3000 };  // con stock del PT: sin rotura antes de la entrada
+const pc20 = { ...csz, en: [pc(9000, '2026-10-20', false, 0.6)] };
+const zof = (d) => zt(2838, [{ t: 'OF', q: 7000, d, late: false }]);
+check('OF del ZT 7 días antes del pedido: a tiempo', !evaluate({ ...pc20, zt: zof('2026-10-13') }, cfg).why.startsWith('ZT'), evaluate({ ...pc20, zt: zof('2026-10-13') }, cfg).why);
+check('OF del ZT a menos de 7 días del pedido: tarde', evaluate({ ...pc20, zt: zof('2026-10-14') }, cfg).why === 'ZT tarde para el pedido del 20/10/26', evaluate({ ...pc20, zt: zof('2026-10-14') }, cfg).why);
+const dos = { ...csz, en: [pc(2000, '2026-10-10', false, 0.3), { ...pc(7000, '2026-11-20'), m: 1 }] };
+check('el stock cubre el primer pedido y la OF llega para el segundo', !evaluate({ ...dos, zt: zof('2026-11-05') }, cfg).why.startsWith('ZT'));
+check('el ZT llega tarde para el segundo pedido', evaluate({ ...dos, zt: zof('2026-11-15') }, cfg).why === 'ZT tarde para el pedido del 20/11/26', evaluate({ ...dos, zt: zof('2026-11-15') }, cfg).why);
+check('ZT tarde también en bajo pedido', evaluate({ ...pc20, gp: 'Bajo Pedido', zt: zof('2026-10-14') }, cfg).why === 'ZT tarde para el pedido del 20/10/26', evaluate({ ...pc20, gp: 'Bajo Pedido', zt: zof('2026-10-14') }, cfg).why);
+check('límite del ZT cruza de mes', window.Cob.ztLimite('2026-11-03') === '2026-10-27', window.Cob.ztLimite('2026-11-03'));
 check('la entrada llega antes de acabar el stock', evaluate({ ...cs, en: [of(3000, '2026-10-02', 0.05)] }, cfg).sem === 'verde');
 const futura = { ...cs, st: 0, pv: [0, 0, 0, 0, ...new Array(8).fill(1000)], pv0r: 0 };
 check('sin stock ni entradas con demanda en 6 meses', evaluate(futura, cfg).why === 'Sin stock ni entradas para la demanda prevista');
