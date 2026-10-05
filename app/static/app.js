@@ -304,7 +304,7 @@ function abcDetalle(r) {
   if (r.abc === 'NA') return '';
   const f = (abcCfg().freq[r.md] || [])[ABC_CL.indexOf(r.abc)];
   const prov = r.abcx === 'anual' ? `provisional: ${r.abcn} meses de venta, anualizada` : r.abcx === 'prev' ? (r.abcn ? `provisional: por previsión (${r.abcn} ${r.abcn === 1 ? 'mes' : 'meses'} de venta)` : 'provisional: sin venta todavía, por previsión') : '';
-  return [prov, f ? `${String(f).replace('.', ',')} ${f === 1 ? 'fabricación' : 'fabricaciones'} al año` : ''].filter(Boolean).map(esc).join(' · ');
+  return [prov, f ? `${String(f).replace('.', ',')} fab/año` : ''].filter(Boolean).map(esc).join(' · ');
 }
 // Mes de más demanda de los 12, si destaca sobre la demanda/mes (estacionalidad, lanzamientos)
 function pico(e) {
