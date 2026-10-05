@@ -177,6 +177,23 @@ cs2 = dict(cs, st=1500)
 check("rotura antes de la entrada del mes siguiente", ev(dict(cs2, en=[fm(3000, "2026-11-21", 1)]))["why"] == "Rotura antes de la entrada del 21/11/26", ev(dict(cs2, en=[fm(3000, "2026-11-21", 1)]))["why"])
 check("entrada del mes siguiente a tiempo", ev(dict(cs2, en=[fm(3000, "2026-11-05", 1)]))["sem"] == "verde")
 check("rotura antes de la entrada fuera del horizonte no avisa", ev(dict(cs, st=3500, en=[fm(3000, "2027-01-21", 3)]))["sem"] == "verde")
+# Pedidos con fecha (pdd: [fecha, mes, cantidad]): si los pedidos que vencen antes de la entrada superan el stock,
+# la rotura es firme aunque el reparto uniforme no la vea -> rojo (caso 010280001200, datos del 05/10/26)
+esp = dict(cs, st=7848, pv=[2850, 9282, 9586] + [5189] * 9, pv0r=2482, pd=[8688, 240] + [0] * 10, at=4608,
+           pdd=[["2026-10-05", 0, 4608], ["2026-10-05", 0, 12], ["2026-10-06", 0, 360], ["2026-10-15", 0, 3600], ["2026-10-19", 0, 108], ["2026-11-05", 1, 240]],
+           en=[of(15000, "2026-10-21", 0.593, "PF"), fm(12000, "2026-11-01", 1, "P"), fm(12000, "2026-12-01", 2, "P")])
+e = ev(esp)
+check("pedidos antes de la entrada por encima del stock: rojo", (e["sem"], e["why"]) == ("rojo", "Pedidos sin stock hasta la entrada del 21/10/26"), e)
+check("faltante de los pedidos antes de la entrada", e["fa"] == 840, e["fa"])
+check("pedidos el mismo día de la entrada: se sirven con ella", ev(dict(esp, pdd=[["2026-10-21", 0, 8688]]))["why"] != "Pedidos sin stock hasta la entrada del 21/10/26")
+check("pedidos con fecha que caben: sin aviso por pedidos", ev(dict(esp, st=9000))["why"] != "Pedidos sin stock hasta la entrada del 21/10/26", ev(dict(esp, st=9000)))
+check("bajo pedido: sin aviso por pedidos antes de la entrada", ev(dict(esp, gp="Bajo Pedido"))["why"] != "Pedidos sin stock hasta la entrada del 21/10/26")
+check("propuesta sin fijar movida por el plazo: lanzar ya", ev(dict(esp, pdd=[], en=[dict(t="P", q=15000, m=0, d="2026-10-26", late=False, f=0.78, dm="2026-10-10")] + esp["en"][1:]))["why"] == "Lanzar ya: propuesta sin fijar que no llega en 3 semanas", ev(dict(esp, pdd=[], en=[dict(t="P", q=15000, m=0, d="2026-10-26", late=False, f=0.78, dm="2026-10-10")] + esp["en"][1:])))
+bk = dict(cs, st=1e6, pd=[300] + [0] * 11, at=300)
+check("atrasados de meses anteriores encima de la previsión", core.project(dict(bk, ab=300), "ALL")["dem"][0] == 1300, core.project(dict(bk, ab=300), "ALL")["dem"][0])
+check("atrasados del mes en curso dentro de la previsión", core.project(bk, "ALL")["dem"][0] == 1000)
+check("atrasados anteriores y pedidos del mes por encima de la previsión", core.project(dict(bk, pd=[1500] + [0] * 11, ab=300), "ALL")["dem"][0] == 1500)
+check("carga antigua sin pdd: como antes", ev({k: v for k, v in esp.items() if k != "pdd"})["why"] == "Depende de propuestas sin fijar")
 # Pedidos de compra a proveedor (PT fabricados fuera): entrada firme como una OF
 pc = lambda q, d, m=0, late=False, f=None: dict(t="PC", q=q, m=m, d=d, late=late, id="637475", pv="TALENTO Y EXPERIENCIA S.L.U.", **({"f": f} if f is not None else {}))  # noqa: E731
 check("pedido de compra evita la rotura (también con solo firmes)", ev(dict(cs, en=[pc(9000, "2026-10-02", 0, False, 0.0)]), "OF")["sem"] not in ("rojo", "naranja"), ev(dict(cs, en=[pc(9000, "2026-10-02", 0, False, 0.0)]), "OF"))

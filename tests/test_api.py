@@ -52,6 +52,15 @@ check("la comprobación avisa de que sustituye la carga del mismo día", bool(r.
 check("republicar el mismo día sustituye la carga", upload(c, False).json.get("ok") and len(c.get("/api/loads").json) == 2, len(c.get("/api/loads").json))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
+# Propuestas sin fijar que ya no llegan con el plazo de fabricación: a la primera fecha posible (hoy + 21 días)
+import datetime as _dt  # noqa: E402
+_lim = (_dt.date.fromisoformat(ds["meta"]["hoy"]) + _dt.timedelta(days=21)).isoformat()
+_ps = [e for r in ds["refs"] for e in r["en"] if e["t"] == "P"]
+check("propuestas sin fijar no antes de hoy + 21 días", _ps and all(e["d"] >= _lim for e in _ps), [e for e in _ps if e["d"] < _lim][:2])
+_ao = [p for r in ds["refs"] for p in r.get("ao", [])]
+_lim30 = (_dt.date.fromisoformat(ds["meta"]["hoy"]) - _dt.timedelta(days=30)).isoformat()
+check("atrasados de más de 30 días fuera de la demanda y listados", _ao and all(p[0] < _lim30 for p in _ao) and all(x[0] >= _lim30 for r in ds["refs"] for x in r["pdd"]), len(_ao))
+check("propuestas movidas guardan su fecha del MRP", any(e.get("dm") for e in _ps) and all(e["dm"] < e["d"] == _lim for e in _ps if e.get("dm")))
 pf = ds.get("porfolio") or {}
 check("porfolio: resumen del maestro", pf.get("res", {}).get("seguimiento") == len(ds["refs"]) and pf["res"]["fuera"] == len(pf["fuera"]), pf.get("res"))
 check("porfolio: fuera solo quedan activos sin movimiento que no son lanzamientos",

@@ -90,6 +90,9 @@ Hojas que usa la app (las demás se ignoran):
 - **Stock proyectado** a fin de mes = stock anterior − demanda + entradas.
 - **Semáforo** (horizonte configurable, 3 meses por defecto):
   - Rotura: stock proyectado a fin de mes por debajo de 0 dentro del horizonte. La columna Rotura muestra la fecha estimada (≈ dd/mm): la demanda de cada mes repartida por igual entre sus días (el mes en curso, en los que quedan) y cada entrada en su fecha.
+  - Rotura por pedidos: dentro del horizonte, los pedidos con fecha que vencen antes de una entrada (los atrasados cuentan como de hoy; los del mismo día se sirven con la entrada) superan el stock disponible hasta ese día: "Pedidos sin stock hasta la entrada del dd/mm/aa" (solo contra stock). La fecha de rotura es la del primer pedido que no cabe (en rojo, aunque a fin de mes el stock vuelva a ser positivo) y lo que falta suma en Valor. Hasta cada entrada se cuenta lo mayor entre esos pedidos y la demanda repartida por días. Requiere publicar el MM_Supply después del cambio.
+  - Propuestas sin fijar que ya no llegan: si la fecha del MRP es anterior a hoy + 21 días (plazo de fabricación de 3 semanas), se cuentan en hoy + 21 días, lo antes que entrarían si se lanzaran hoy. La ficha muestra la fecha del MRP. Las propuestas fijadas mantienen su fecha. Si la referencia depende de propuestas y alguna está en este caso, el motivo es "Lanzar ya: propuesta sin fijar que no llega en 3 semanas".
+  - Pedidos atrasados: los de hasta 30 días cuentan; si son de meses anteriores se suman encima de la previsión del mes en curso (no estaban en ella) y los del mes en curso entran en la comparación con la previsión. Los de más de 30 días no cuentan en la demanda: se ven en la ficha y en Inicio ("Pedidos con más de 30 días de retraso") para servirlos o anularlos en ABAS.
   - Bajo mínimo: por debajo del stock mínimo.
   - A revisar (amarillo):
     - con solo las OF habría problema y lo resuelven propuestas sin fijar;

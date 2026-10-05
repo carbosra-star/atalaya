@@ -45,6 +45,19 @@ const prot = { ...cs, st: 10603, pv: [17126, 12730, 26416, 14824, ...new Array(8
 check('fecha de rotura en un mes siguiente (017380000600 con solo OF)', evaluate(prot, { ...cfgF, escenario: 'OF' }).rf === '2026-11-24', evaluate(prot, { ...cfgF, escenario: 'OF' }).rf);
 check('sin rotura, sin fecha', evaluate({ ...cs, st: 1e6 }, cfgF).rf === '');
 check('sin fecha de hoy (carga antigua), sin fecha', evaluate(cs, cfg).rf === '');
+// Pedidos con fecha antes de la entrada por encima del stock: rojo y fecha de rotura = la del pedido que no cabe (010280001200)
+const esp = { ...cs, st: 7848, pv: [2850, 9282, 9586, ...new Array(9).fill(5189)], pv0r: 2482, pd: [8688, 240, ...new Array(10).fill(0)], at: 4608,
+  pdd: [['2026-10-05', 0, 4608], ['2026-10-05', 0, 12], ['2026-10-06', 0, 360], ['2026-10-15', 0, 3600], ['2026-10-19', 0, 108], ['2026-11-05', 1, 240]],
+  en: [of(15000, '2026-10-21', 0.593, 'PF'), fm(12000, '2026-11-01', 1, 'P'), fm(12000, '2026-12-01', 2, 'P')] };
+const eEsp = evaluate(esp, { ...cfg, hoy: '2026-10-05', dias: [27, 31] });
+check('pedidos antes de la entrada por encima del stock: rojo', eEsp.sem === 'rojo' && eEsp.why === 'Pedidos sin stock hasta la entrada del 21/10/26', eEsp.why);
+check('faltante de los pedidos antes de la entrada', eEsp.fa === 840, eEsp.fa);
+const lz = evaluate({ ...esp, pdd: [], en: [{ t: 'P', q: 15000, m: 0, d: '2026-10-26', late: false, f: 0.78, dm: '2026-10-10' }, ...esp.en.slice(1)] }, cfg);
+check('propuesta sin fijar movida por el plazo: lanzar ya', lz.why === 'Lanzar ya: propuesta sin fijar que no llega en 3 semanas', lz.why);
+const bk = { ...cs, st: 1e6, pd: [300, ...new Array(11).fill(0)], at: 300 };
+check('atrasados de meses anteriores encima de la previsión', evaluate({ ...bk, ab: 300 }, cfg).all.dem[0] === 1300, evaluate({ ...bk, ab: 300 }, cfg).all.dem[0]);
+check('atrasados del mes en curso dentro de la previsión', evaluate(bk, cfg).all.dem[0] === 1000);
+check('fecha de rotura = pedido que no cabe', eEsp.rf === '2026-10-15', eEsp.rf);
 const pc = (q, d, late = false, f = 0) => ({ t: 'PC', q, m: 0, d, late, f, id: '637475', pv: 'TALENTO Y EXPERIENCIA S.L.U.' });
 check('pedido de compra evita la rotura (también con solo firmes)', !['rojo', 'naranja'].includes(evaluate({ ...cs, en: [pc(9000, '2026-10-02')] }, { ...cfg, escenario: 'OF' }).sem));
 check('pedido de compra con fecha pasada', evaluate({ ...cs, en: [pc(9000, '2026-09-11', true)] }, cfg).why === 'Pedido de compra con fecha pasada', evaluate({ ...cs, en: [pc(9000, '2026-09-11', true)] }, cfg).why);

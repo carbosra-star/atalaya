@@ -154,6 +154,9 @@ def _get(r, j):
 
 
 # ---------------------------------------------------------------- parseo
+ATR_DIAS = 30  # pedidos atrasados: hasta 30 días cuentan (los de meses anteriores, encima de la previsión); más viejos, a revisar en ABAS
+PLAZO_DIAS = 21  # plazo de fabricación (3 semanas): una propuesta sin fijar no puede entrar antes de hoy + PLAZO_DIAS
+
 def _ym(y: int, m0: int) -> str:
     """Mes m0 (base 0, puede pasar de 11) del año y, como 'MM/AAAA'."""
     return f"{m0 % 12 + 1:02d}/{y + m0 // 12}"
@@ -472,18 +475,28 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     jd = tpv.opt("Fecha envío", "Fecha envio")
     jq = tpv.col("SumCantidad_pdte_entrega")
     PED: dict[str, list[float]] = {}
+    PDD: dict[str, list[list]] = {}  # pedidos con fecha [fecha (las pasadas, hoy), mes, cantidad]: rotura antes de cada entrada
     ATR: dict[str, float] = {}
+    AB: dict[str, float] = {}  # atrasados vivos de meses anteriores: demanda que no estaba en la previsión del mes
+    AO: dict[str, list[list]] = {}  # atrasados de más de ATR_DIAS días: no cuentan, se listan para revisarlos
+    mes1 = today.replace(day=1)
     for r in tpv.data:
         k = _code(_get(r, 0))
         q = _num(_get(r, jq))
         if not k or not q:
             continue
         d = _date(_get(r, jd))
+        if d and (today - d).days > ATR_DIAS:
+            AO.setdefault(k, []).append([d.isoformat(), round(q)])
+            continue
         if d and d < today:
             ATR[k] = ATR.get(k, 0.0) + q
+            if d < mes1:
+                AB[k] = AB.get(k, 0.0) + q
         mi = max(0, midx(d)) if d else 0
         if mi < H:
             PED.setdefault(k, [0.0] * H)[mi] += q
+            PDD.setdefault(k, []).append([max(d or today, today).isoformat(), mi, round(q)])
 
     # Entradas: OF abiertas y propuestas del MRP
     E: dict[str, list[dict]] = {}
@@ -532,7 +545,15 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         mi = max(0, midx(d)) if d else 0
         if mi >= H:
             continue
-        E.setdefault(k, []).append(dict(t="PF" if _true(_get(r, jf)) else "P", q=round(q), m=mi,
+        fija = _true(_get(r, jf))
+        if not fija and (not d or d < today + dt.timedelta(days=PLAZO_DIAS)):
+            # sin fijar y ya no llega con el plazo de fabricación: lo antes que entraría si se lanzara hoy
+            e = dict(t="P", q=round(q), d=(today + dt.timedelta(days=PLAZO_DIAS)).isoformat(), late=False, dm=d.isoformat() if d else "")
+            e["m"] = midx(dt.date.fromisoformat(e["d"]))
+            if e["m"] < H:
+                E.setdefault(k, []).append(e)
+            continue
+        E.setdefault(k, []).append(dict(t="PF" if fija else "P", q=round(q), m=mi,
                                         d=d.isoformat() if d else "", late=bool(d and d < today)))
 
     # PT fabricados fuera: el proveedor necesita el ZT (semiterminado) que fabricamos nosotros. Del escandallo,
@@ -576,7 +597,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         if a["estado"] != "Producto terminado" or a["inact"]:
             continue
         st, pv, pd, en, vt = ST.get(k, 0.0), PREV.get(k), PED.get(k), E.get(k), VT.get(k)
-        if not (st > 0 or (pv and any(x > 0 for x in pv)) or (pd and any(x > 0 for x in pd)) or en or (vt and any(x > 0 for x in vt))
+        if not (st > 0 or (pv and any(x > 0 for x in pv)) or (pd and any(x > 0 for x in pd)) or en or (vt and any(x > 0 for x in vt)) or k in AO
                 or (a["alta"] and a["alta"] >= lanz_desde) or k in PFUTV):
             continue
         mand = "Yunsey" if k.startswith("5") else "Belloch"
@@ -587,7 +608,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             k=k, n=a["name"], md=mand, mc=a["marca"], gp=a["gp"], ln=LIN.get(k, ""), ext=a["ext"], sc=sucesor(A, k), al=a["alta"].isoformat() if a["alta"] else "", fv=FV.get(k),
             st=round(st), mn=round(mn), lt=round(lote), pr=round(a["precio"], 2),
             pv=prev, pv0r=_resto(prev[0], v0, dias_quedan, dias_mes), hp=[round(x) for x in HP.get(k, [0.0] * 12)], pd=[round(x) for x in pd] if pd else [0] * H,
-            at=round(ATR.get(k, 0.0)), en=sorted(en or [], key=lambda e: e["d"]),
+            at=round(ATR.get(k, 0.0)), ab=round(AB.get(k, 0.0)), ao=sorted(AO.get(k, [])), pdd=sorted(PDD.get(k, [])), en=sorted(en or [], key=lambda e: e["d"]),
             vt=[round(x) for x in vt[:12]] if vt else [0] * 12, v0=round(v0),
         ))
         if k in ZTS:
@@ -621,7 +642,9 @@ def project(r: dict, esc: str, pv: str = "T"):
         return _cuenta(t, esc)
 
     p, p0 = (r["pvc"], r["pv0rc"]) if pv == "C" and "pvc" in r else (r["pv"], r["pv0r"])
-    dem = [max(p0 if m == 0 else p[m], r["pd"][m]) for m in range(H)]
+    # mes en curso: los atrasados vivos de meses anteriores (ab, incluidos en pd) van encima de la previsión
+    ab = r.get("ab", 0)
+    dem = [ab + max(p0, r["pd"][0] - ab) if m == 0 else max(p[m], r["pd"][m]) for m in range(H)]
     ent = [0] * H
     for e in r["en"]:
         if inc(e["t"]):
@@ -652,6 +675,8 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     late_pc = any(e["t"] == "PC" and e["late"] for e in r["en"])
     has_p = any(e["t"] == "P" and e["m"] < hz for e in r["en"])
     cs = r.get("gp") == "Contra Stock"  # los bajo pedido se fabrican contra pedido: sin estos avisos
+    rd = rotura_dia(r, allp, escenario)
+    ped_antes = cs and rd and rd[0] < hz and rd[1] and rd[2] > 0  # pedidos firmes que no caben antes de la entrada
     sem, why = "verde", "Cubierto en el horizonte"
     if d12 <= 0 and r["st"] >= 0:
         if r["en"] and cs:
@@ -666,12 +691,14 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
             why = "Rotura este mes"
         else:
             why = f"Rotura en {rot} {'mes' if rot == 1 else 'meses'}"
+    elif ped_antes:
+        sem, why = "rojo", f"Pedidos sin stock hasta la entrada del {rd[1][8:10]}/{rd[1][5:7]}/{rd[1][2:4]}"
     elif 0 <= bmin < hz:
         sem, why = "naranja", "Por debajo del stock mínimo"
     elif ((0 <= rot_of < hz) or (0 <= bmin_of < hz)) and has_p and escenario == "ALL":
-        sem, why = "amarillo", "Depende de propuestas sin fijar"
+        tarde = any(e["t"] == "P" and "dm" in e and e["m"] < hz for e in r["en"])  # el MRP la quería antes de lo que da el plazo
+        sem, why = "amarillo", "Lanzar ya: propuesta sin fijar que no llega en 3 semanas" if tarde else "Depende de propuestas sin fijar"
     if sem == "verde":
-        rd = rotura_dia(r, allp, escenario)
         antes = cs and rd and rd[0] < hz and rd[1]
         if antes:
             sem, why = "amarillo", f"Rotura antes de la entrada del {antes[8:10]}/{antes[5:7]}/{antes[2:4]}"
@@ -694,7 +721,7 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     if sem != "exceso":
         ex = 0
     # Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
-    fa = max(0, round(-min(allp["stk"][:hz])))
+    fa = max(0, round(-min(allp["stk"][:hz])), rd[2] if ped_antes else 0)
     return {"sem": sem, "why": why, "rot": rot, "ex": ex, "fa": fa}
 
 
@@ -743,16 +770,24 @@ def _fraccion(e: dict) -> float:
 def rotura_dia(r: dict, p: dict, esc: str):
     """Rotura día a día: la demanda de cada mes repartida por igual en sus días (el mes en curso, en los que quedan)
     y cada entrada en su fecha. Primer mes sin stock y fecha de la entrada que llega tarde ("" si no la hay ese mes),
-    o None. Gemela de roturaDia en core.js (que además da la fecha estimada)."""
+    o None, y lo que faltaría por los pedidos con fecha (pdd) que vencen antes de esa entrada (0 si es solo por el
+    reparto). Hasta cada entrada cuenta lo mayor entre el reparto y esos pedidos: los pedidos del mismo día se sirven
+    con la entrada. Gemela de roturaDia en core.js (que además da la fecha estimada)."""
     s = r["st"]
+    pdd = r.get("pdd") or []
     for m in range(H):
         d = p["dem"][m]
         es = sorted(((_fraccion(e), e["d"], e) for e in r["en"] if e["m"] == m and _cuenta(e["t"], esc)), key=lambda x: (x[0], x[1]))
+        consumido = 0.0  # demanda del mes ya descontada de s
         for f, _, e in es:
-            if s - d * f < -1e-9:
-                return m, e["d"]
+            ped = sum(q for fd, pm, q in pdd if pm == m and fd < e["d"])
+            hasta = min(d, max(d * f, ped))
+            if s - (hasta - consumido) < -1e-9:
+                return m, e["d"], round(max(0, ped - consumido - s))
             s += e["q"]
-        if s - d < -1e-9:
-            return m, ""
-        s -= d
+            s -= hasta - consumido
+            consumido = hasta
+        if s - (d - consumido) < -1e-9:
+            return m, "", 0
+        s -= d - consumido
     return None

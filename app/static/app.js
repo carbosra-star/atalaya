@@ -267,9 +267,9 @@ function closeSearch() { const ul = $('#gsList'); if (ul && !ul.hidden) { ul.hid
 const pill = (sem, text) => `<span class="pill s-${sem}">${esc(text || SEMT[sem])}</span>`;
 // Estado corto para las tablas: el mes de rotura ya está en su columna y el motivo completo va en el title
 function semCorto(e) {
-  if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : 'Rotura';
+  if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : e.why.startsWith('Pedidos sin stock') ? 'Rotura · pedidos' : 'Rotura';
   if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why === 'Falta ZT para el pedido' ? 'Falta ZT' : e.why.startsWith('ZT tarde') ? 'ZT tarde' : e.why === 'Pedido de compra con fecha pasada' ? 'Compra atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
-    : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why === 'Entradas sin demanda' ? 'Entradas sin demanda' : 'Propuestas';
+    : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why === 'Entradas sin demanda' ? 'Entradas sin demanda' : e.why.startsWith('Lanzar ya') ? 'Lanzar ya' : 'Propuestas';
   return { naranja: 'Bajo mínimo', verde: 'Cubierto', exceso: 'Exceso', gris: 'Sin demanda' }[e.sem];
 }
 // PT fabricado fuera: el ZT (semiterminado) que fabricamos y enviamos al proveedor; cubre su stock + sus OF (no las propuestas)
@@ -335,15 +335,16 @@ const entTag = (t, corto = true) => `<span class="ent ent-${t}" title="${ENT_TIT
 function nextEntry(e) {
   const n = e.next;
   if (!n) return '<span class="muted" title="Sin entradas">—<span class="sr"> sin entradas</span></span>';
-  return `<span class="nowrap">${entTag(n.t)} ${fmt(n.q)} · <span class="${n.late ? 'neg' : ''}"${n.late ? ` title="${n.t === 'PC' ? 'Pedido de compra' : 'OF'} con fecha pasada"` : ''}>${fdate(n.d, true)}</span></span>`;
+  return `<span class="nowrap">${entTag(n.t)} ${fmt(n.q)} · <span class="${n.late || n.dm != null ? 'neg' : ''}"${n.late ? ` title="${n.t === 'PC' ? 'Pedido de compra' : 'OF'} con fecha pasada"` : n.dm != null ? ` title="Propuesta del MRP ${n.dm ? fdate(n.dm) : 'sin fecha'}: no llega en 3 semanas, primera fecha posible"` : ''}>${fdate(n.d, true)}</span></span>`;
 }
 // Fecha estimada de rotura (demanda de cada mes repartida por igual entre sus días, entradas en su fecha)
 const rfTxt = (e) => e.rf ? '≈ ' + fdate(e.rf, true) : e.rot < 0 ? '' : monthLabel(e.rot);
 const RF_TIP = 'Fecha estimada: la demanda de cada mes repartida por igual entre sus días y cada entrada en su fecha';
 function rotCell(e) {
   if (e.rot < 0 && !e.rf) return '<span class="muted" title="Sin rotura en 12 meses">—<span class="sr"> sin rotura en 12 meses</span></span>';
-  const tip = e.rot < 0 ? 'Se queda sin stock hasta la siguiente entrada. ' + RF_TIP : RF_TIP;
-  return `<span class="nowrap${e.rot >= 0 && e.rot < (S.cfg.horizonte || 3) ? ' neg' : ''}" title="${tip}">${rfTxt(e)}</span>`;
+  const ped = e.sem === 'rojo' && e.why.startsWith('Pedidos sin stock');  // pedidos con fecha que no caben antes de la entrada
+  const tip = ped ? `Pedidos con fecha sin stock hasta la entrada del ${e.why.slice(-8, -3)}` : e.rot < 0 ? 'Se queda sin stock hasta la siguiente entrada. ' + RF_TIP : RF_TIP;
+  return `<span class="nowrap${ped || (e.rot >= 0 && e.rot < (S.cfg.horizonte || 3)) ? ' neg' : ''}" title="${tip}">${rfTxt(e)}</span>`;
 }
 function strip(list, hrefFor, current) {
   const c = {}, cx = {}; list.forEach(x => { c[x.e.sem] = (c[x.e.sem] || 0) + 1; if (x.r.ext) cx[x.e.sem] = (cx[x.e.sem] || 0) + 1; });
@@ -391,6 +392,9 @@ async function pageHome(main) {
   const conPr = (xs, u) => xs.filter(x => u(x) > 0 && x.r.pr > 0).reduce((s, x) => s + u(x) * x.r.pr, 0);
   const stk = x => Math.max(x.r.st, 0), exc = cs.filter(x => x.e.sem === 'exceso'), sdm = S.ev.filter(x => x.e.sem === 'gris' && x.r.st > 0);
   const sinPr = S.ev.filter(x => x.r.st > 0 && !(x.r.pr > 0)).length;
+  // Pedidos con más de 30 días de retraso: no cuentan en la demanda; se listan para servirlos o anularlos en ABAS
+  const aoQ = x => (x.r.ao || []).reduce((s, p) => s + p[1], 0);
+  const viejos = S.ev.filter(x => aoQ(x) > 0).sort((a, b) => aoQ(b) - aoQ(a));
   const kpi = (href, v, l) => `<a class="kpi kpi-link" href="${href}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
   main.innerHTML = `<h1>Semana del ${fdate(S.ds.meta.hoy)}</h1>
     <p class="lead">Contra stock · ${escLower()}.</p>
@@ -403,6 +407,7 @@ async function pageHome(main) {
       <section class="card"><h2>Entran en rotura</h2>${prev ? `<p class="big">${into.length}</p><p class="muted small">Frente a la carga del ${fdate(S.ds.prev.created)}</p>${into.length ? `<ul>${into.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
       <section class="card"><h2>Salen de rotura</h2>${prev ? `<p class="big">${out.length}</p>${out.length ? `<ul>${out.slice(0, 6).map(li).join('')}</ul>` : ''}` : '<p class="muted">Se verá a partir de la segunda carga.</p>'}</section>
       <section class="card"><h2>Acciones abiertas</h2><p class="big">${S.actions.length}</p><p class="muted small">${late.length ? `<span class="neg">${late.length} con fecha vencida</span> · ` : ''}${wo} en rotura o bajo mínimo sin acción</p><p><a class="btn ghost sm" href="#/reunion">Ir a la reunión semanal</a></p></section>
+      <section class="card"><h2>Pedidos con más de 30 días de retraso</h2><p class="big">${viejos.length}</p><p class="muted small">${fmt(viejos.reduce((s, x) => s + aoQ(x), 0))} uds que no cuentan en la demanda: servir o anular en ABAS</p>${viejos.length ? `<ul>${viejos.slice(0, 6).map(x => `<li>${refLink(x.r)} ${esc(x.r.n)} · <span class="num">${fmt(aoQ(x))}</span></li>`).join('')}</ul>` : ''}</section>
     </div>
     <h2>Las 10 más urgentes</h2>
     <div class="tw"><table><thead><tr><th scope="col">Referencia</th><th scope="col">Línea</th><th scope="col" class="r">Stock</th><th scope="col" class="r">Demanda media/mes</th><th scope="col">Rotura</th><th scope="col" title="Próxima entrada">Entrada</th><th scope="col">Acción</th><th scope="col">Estado</th></tr></thead><tbody>
@@ -551,7 +556,7 @@ async function pageRef(main, [k]) {
         <tr><th scope="row">Entradas</th>${e.all.ent.map(v => `<td class="r num">${v ? fmt(v) : ''}</td>`).join('')}</tr>
         <tr><th scope="row">Stock fin de mes</th>${e.all.stk.map(v => `<td class="r num ${v < 0 ? 'neg' : ''}"><b>${fmt(v)}</b></td>`).join('')}</tr>
       </tbody></table></div>
-      <p class="muted small">${prevSrcText()}${restoText(r)}${r.at ? ` Pedidos atrasados: ${fmt(r.at)}.` : ''}</p>
+      <p class="muted small">${prevSrcText()}${restoText(r)}${r.at ? ` Pedidos atrasados: ${fmt(r.at)}${r.ab ? ` (${fmt(r.ab)} de meses anteriores, encima de la previsión)` : ''}.` : ''}${r.ao && r.ao.length ? ` <span class="neg">Con más de 30 días de retraso, no cuentan: ${r.ao.map(p => `${fdate(p[0])} · ${fmt(p[1])}`).join('; ')}. Revisar en ABAS.</span>` : ''}</p>
       ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
         const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', manual: 'manual', calculado: 'calculado' };
         return `<h2>Parámetros</h2>
@@ -573,7 +578,7 @@ async function pageRef(main, [k]) {
           ${dvh.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.version)}</td><td>${esc(h.by || '')}</td><td class="r num">${pctTxt(h.pct)} <span class="muted small">${SRCD[h.src]}</span></td><td>${esc(h.motivo)}</td></tr>`).join('')}</tbody></table></div>` : ''}`; })()}
       <h2>Acierto de la previsión</h2>${aciertoHTML(r)}
       <div class="two">
-        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}
+        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.dm != null ? `<span class="neg" title="Sin fijar y con fecha del MRP dentro del plazo de fabricación: se cuenta en la primera fecha posible si se lanzara hoy">MRP ${v.dm ? fdate(v.dm) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}
           ${r.hp ? '' : `<h2>Venta de los últimos 12 meses</h2><div class="tw"><table class="mt" style="min-width:0"><thead><tr>${r.vt.map((_, i) => `<th scope="col" class="r">${monthLabel(i - 12)}</th>`).join('')}</tr></thead><tbody><tr>${r.vt.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>`}</section>
         <section><h2>Acciones</h2>
           ${acts.length ? acts.map(a => `<div class="act ${a.status !== 'abierta' ? 'done' : ''}"><div><div class="t">${esc(a.text)}</div><div class="st muted">${a.owner ? esc(a.owner) + ' · ' : ''}${a.due ? 'para el ' + fdate(a.due) + ' · ' : ''}${esc(a.status)}</div></div>

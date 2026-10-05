@@ -10,7 +10,9 @@
     const inc = (t) => counts(t, esc);
     const c = pv === 'C' && r.pvc, p = c ? r.pvc : r.pv, p0 = c ? r.pv0rc : r.pv0r;
     const dem = new Array(H), ent = new Array(H).fill(0), stk = new Array(H);
-    for (let m = 0; m < H; m++) dem[m] = Math.max(m === 0 ? p0 : p[m], r.pd[m]);
+    // mes en curso: los atrasados vivos de meses anteriores (ab, incluidos en pd) van encima de la previsión
+    const ab = r.ab || 0;
+    for (let m = 0; m < H; m++) dem[m] = m === 0 ? ab + Math.max(p0, r.pd[0] - ab) : Math.max(p[m], r.pd[m]);
     for (const e of r.en) if (inc(e.t)) ent[e.m] += e.q;
     let s = r.st;
     for (let m = 0; m < H; m++) { s = s - dem[m] + ent[m]; stk[m] = s; }
@@ -44,24 +46,37 @@
   }
   // Rotura día a día: la demanda de cada mes repartida por igual en sus días (el mes en curso, en los que quedan)
   // y cada entrada en su fecha. Devuelve el primer momento sin stock { m: mes, t: parte del mes, antes: fecha de la
-  // entrada que llega tarde o '' si no la hay ese mes } o null
+  // entrada que llega tarde o '' si no la hay ese mes, ped: lo que faltaría por los pedidos con fecha (pdd) que vencen
+  // antes de esa entrada (0 si es solo por el reparto), dia: fecha del primer pedido que no cabe } o null. Hasta cada
+  // entrada cuenta lo mayor entre el reparto y esos pedidos; los del mismo día se sirven con la entrada. Gemela de core.rotura_dia
   function roturaDia(r, p, esc) {
     let s = r.st;
-    const at = (m, d) => ({ m, t: d > 0 ? Math.max(0, s / d) : 0 });
+    const pdd = r.pdd || [];
+    const at = (m, d, c) => ({ m, t: d > 0 ? Math.max(0, (c + s) / d) : 0 });
     for (let m = 0; m < H; m++) {
       const d = p.dem[m];
       const es = r.en.filter(e => e.m === m && counts(e.t, esc)).map(e => [fraccion(e), e]).sort((a, b) => a[0] - b[0] || (a[1].d < b[1].d ? -1 : 1));
+      let c = 0;  // demanda del mes ya descontada de s
       for (const [f, e] of es) {
-        if (s - d * f < -1e-9) return { ...at(m, d), antes: e.d };
-        s += e.q;
+        const ps = pdd.filter(x => x[1] === m && x[0] < e.d), ped = ps.reduce((t, x) => t + x[2], 0);
+        const hasta = Math.min(d, Math.max(d * f, ped));
+        if (s - (hasta - c) < -1e-9) {
+          const falta = Math.round(Math.max(0, ped - c - s));
+          let dia = '';
+          if (falta > 0) { let a = c; for (const x of ps) { a += x[2]; if (a - c > s + 1e-9) { dia = x[0]; break; } } }
+          return { ...at(m, d, c), antes: e.d, ped: falta, dia };
+        }
+        s += e.q - (hasta - c);
+        c = hasta;
       }
-      if (s - d < -1e-9) return { ...at(m, d), antes: '' };
-      s -= d;
+      if (s - (d - c) < -1e-9) return { ...at(m, d, c), antes: '', ped: 0, dia: '' };
+      s -= d - c;
     }
     return null;
   }
   // Fecha estimada (ISO) de la rotura; '' sin rotura o sin fecha de hoy (cargas antiguas)
   function fechaRotura(rd, hoy, dias) {
+    if (rd && rd.dia) return rd.dia;
     if (!rd || !hoy || !dias) return '';
     const y = +hoy.slice(0, 4), m0 = +hoy.slice(5, 7) - 1;
     const d = rd.m === 0 ? new Date(Date.UTC(y, m0, +hoy.slice(8, 10) + Math.min(dias[0] - 1, Math.floor(rd.t * dias[0]))))
@@ -110,10 +125,12 @@
     let sem = 'verde', why = 'Cubierto en el horizonte';
     const d12 = all.dem.reduce((s, x) => s + x, 0);
     const cs = r.gp === 'Contra Stock';  // los bajo pedido se fabrican contra pedido: sin estos avisos
+    const pedAntes = cs && rd && rd.m < hz && rd.antes && rd.ped > 0;  // pedidos firmes que no caben antes de la entrada
     if (d12 <= 0 && r.st >= 0) { if (r.en.length && cs) { sem = 'amarillo'; why = 'Entradas sin demanda'; } else { sem = 'gris'; why = r.st > 0 ? 'Sin demanda prevista' : 'Sin demanda ni stock'; } }
     else if (rot >= 0 && rot < hz) { sem = 'rojo'; why = (rot === 0 && r.at > r.st) ? 'Pedidos atrasados por encima del stock' : rot === 0 ? 'Rotura este mes' : 'Rotura en ' + rot + (rot === 1 ? ' mes' : ' meses'); }
+    else if (pedAntes) { sem = 'rojo'; why = `Pedidos sin stock hasta la entrada del ${rd.antes.slice(8, 10)}/${rd.antes.slice(5, 7)}/${rd.antes.slice(2, 4)}`; }
     else if (bmin >= 0 && bmin < hz) { sem = 'naranja'; why = 'Por debajo del stock mínimo'; }
-    else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = 'Depende de propuestas sin fijar'; }
+    else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = r.en.some(e => e.t === 'P' && e.dm != null && e.m < hz) ? 'Lanzar ya: propuesta sin fijar que no llega en 3 semanas' : 'Depende de propuestas sin fijar'; }  // dm: el MRP la quería antes de lo que da el plazo
     if (sem === 'verde') {
       const antes = cs && rd && rd.m < hz && rd.antes;
       if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}/${antes.slice(2, 4)}`; }
@@ -129,7 +146,7 @@
     if (sem === 'verde' && cs && ex > 0) { sem = 'exceso'; why = sx ? 'Por encima del stock máximo' : `Stock para más de ${n} meses`; }
     if (sem !== 'exceso') ex = 0;
     // Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
-    const fa = Math.max(0, Math.round(-Math.min(...all.stk.slice(0, hz))));
+    const fa = Math.max(0, Math.round(-Math.min(...all.stk.slice(0, hz))), pedAntes ? rd.ped : 0);
     return { all, of, rot, rf, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
