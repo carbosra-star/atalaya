@@ -222,6 +222,10 @@ th.c,td.c{text-align:center}
 .login-logo{display:block;height:34px;width:auto;margin-bottom:14px}.login-t{display:flex;align-items:center;gap:10px}.login-t img{width:30px;height:30px}
 
 @media (max-width:980px){.two{grid-template-columns:1fr}}
+/* Ficha: notas bajo el mes a mes y pedidos día a día */
+.notas{list-style:none;margin:6px 0 14px;padding:0}
+.notas li{margin:2px 0}
+table.diario tr.rotura td{background:var(--rojoBg)}
 @media (max-width:860px){
   .shell{grid-template-columns:1fr}
   .side{position:fixed;left:0;top:0;width:min(290px,86vw);z-index:30;transform:translateX(-102%);transition:transform .2s;padding-top:calc(18px + env(safe-area-inset-top,0px))}

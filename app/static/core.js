@@ -150,5 +150,5 @@
     return { all, of, rot, rf, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
-  root.Cob = { project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN };
+  root.Cob = { counts, project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN };
 })(window);

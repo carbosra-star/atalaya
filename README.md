@@ -7,14 +7,14 @@ Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
 
 | Sección | Quién la ve | Contenido |
 |---|---|---|
-| Inicio | Todos | Resumen de la semana: reparto por estado, valor del stock, del exceso y sin demanda, qué entra y sale de rotura respecto a la carga anterior, acciones abiertas y las 10 referencias más urgentes |
+| Inicio | Todos | Resumen de la semana: reparto por estado, valor del stock, del exceso y sin demanda, qué entra y sale de rotura respecto a la carga anterior, pedidos con más de 30 días de retraso y las 10 referencias más urgentes |
 | Coberturas | Todos | Lista filtrable y ordenable de referencias (mandante, línea, marca, ABC, planificación, estado), descarga en CSV |
-| Ficha de referencia | Todos | Proyección de stock a 12 meses, tabla mes a mes, entradas (OF y propuestas), venta de 12 meses, acciones y notas |
+| Ficha de referencia | Todos | Proyección de stock a 12 meses, tabla mes a mes, próximas semanas (pedidos y entradas día a día hasta fin del mes siguiente, con el stock tras cada movimiento), entradas previstas, parámetros, revisión y acierto de la previsión (plegados) y notas |
 | Líneas | Todos (editan planificador y administrador) | Estado por grupo de máquina, agrupado por área con subtotales, y página de cada línea con su demanda, entradas y la misma tabla que Coberturas; maestro de líneas en la app (Editar líneas): nombre corto ("piedra Rosetta" código → nombre) y área (agrupa varias líneas; tabla linea_area, no depende de la carga), que se usan en toda la app (filtro Área en Coberturas, columna en los CSV) |
 | Porfolio | Todos | Resumen del maestro, altas y bajas frente a la carga anterior (con su motivo), lanzamientos de los últimos 9 meses con lo que tienen preparado, PT activos sin movimiento e inactivos con stock (con su valor) |
 | Stock mínimo y lotes | Todos (deciden planificador y administrador) | Lote y stock mínimo por referencia (ERP, método Excel y estadístico), propuesta, decisiones con historial, valor en € por mandante y clase y fichero de cambios para ABAS |
 | Desviación de previsiones | Todos (acuerdan planificador y administrador) | Desviación por marca (previsión frente a venta, sesgo y error pasados), acierto de cada versión trimestral y lista para la revisión con comercial con corrección propuesta, acuerdos por versión y CSV |
-| Reunión semanal | Todos (editan planificador y administrador) | Referencias que necesitan decisión y acciones abiertas con responsable y fecha |
+| Reunión semanal | Todos (editan planificador y administrador) | Referencias que necesitan decisión y acciones abiertas con responsable y fecha. **Oculta de momento** (`ACCIONES = false` en `static/app.js`; la API y las tablas siguen) |
 | Datos | Administrador | Carga del MM_Supply (comprobar → publicar), historial de cargas, criterios del semáforo y parámetros por clase (cortes ABC, fabricaciones, % de stock mínimo y niveles de servicio) |
 | Usuarios | Administrador | Alta de usuarios, roles, activación y contraseñas temporales |
 
