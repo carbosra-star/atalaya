@@ -605,8 +605,8 @@ async function pageRef(main, [k]) {
       api('/api/desviacion?ref=' + encodeURIComponent(k)), api('/api/desviacion/' + encodeURIComponent(k) + '/historial')]);
     const canW = can('admin', 'planificador');
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
-      <div class="head"><div><h1>${esc(r.n)}</h1>
-        <p class="meta">${esc(r.k)}${copyBtn(r.k, 'código', true)} · ${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
+      <div class="head"><div><h1><span class="num">${esc(r.k)}</span>${copyBtn(r.k, 'código', true)} ${esc(r.n)}</h1>
+        <p class="meta">${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
         ${r.ext ? `<p class="extbar">${EXT_TAG}Se consume el stock y no se repone.${r.sc ? ` Sucesor: <a href="${refHref(r.sc)}">${esc(r.sc)}</a>${S.byK[r.sc] ? ' ' + esc(S.byK[r.sc].r.n) : ''}.` : ' Sin sucesor activo.'}</p>` : ''}
         <p>${pill(e.sem, e.why)}</p></div>
         <form onsubmit="return false">${scenarioCtl()}</form></div>

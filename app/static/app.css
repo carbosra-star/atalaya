@@ -304,3 +304,5 @@ tr.area-row>th{text-align:left;color:var(--ink)}
 .copy .i-ok{display:none}
 .copy.ok{color:var(--verde);opacity:1}.copy.ok .i-copy{display:none}.copy.ok .i-ok{display:inline}
 tr:hover .copy,li:hover .copy,li[aria-selected="true"] .copy,.copy:focus-visible,.copy.on{opacity:1}
+h1 .copy{vertical-align:2px;margin-right:4px}
+h1 .copy svg{width:20px;height:20px}
