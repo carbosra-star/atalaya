@@ -721,8 +721,26 @@ def notes(ref):
             return err("La nota está vacía")
         db().execute("INSERT INTO notes(ref,user_id,text,created) VALUES(?,?,?,?)", (ref, g.user["id"], t[:4000], now()))
         db().commit()
-    rows = db().execute("SELECT n.id,n.text,n.created,u.name AS by FROM notes n JOIN users u ON u.id=n.user_id WHERE n.ref=? ORDER BY n.id DESC", (ref,)).fetchall()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(_notes(ref))
+
+
+def _notes(ref: str) -> list[dict]:
+    rows = db().execute("SELECT n.id,n.text,n.created,n.user_id AS uid,u.name AS by FROM notes n JOIN users u ON u.id=n.user_id WHERE n.ref=? ORDER BY n.id DESC", (ref,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.delete("/api/notes/<ref>/<int:nid>")
+@need("admin", "planificador")
+def note_delete(ref, nid):
+    """Borra una nota: quien la escribió o un administrador."""
+    n = db().execute("SELECT * FROM notes WHERE id=? AND ref=?", (nid, ref)).fetchone()
+    if not n:
+        return err("La nota no existe", 404)
+    if n["user_id"] != g.user["id"] and g.user["role"] != "admin":
+        return err("Solo puede borrarla quien la escribió o un administrador", 403)
+    db().execute("DELETE FROM notes WHERE id=?", (nid,))
+    db().commit()
+    return jsonify(_notes(ref))
 
 
 @app.get("/api/notes-index")

@@ -515,6 +515,7 @@ function chartSVG(r, e) {
   const y = v => pt + (Hh - pt - pb) * (max - v) / ((max - min) || 1), bw = (W - pl - pr) / n, x = i => pl + bw * i + bw / 2;
   let s = `<svg class="chart" viewBox="0 0 ${W} ${Hh}" role="img" aria-labelledby="chT chD"><title id="chT">Proyección de stock de ${esc(r.n)}</title><desc id="chD">Stock a fin de mes durante 12 meses: ${st.map((v, i) => monthLabel(i) + ' ' + fmt(v)).join(', ')}.</desc>`;
   for (let i = 0; i <= 4; i++) { const v = min + (max - min) * i / 4; s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--soft)"/><text x="${pl - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="var(--ink2)">${Math.abs(v) >= 1000 ? Math.round(v / 1000) + ' k' : Math.round(v)}</text>`; }
+  s += `<rect class="chband" x="0" width="${bw}" y="${pt}" height="${Hh - pt - pb}" fill="var(--sel)" visibility="hidden"/>`;
   for (let i = 0; i < n; i++) {
     s += `<rect x="${x(i) - bw * .34}" width="${bw * .3}" y="${y(Math.max(dm[i], 0))}" height="${Math.max(0, y(0) - y(dm[i]))}" fill="var(--gris)" opacity=".5"/>`;
     if (en[i] > 0) s += `<rect x="${x(i) + bw * .04}" width="${bw * .3}" y="${y(en[i])}" height="${Math.max(0, y(0) - y(en[i]))}" fill="var(--link)" opacity=".7"/>`;
@@ -524,7 +525,38 @@ function chartSVG(r, e) {
   if (r.mn > 0) s += `<line x1="${pl}" x2="${W - pr}" y1="${y(r.mn)}" y2="${y(r.mn)}" stroke="var(--naranja)" stroke-dasharray="6 4"/><text x="${W - pr}" y="${y(r.mn) - 5}" font-size="11" text-anchor="end" fill="var(--naranja)">stock mínimo</text>`;
   s += `<polyline fill="none" stroke="var(--ink)" stroke-width="2.4" points="${st.map((v, i) => x(i) + ',' + y(v)).join(' ')}"/>`;
   st.forEach((v, i) => s += `<circle cx="${x(i)}" cy="${y(v)}" r="3.6" fill="${v < 0 ? 'var(--rojo)' : v < r.mn ? 'var(--naranja)' : 'var(--ink)'}"/>`);
-  return s + '</svg>';
+  // Zona de cada mes (columna entera) para el detalle al pasar el ratón o con el teclado
+  for (let i = 0; i < n; i++) s += `<rect class="chhit" data-m="${i}" x="${pl + bw * i}" width="${bw}" y="${pt}" height="${Hh - pt - pb}" fill="transparent" tabindex="0" aria-label="${monthLabel(i)}: stock fin de mes ${fmt(st[i])}"/>`;
+  return s + '</svg><div class="chtip" hidden></div>';
+}
+// Detalle de un mes del gráfico de la ficha: stock fin de mes, demanda (previsión y pedidos), entradas una a una y mínimo
+function chartTip(r, e, m) {
+  const ps = pvSel(r), pv = m === 0 ? ps.p0 : ps.p[m], stk = e.all.stk[m];
+  const ens = r.en.filter(x => x.m === m && Cob.counts(x.t, S.esc));
+  const fila = (l, v, cls = '') => `<div class="row"><span>${l}</span><b class="num ${cls}">${v}</b></div>`;
+  return `<div class="t">${monthLabel(m)}</div>
+    ${fila('Stock fin de mes', fmt(stk), stk < 0 ? 'neg' : '')}
+    ${fila('Demanda', fmt(e.all.dem[m]))}
+    <div class="sub">${m === 0 ? 'previsión que queda' : 'previsión'} ${fmt(pv)} · pedidos ${fmt(r.pd[m])}${m === 0 && r.ab ? ` · ${fmt(r.ab)} atrasados de meses anteriores` : ''}</div>
+    ${fila('Entradas', e.all.ent[m] ? fmt(e.all.ent[m]) : '—')}
+    ${ens.map(x => `<div class="sub">${entTag(x.t)} ${fmt(x.q)} · ${fdate(x.d, true)}${x.dm != null ? ' · MRP ' + (x.dm ? fdate(x.dm, true) : 'sin fecha') : ''}</div>`).join('')}
+    ${r.mn > 0 ? fila('Stock mínimo', fmt(r.mn)) : ''}
+    ${stk < 0 ? '<div class="sub neg">Rotura a fin de mes</div>' : r.mn > 0 && stk < r.mn ? '<div class="sub neg">Por debajo del stock mínimo</div>' : ''}`;
+}
+function bindChart(root, r, e) {
+  const box = $('.chartbox', root); if (!box) return;
+  const tip = $('.chtip', box), band = $('.chband', box);
+  const show = (h) => {
+    const m = +h.dataset.m;
+    band.setAttribute('x', h.getAttribute('x')); band.setAttribute('visibility', 'visible');
+    tip.innerHTML = chartTip(r, e, m); tip.hidden = false;
+    const b = box.getBoundingClientRect(), c = h.getBoundingClientRect();
+    const left = c.right - b.left + 8 + tip.offsetWidth > b.width ? c.left - b.left - tip.offsetWidth - 8 : c.right - b.left + 8;
+    tip.style.left = Math.max(4, left) + 'px'; tip.style.top = (c.top - b.top + 4) + 'px';
+  };
+  const hide = () => { tip.hidden = true; band.setAttribute('visibility', 'hidden'); };
+  $$('.chhit', box).forEach(h => { h.onpointerenter = () => show(h); h.onfocus = () => show(h); h.onblur = hide; });
+  $('svg', box).onpointerleave = hide;
 }
 // Ficha: pedidos y entradas día a día hasta fin del mes que viene, con el stock tras cada movimiento. Las entradas,
 // según el escenario; la previsión que no cubren los pedidos, a fin de cada mes (cuadra con el stock fin de mes)
@@ -628,13 +660,18 @@ async function pageRef(main, [k]) {
           ${canW ? `<form class="form" id="actF" style="margin-top:10px"><label>Nueva acción<input name="text" required maxlength="2000"></label>
             <div class="row"><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Añadir acción</button></div></form>` : ''}</section>` : ''}
         <section><h2>Notas</h2>
-          ${notes.map(nt => `<div class="note"><div>${esc(nt.text)}</div><div class="by">${esc(nt.by)} · ${fdt(nt.created)}</div></div>`).join('') || '<p class="muted">Sin notas.</p>'}
+          ${notes.map(nt => `<div class="note"><div>${esc(nt.text)}</div><div class="by">${esc(nt.by)} · ${fdt(nt.created)}${S.me && (S.me.role === 'admin' || (S.me.role === 'planificador' && S.me.id === nt.uid)) ? ` · <button type="button" class="btn ghost sm" data-delnote="${nt.id}">Borrar</button>` : ''}</div></div>`).join('') || '<p class="muted">Sin notas.</p>'}
           ${canW ? `<form class="form" id="noteF"><label>Nueva nota<textarea name="text" required maxlength="4000"></textarea></label><div><button class="btn">Guardar nota</button></div></form>` : ''}
         </section></div>`;
     bindScenario(main, draw);
+    bindChart(main, r, e);
     $$('details[data-fb]', main).forEach(d => d.ontoggle = () => { if (d.open) FICHA_ABIERTOS.add(d.dataset.fb); else FICHA_ABIERTOS.delete(d.dataset.fb); });
     const af = $('#actF'); if (af) af.onsubmit = async (ev) => { ev.preventDefault(); const fd = new FormData(af); try { await api('/api/actions', { method: 'POST', body: { ref: k, text: fd.get('text'), owner: fd.get('owner'), due: fd.get('due') } }); await refreshActions(); updateChrome(); toast('Acción añadida'); draw(); } catch (e2) { toast(e2.message); } };
     const nf = $('#noteF'); if (nf) nf.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/notes/' + encodeURIComponent(k), { method: 'POST', body: { text: new FormData(nf).get('text') } }); S.notes[k] = (S.notes[k] || 0) + 1; toast('Nota guardada'); draw(); } catch (e2) { toast(e2.message); } };
+    $$('[data-delnote]', main).forEach(b => b.onclick = async () => {
+      if (!confirm('¿Borrar esta nota? No se puede deshacer.')) return;
+      try { const quedan = await api('/api/notes/' + encodeURIComponent(k) + '/' + b.dataset.delnote, { method: 'DELETE' }); if (quedan.length) S.notes[k] = quedan.length; else delete S.notes[k]; toast('Nota borrada'); draw(); } catch (e2) { toast(e2.message); }
+    });
     const pz = $('#plzF'); if (pz) pz.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/parametros/' + encodeURIComponent(k) + '/plazo', { method: 'PUT', body: { dias: parseInt(pz.dias.value, 10), motivo: pz.motivo.value } }); toast('Plazo guardado'); draw(); } catch (e2) { toast(e2.message); } };
     $$('[data-done]', main).forEach(b => b.onclick = async () => { try { await api('/api/actions/' + b.dataset.done, { method: 'PATCH', body: { status: 'hecha' } }); await refreshActions(); updateChrome(); toast('Acción marcada como hecha'); draw(); } catch (e2) { toast(e2.message); } });
   };

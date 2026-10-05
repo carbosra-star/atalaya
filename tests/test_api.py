@@ -141,6 +141,22 @@ c2.post("/api/me/password", json={"current": pw, "new": "nueva-clave-1"}, header
 check("tras cambiarla sí hay datos", c2.get("/api/dataset").status_code == 200)
 check("un lector no puede crear acciones", c2.post("/api/actions", json={"ref": k, "text": "x"}, headers=H).status_code == 403)
 
+# Notas: las borra quien las escribió o un administrador
+nid = c.post(f"/api/notes/{k}", json={"text": "nota de prueba"}, headers=H).json[0]["id"]
+check("la nota trae su autor", c.get(f"/api/notes/{k}").json[0].get("uid") is not None)
+check("un lector no puede borrar notas", c2.delete(f"/api/notes/{k}/{nid}", headers=H).status_code == 403)
+pw3 = c.post("/api/users", json={"username": "pla", "name": "Planificador", "role": "planificador"}, headers=H).json["password"]
+c3 = A.app.test_client()
+c3.post("/api/login", json={"username": "pla", "password": pw3}, headers=H)
+c3.post("/api/me/password", json={"current": pw3, "new": "nueva-clave-3"}, headers=H)
+check("un planificador no borra notas de otro", c3.delete(f"/api/notes/{k}/{nid}", headers=H).status_code == 403)
+nid3 = c3.post(f"/api/notes/{k}", json={"text": "mía"}, headers=H).json[0]["id"]
+check("un planificador borra sus notas", c3.delete(f"/api/notes/{k}/{nid3}", headers=H).status_code == 200)
+r = c.delete(f"/api/notes/{k}/{nid}", headers=H)
+check("el administrador borra cualquier nota", r.status_code == 200 and all(n["id"] != nid for n in r.json), r.status_code)
+check("borrar una nota que no existe", c.delete(f"/api/notes/{k}/{nid}", headers=H).status_code == 404)
+check("el índice de notas se actualiza", c.get("/api/notes-index").json.get(k) is None)
+
 # Parámetros de planificación: stock mínimo, lote y stock máximo
 check("niveles de servicio por defecto", c.get("/api/me").json["config"].get("ns") == {"Belloch": [95, 90, 85, 85], "Yunsey": [95, 90, 85, 85]})
 check("nivel de servicio no válido se rechaza", c.put("/api/config", json={"ns": {"Belloch": [100, 90, 85, 85], "Yunsey": [95, 90, 85, 85]}}, headers=H).status_code == 400)

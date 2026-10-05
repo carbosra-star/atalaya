@@ -18,7 +18,7 @@ Flask + SQLite, empaquetada en un contenedor Docker para el NAS.
 | Datos | Administrador | Carga del MM_Supply (comprobar → publicar), historial de cargas, criterios del semáforo y parámetros por clase (cortes ABC, fabricaciones, % de stock mínimo y niveles de servicio) |
 | Usuarios | Administrador | Alta de usuarios, roles, activación y contraseñas temporales |
 
-Roles: **administrador** (todo), **planificador** (notas, acciones y decisiones de stock mínimo, lote, plazo y previsión), **lector** (solo consulta).
+Roles: **administrador** (todo), **planificador** (notas, acciones y decisiones de stock mínimo, lote, plazo y previsión), **lector** (solo consulta). Una nota la puede borrar quien la escribió o un administrador.
 
 Cada pantalla tiene su propia dirección (por ejemplo `#/ref/010010002400`), así que funcionan el botón de atrás y los enlaces directos.
 
