@@ -1085,6 +1085,20 @@ const PF_BLOQUES = {
           [['Referencia'], ['ABC'], ['Alta'], ['Planificación'], ['En seguimiento', 'c'], ['Motivo si no está'], ['A extinguir']], 'Ninguna.');
     },
   },
+  extinguir: {
+    t: 'A extinguir', n: (pf) => fmt(S.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length) + (S.ev.some(x => x.r.ext && x.r.pr > 0 && x.r.st > 0) ? ' · ' + keur(S.ev.reduce((s, { r }) => s + (r.ext && r.pr > 0 ? Math.max(r.st, 0) * r.pr : 0), 0)) : ''),
+    lead: () => 'PT activos marcados a extinguir en ABAS: se consume el stock y no se repone. El valor es el del stock que queda por consumir.',
+    html: (pf) => {
+      const suc = (sc) => sc ? (S.byK[sc] ? refLink({ k: sc }) : `<b>${esc(sc)}</b>`) : '<span class="muted">—</span>';
+      const seg = S.ev.filter(x => x.r.ext).sort((a, b) => (b.r.pr > 0 ? Math.max(b.r.st, 0) * b.r.pr : 0) - (a.r.pr > 0 ? Math.max(a.r.st, 0) * a.r.pr : 0) || (a.r.k < b.r.k ? -1 : 1));
+      const fu = pf.fuera.filter(x => x.ext);
+      return `<h3>En seguimiento (${seg.length})</h3>` +
+        pfTabla(seg.map(({ r, e }) => `<tr>${refCell(r)}<td>${abcRef(r)}</td><td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${r.pr > 0 ? eur(Math.max(r.st, 0) * r.pr) : '<span class="muted">sin precio</span>'}</td><td class="r num">${fmt(e.d3)}</td>${cobCell(e)}<td class="nowrap">${suc(r.sc)}</td></tr>`).join(''),
+          [['Referencia'], ['ABC'], ['Estado'], ['Stock', 'r'], ['Valor', 'r'], ['Demanda/mes', 'r', 'Demanda media de los 3 próximos meses'], { g: 'Cobertura', c: [['Meses', 'r', 'Meses que dura el stock de hoy con la demanda prevista'], ['Prudente', 'r', 'Cobertura en meses con la previsión corregida y aumentada en su error']] }, ['Sucesor']], 'Ninguna.') +
+        `<h3>Sin movimiento (${fu.length})</h3>` +
+        pfTabla(fu.map(x => `<tr>${pfRef(x.k, x.n)}<td class="num">${fdate(x.alta)}</td><td class="nowrap">${CATSM[x.cat] || esc(x.cat)}${x.uv ? ` <span class="muted">(última ${esc(x.uv)})</span>` : ''}</td><td class="nowrap">${suc(x.sc)}</td></tr>`).join(''), [['Referencia'], ['Alta'], ['Qué tiene'], ['Sucesor']], 'Ninguna.');
+    },
+  },
   abc: {
     t: 'Vista ABC', n: () => fmt(S.ev.filter(x => x.r.abc !== 'NA').length), soloVista: true,
     lead: () => 'Referencias en seguimiento, sobre la venta de 12 meses.',
@@ -1102,7 +1116,7 @@ const PF_BLOQUES = {
     }).join('')}</div><p class="muted small">* ABC provisional (menos de 12 meses de venta).</p>`,
   },
 };
-const PF_ORDEN = ['cambios', 'lanzamientos', 'sin-movimiento', 'inactivos'];
+const PF_ORDEN = ['cambios', 'lanzamientos', 'sin-movimiento', 'inactivos', 'extinguir'];
 function pfAbiertos() { try { return JSON.parse(localStorage.getItem('pfOpen')) || { cambios: true }; } catch (e) { return { cambios: true }; } }
 
 async function pagePortfolio(main, [sub]) {
@@ -1126,7 +1140,7 @@ async function pagePortfolio(main, [sub]) {
   main.innerHTML = `<h1>Porfolio</h1>
     <div class="kpis">${card('#/porfolio/activos', fmt(pf.res.activos), 'PT activos')}${card('#/coberturas?gp=', fmt(pf.res.seguimiento), 'En seguimiento')}
       ${card('#/porfolio/cambios', pf.cambios ? `${pf.cambios.entran.length} · ${pf.cambios.salen.length}` : '—', 'Entran · salen')}${card('#/porfolio/lanzamientos', fmt(pf.lanz.length), 'Lanzamientos')}
-      ${card('#/porfolio/sin-movimiento', fmt(pf.fuera.length), 'Sin movimiento')}${card('#/porfolio/inactivos', fmt(pf.inact.length), 'Inactivos con stock')}${card('#/porfolio/abc', fmt(S.ev.filter(x => x.r.abc !== 'NA').length), 'Vista ABC')}</div>
+      ${card('#/porfolio/sin-movimiento', fmt(pf.fuera.length), 'Sin movimiento')}${card('#/porfolio/inactivos', fmt(pf.inact.length), 'Inactivos con stock')}${card('#/porfolio/extinguir', fmt(S.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length), 'A extinguir')}${card('#/porfolio/abc', fmt(S.ev.filter(x => x.r.abc !== 'NA').length), 'Vista ABC')}</div>
     ${PF_ORDEN.map(k => { const b = PF_BLOQUES[k]; return `<details class="blk" data-blk="${k}" ${ab[k] ? 'open' : ''}><summary><h2>${b.t} <span class="muted">(${b.n(pf)})</span></h2><a class="small" href="#/porfolio/${k}">ver en detalle</a></summary>${b.lead(pf) ? `<p class="muted small">${b.lead(pf)}</p>` : ''}${b.html(pf, q)}</details>`; }).join('')}`;
   $$('details.blk', main).forEach(d => d.addEventListener('toggle', () => { const o = pfAbiertos(); o[d.dataset.blk] = d.open; try { localStorage.setItem('pfOpen', JSON.stringify(o)); } catch (e) {} }));
   bindFiltros();
