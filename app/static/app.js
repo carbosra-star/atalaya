@@ -151,7 +151,7 @@ function setQuery(patch) {
 window.addEventListener('hashchange', render);
 
 const ROUTES = {
-  '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, ...(ACCIONES ? { reunion: pageMeeting } : {}), porfolio: pagePortfolio,
+  '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, capacidad: pageCap, ...(ACCIONES ? { reunion: pageMeeting } : {}), porfolio: pagePortfolio,
   datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon, parametros: pageParams, desviacion: pageDesv,
 };
 async function render() {
@@ -187,6 +187,7 @@ function shell() {
         <a role="listitem" href="#/" data-nav="">Inicio</a>
         <a role="listitem" href="#/coberturas" data-nav="coberturas">Coberturas <span class="badge r" id="bRojo" hidden></span></a>
         <a role="listitem" href="#/lineas" data-nav="lineas">Líneas</a>
+        <a role="listitem" href="#/capacidad" data-nav="capacidad">Capacidad</a>
         <a role="listitem" href="#/porfolio" data-nav="porfolio">Porfolio</a>
         ${ACCIONES ? '<a role="listitem" href="#/reunion" data-nav="reunion">Reunión semanal <span class="badge" id="bAct" hidden></span></a>' : ''}
       </div>
@@ -357,8 +358,9 @@ function strip(list, hrefFor, current) {
 }
 function scenarioCtl() {
   return `<div class="fld"><span id="escL">Entradas que se cuentan</span><div class="seg" role="group" aria-labelledby="escL">${Object.entries(ESC).map(([k, t]) => `<button type="button" data-esc="${k}" aria-pressed="${S.esc === k}">${k === 'OF' ? 'Solo firmes' : k === 'OFPF' ? '+ fijadas' : '+ todas las propuestas'}<span class="sr"> (${t})</span></button>`).join('')}</div></div>
-    <div class="fld"><span id="pvL">Previsión</span><div class="seg" role="group" aria-labelledby="pvL">${Object.entries(PV).map(([k, t]) => `<button type="button" data-pv="${k}" aria-pressed="${S.pv === k}">${t}</button>`).join('')}</div></div>`;
+    ${pvCtl()}`;
 }
+const pvCtl = () => `<div class="fld"><span id="pvL">Previsión</span><div class="seg" role="group" aria-labelledby="pvL">${Object.entries(PV).map(([k, t]) => `<button type="button" data-pv="${k}" aria-pressed="${S.pv === k}">${t}</button>`).join('')}</div></div>`;
 function bindScenario(root, rerender) {
   $$('[data-esc]', root).forEach(b => b.onclick = () => { S.esc = b.dataset.esc; localStorage.setItem('esc', S.esc); recompute(); updateChrome(); rerender(); announce('Escenario: ' + ESC[S.esc]); });
   $$('[data-pv]', root).forEach(b => b.onclick = () => { S.pv = b.dataset.pv; try { localStorage.setItem('prev', S.pv); } catch (e) {} recompute(); updateChrome(); rerender(); announce('Previsión: ' + PV[S.pv]); });
@@ -501,6 +503,9 @@ async function pageList(main) {
 function downloadCSV(rows, name = 'coberturas') {
   const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'A extinguir', 'Sucesor', 'Área', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Fecha rotura (estimada)', 'Próxima entrada', 'Cantidad', 'Fecha'];
   const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ext ? 'Sí' : '', r.sc || '', lnArea(r.ln), r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rf || (e.rot < 0 ? '' : monthLabel(e.rot)), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  saveCSV(head, lines, name);
+}
+function saveCSV(head, lines, name) {
   const csv = '\ufeff' + [head, ...lines].map(l => l.map(v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = `${name}_${S.ds.meta.hoy}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -678,18 +683,83 @@ async function pageRef(main, [k]) {
   await draw();
 }
 
+// ---------------------------------------------------------------- Capacidad
+// Carga de cada línea (contra stock y bajo pedido: OF + necesidad neta, ver Cob.carga) frente a su capacidad mensual
+const CAP_GEN = { horas_turno: 7.75, holgura: 0.2, dias: {} };
+const capGen = () => (S.cfg && S.cfg.capacidad) || CAP_GEN;
+function mesYM(i) { const [y, m] = S.ds.meta.base.split('-').map(Number); const d = new Date(y, m - 1 + i, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+function capLineas() {
+  const gen = capGen(), n = Cob.H, out = {};
+  const dias = Array.from({ length: n }, (_, i) => Cob.diasLab(mesYM(i), gen.dias));
+  for (const r of S.ds.refs) {
+    const k = r.ln || '—', L = out[k] = out[k] || { k, carga: new Array(n).fill(0), n: 0 };
+    L.n++; Cob.carga(r, S.pv).forEach((v, i) => { L.carga[i] += v; });
+  }
+  for (const L of Object.values(out)) {
+    const p = k => k === '—' ? null : (S.ds.cap || {})[k] || null;
+    L.p = p(L.k);
+    L.cap = dias.map(d => Cob.capMes(L.p, gen, d));
+    L.cap1 = dias.map(d => Cob.capMes(L.p && { ...L.p, turnos: 1 }, gen, d));
+    L.sat = L.cap.map((c, i) => c ? L.carga[i] / c : null);
+    L.tn = L.cap1.map((c, i) => c ? Math.ceil(L.carga[i] / c - 1e-9) : null);
+    L.s3 = satAgg([L], 0, 3); L.s12 = satAgg([L], 0, n);
+    L.t3 = L.p ? Math.max(...L.tn.slice(0, 3)) : null;
+  }
+  return out;
+}
+// Saturación de un grupo de líneas: suma de cargas ÷ suma de capacidades (solo las que tienen parámetros)
+function satAgg(Ls, a, b) { let c = 0, k = 0; Ls.forEach(L => { for (let i = a; i < b; i++) if (L.cap[i]) { c += L.carga[i]; k += L.cap[i]; } }); return k ? c / k : null; }
+const satCls = (s) => s == null ? '' : s > 1 ? 'sat-r' : s >= 0.85 ? 'sat-a' : 'sat-v';
+const pctS = (s) => s == null ? '—' : Math.round(s * 100) + ' %';
+const satCell = (s, tip = '') => `<td class="r num sat ${satCls(s)}"${tip ? ` title="${esc(tip)}"` : ''}>${pctS(s)}</td>`;
+const turnTxt = (t) => t == null ? '—' : String(t).replace('.', ',');
+const CAP_NOTA = 'Carga: contra stock y bajo pedido; OF del mes + lo que falta fabricar para cubrir la demanda y mantener el stock mínimo (las propuestas del MRP no cuentan). Capacidad: V.max × OEE × horas por turno × turnos × días laborables × (1 − holgura). Verde &lt; 85 %, ámbar 85–100 %, rojo &gt; 100 %.';
+async function pageCap(main) {
+  if (!S.ds) return noData(main, 'Capacidad');
+  const CL = capLineas(), n = Cob.H, Ls = Object.values(CL);
+  const ord = (a, b) => (b.s3 ?? -1) - (a.s3 ?? -1) || lnNom(a.k).localeCompare(lnNom(b.k), 'es');
+  const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.p.turnos) + ' turnos)' : 'sin parámetros'}${L.tn[i] != null ? '\nTurnos necesarios ' + L.tn[i] : ''}`;
+  const fila = (L) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(L.k)}">${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k))}</a> <span class="nm">${esc(lnSub(L.k))}</span></td>
+    <td class="r num">${L.p ? turnTxt(L.p.turnos) : '—'}</td>${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.s12)}</tr>`;
+  const grupos = {}; Ls.forEach(L => (grupos[lnArea(L.k) || SIN_AREA] = grupos[lnArea(L.k) || SIN_AREA] || []).push(L));
+  const areas = Object.keys(grupos).sort((a, b) => (a === SIN_AREA) - (b === SIN_AREA) || a.localeCompare(b, 'es'));
+  const cuerpo = !areasUsadas().length ? Ls.sort(ord).map(fila).join('') : areas.map(a => {
+    const xs = grupos[a].sort(ord);
+    return `<tr class="area-row"><th scope="rowgroup">${esc(a)}</th><td></td>${Array.from({ length: n }, (_, i) => satCell(satAgg(xs, i, i + 1))).join('')}${satCell(satAgg(xs, 0, n))}</tr>${xs.map(fila).join('')}`;
+  }).join('');
+  const rojas = Ls.filter(L => L.s3 > 1).length;
+  main.innerHTML = `<h1>Capacidad</h1><p class="lead">Saturación de cada línea en los 12 próximos meses${rojas ? ` · <b>${rojas} ${rojas === 1 ? 'línea' : 'líneas'} por encima del 100 %</b> en los 3 próximos meses` : ''}.</p>
+    <form onsubmit="return false" class="filters">${pvCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="capCsv">Descargar (CSV)</button></div></form>
+    <div class="tw"><table class="mt capm"><caption class="sr">Saturación por línea y mes</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Turnos</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}<th scope="col" class="r">Media 12 m</th></tr></thead><tbody>
+    ${cuerpo}</tbody></table></div>
+    <p class="muted small">${CAP_NOTA} Turnos, V.max y OEE se cambian en <a href="#/lineas">Líneas › Editar líneas</a>; horas, holgura y días laborables en Datos.</p>`;
+  bindScenario(main, () => pageCap(main));
+  $('#capCsv').onclick = () => {
+    const head = ['Área', 'Línea', 'Nombre línea', 'Turnos', 'Fila', ...Array.from({ length: n }, (_, i) => monthLabel(i))];
+    const lines = [];
+    Ls.sort(ord).forEach(L => [['Carga uds', L.carga.map(Math.round)], ['Capacidad uds', L.cap.map(c => c == null ? '' : Math.round(c))],
+      ['Saturación %', L.sat.map(s => s == null ? '' : Math.round(s * 100))], ['Turnos necesarios', L.tn.map(t => t == null ? '' : t)]]
+      .forEach(([f, v]) => lines.push([lnArea(L.k), L.k, L.k === '—' ? 'Sin línea' : lnNom(L.k), L.p ? turnTxt(L.p.turnos) : '', f, ...v])));
+    saveCSV(head, lines, 'capacidad');
+  };
+}
+
 // ---------------------------------------------------------------- Líneas
 function groupLines(list) { const g = {}; for (const x of list) (g[x.r.ln || '—'] = g[x.r.ln || '—'] || []).push(x); return g; }
 async function pageLines(main) {
   if (!S.ds) return noData(main, 'Líneas');
   const cs = S.ev.filter(x => x.r.gp === 'Contra Stock');
   const L = S.ds.meta.lineas || {};
-  const rows = Object.entries(groupLines(cs)).map(([k, xs]) => { const c = {}; xs.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1); return { k, xs, c }; })
-    .sort((a, b) => (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
+  // Todas las líneas con carga (también las que solo fabrican bajo pedido); las más saturadas primero
+  const CL = capLineas(), gl = groupLines(cs);
+  const rows = [...new Set([...Object.keys(gl), ...Object.keys(CL)])].map(k => { const xs = gl[k] || [], c = {}; xs.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1); return { k, xs, c, L: CL[k] }; })
+    .sort((a, b) => ((b.L && b.L.s3) ?? -1) - ((a.L && a.L.s3) ?? -1) || (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
+  const capCols = (Ls) => { const L = Ls.length === 1 ? Ls[0] : null, d = Ls.filter(Boolean);
+    return `${satCell(satAgg(d, 0, 3))}${satCell(satAgg(d, 0, Cob.H))}<td class="r num">${L && L.p ? turnTxt(L.p.turnos) + ' → ' + L.t3 : ''}</td>`; };
   const canW = can('admin', 'planificador');
   const barra = (c) => `<div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div>`;
-  const fila = ({ k, xs, c }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
-      <td>${barra(c)}</td><td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>`;
+  const fila = ({ k, xs, c, L }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
+      <td>${barra(c)}</td><td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td>${capCols([L])}</tr>`;
   // Con áreas: cada área con su fila de totales y debajo sus líneas (las líneas sin área, al final)
   const grupos = {}; rows.forEach(x => (grupos[lnArea(x.k) || SIN_AREA] = grupos[lnArea(x.k) || SIN_AREA] || []).push(x));
   const nombresArea = Object.keys(grupos).sort((a, b) => (a === SIN_AREA) - (b === SIN_AREA) || a.localeCompare(b, 'es'));
@@ -697,40 +767,62 @@ async function pageLines(main) {
     const ls = grupos[a], c = {}; ls.forEach(x => SEM.forEach(([s]) => c[s] = (c[s] || 0) + (x.c[s] || 0)));
     const n = ls.reduce((t, x) => t + x.xs.length, 0);
     return `<tr class="area-row"><th scope="rowgroup">${esc(a)}</th><td class="r num">${n}</td><td>${barra(c)}</td>
-      <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td></tr>${ls.map(fila).join('')}`;
+      <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td>${capCols(ls.map(x => x.L))}</tr>${ls.map(fila).join('')}`;
   }).join('');
-  main.innerHTML = `<h1>Líneas</h1><p class="lead">Contra stock, por grupo de máquina.</p>
+  main.innerHTML = `<h1>Líneas</h1><p class="lead">Por grupo de máquina: estado de las referencias y saturación de la línea.</p>
     <form onsubmit="return false" class="filters">${scenarioCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar líneas</button></div>' : ''}</form>
     <div id="lnBox"></div>
-    <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th></tr></thead><tbody>
+    <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th><th scope="col" class="r" title="Carga ÷ capacidad con los turnos actuales, 3 próximos meses">Saturación 3 m</th><th scope="col" class="r">Media 12 m</th><th scope="col" class="r" title="Turnos actuales → turnos necesarios (máximo de los 3 próximos meses)">Turnos</th></tr></thead><tbody>
     ${cuerpo}
-    </tbody></table></div>`;
+    </tbody></table></div>
+    <p class="muted small">Estado: referencias contra stock. Saturación y turnos: ${CAP_NOTA} Detalle mes a mes en <a href="#/capacidad">Capacidad</a>.</p>`;
   bindScenario(main, () => pageLines(main));
   $('#lnCsv').onclick = () => downloadCSV(cs.slice().sort((a, b) => lnNom(a.r.ln || '—').localeCompare(lnNom(b.r.ln || '—')) || SEMORD[a.e.sem] - SEMORD[b.e.sem]), 'lineas');
   const ed = $('#lnEd');
   if (ed) ed.onclick = async () => {
     const ls = await api('/api/lineas');
     const yaAreas = [...new Set(ls.map(x => x.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-    $('#lnBox').innerHTML = `<section class="card"><h2>Líneas: nombre corto y área</h2><p class="muted small">Nombre corto para usar en toda la app (vacío o igual al código: se muestra el código). Área: agrupa varias líneas; vacío = sin área.</p>
+    $('#lnBox').innerHTML = `<section class="card"><h2>Líneas: nombre, área y capacidad</h2><p class="muted small">Nombre corto para usar en toda la app (vacío o igual al código: se muestra el código). Área: agrupa varias líneas; vacío = sin área. Capacidad: V.max en uds/hora, OEE en % y turnos (0 a 3); los tres vacíos = sin capacidad.</p>
       <form class="form" id="lnF" style="max-width:none"><datalist id="lnAreas">${yaAreas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
-      <div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th><th scope="col">Área</th></tr></thead><tbody>
+      <div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th><th scope="col">Área</th><th scope="col" class="r">V.max (uds/h)</th><th scope="col" class="r">OEE %</th><th scope="col" class="r">Turnos</th></tr></thead><tbody>
       ${ls.map(x => `<tr><th scope="row">${esc(x.codigo)}</th><td>${esc(x.abas)}</td><td class="r num">${fmt(x.n)}</td><td><input name="${esc(x.codigo)}" value="${esc(x.nombre)}" maxlength="40" aria-label="Nombre corto de ${esc(x.codigo)}" style="width:200px"></td>
-        <td><input name="area:${esc(x.codigo)}" value="${esc(x.area)}" list="lnAreas" maxlength="40" aria-label="Área de ${esc(x.codigo)}" style="width:180px"></td></tr>`).join('')}
+        <td><input name="area:${esc(x.codigo)}" value="${esc(x.area)}" list="lnAreas" maxlength="40" aria-label="Área de ${esc(x.codigo)}" style="width:180px"></td>
+        <td><input name="vmax:${esc(x.codigo)}" value="${x.cap ? x.cap.vmax : ''}" inputmode="decimal" aria-label="V.max de ${esc(x.codigo)}" style="width:80px" class="r"></td>
+        <td><input name="oee:${esc(x.codigo)}" value="${x.cap ? String(Math.round(x.cap.oee * 1000) / 10).replace('.', ',') : ''}" inputmode="decimal" aria-label="OEE de ${esc(x.codigo)}" style="width:64px" class="r"></td>
+        <td><input name="tur:${esc(x.codigo)}" value="${x.cap ? turnTxt(x.cap.turnos) : ''}" inputmode="decimal" aria-label="Turnos de ${esc(x.codigo)}" style="width:56px" class="r"></td></tr>`).join('')}
       </tbody></table></div><div><button class="btn">Guardar</button> <button type="button" class="btn ghost" id="lnX">Cerrar</button></div></form></section>`;
     $('#lnX').onclick = () => { $('#lnBox').innerHTML = ''; };
     $('#lnF').onsubmit = async (ev) => {
       ev.preventDefault();
-      const nombres = {}, areas = {}, el = ev.target.elements;
-      ls.forEach(x => { const v = el[x.codigo].value.trim(), a = el['area:' + x.codigo].value.trim(); if (v !== x.nombre) nombres[x.codigo] = v; if (a !== x.area) areas[x.codigo] = a; });
-      if (!Object.keys(nombres).length && !Object.keys(areas).length) { toast('No hay cambios'); return; }
+      const nombres = {}, areas = {}, cap = {}, el = ev.target.elements, num = (v) => v.trim() === '' ? null : Number(v.trim().replace(',', '.'));
+      for (const x of ls) {
+        const v = el[x.codigo].value.trim(), a = el['area:' + x.codigo].value.trim(); if (v !== x.nombre) nombres[x.codigo] = v; if (a !== x.area) areas[x.codigo] = a;
+        const vm = num(el['vmax:' + x.codigo].value), oe = num(el['oee:' + x.codigo].value), tu = num(el['tur:' + x.codigo].value);
+        if (vm == null && oe == null && tu == null) { if (x.cap) cap[x.codigo] = null; continue; }
+        if ([vm, oe, tu].some(n => n == null || isNaN(n))) { toast(`Capacidad de ${x.codigo}: rellena V.max, OEE y turnos con números (o deja los tres vacíos)`); return; }
+        const nv = { vmax: vm, oee: Math.round(oe * 10) / 1000, turnos: tu };
+        if (!x.cap || x.cap.vmax !== nv.vmax || Math.abs(x.cap.oee - nv.oee) > 1e-9 || x.cap.turnos !== nv.turnos) cap[x.codigo] = nv;
+      }
+      if (!Object.keys(nombres).length && !Object.keys(areas).length && !Object.keys(cap).length) { toast('No hay cambios'); return; }
       try {
-        const r = await api('/api/lineas', { method: 'PUT', body: { nombres, areas } });
+        const r = await api('/api/lineas', { method: 'PUT', body: { nombres, areas, cap } });
+        S.ds.cap = Object.fromEntries(r.filter(x => x.cap).map(x => [x.codigo, x.cap]));
         S.ds.alias = Object.fromEntries(r.filter(x => x.nombre !== x.codigo).map(x => [x.codigo, x.nombre]));
         S.ds.areas = Object.fromEntries(r.filter(x => x.area).map(x => [x.codigo, x.area]));
         toast('Cambios guardados'); pageLines(main);
       } catch (e2) { toast(e2.message); }
     };
   };
+}
+function capBlock(L) {
+  if (!L) return '';
+  const n = Cob.H, fila = (t, v) => `<tr><th scope="row">${t}</th>${v.join('')}</tr>`;
+  return `<h2>Capacidad</h2>${L.p ? `<p class="muted small">${fmt(L.p.vmax)} uds/h · OEE ${pctS(L.p.oee)} · ${turnTxt(L.p.turnos)} ${L.p.turnos === 1 ? 'turno' : 'turnos'}.</p>` : `<p class="muted small">Sin parámetros de capacidad: ponlos en <a href="#/lineas">Líneas › Editar líneas</a>.</p>`}
+    <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
+      ${L.p ? fila('Capacidad', L.cap.map(v => `<td class="r num">${fmt(v)}</td>`)) : ''}
+      ${fila('Carga', L.carga.map(v => `<td class="r num">${fmt(v)}</td>`))}
+      ${L.p ? fila('Saturación', L.sat.map(s => satCell(s))) + fila('Turnos necesarios', L.tn.map(t => `<td class="r num${t > L.p.turnos ? ' neg' : ''}">${t}</td>`)) : ''}
+    </tbody></table></div><p class="muted small">${CAP_NOTA}</p>`;
 }
 async function pageLine(main, [ln]) {
   if (!S.ds) return noData(main, 'Línea');
@@ -739,6 +831,7 @@ async function pageLine(main, [ln]) {
   xs.forEach(({ e }) => { for (let i = 0; i < n; i++) { dem[i] += e.all.dem[i]; ent[i] += e.all.ent[i]; } });
   main.innerHTML = `<p class="crumbs"><a href="#/lineas">Líneas</a> › ${esc(lnNom(ln))}</p><h1>${esc(lnNom(ln))}</h1><p class="lead">${[lnArea(ln) ? 'Área ' + lnArea(ln) : '', lnSub(ln), xs.length + ' referencias contra stock.'].filter(Boolean).map(esc).join(' · ')}</p>
     ${strip(xs, k => `#/coberturas?ln=${encodeURIComponent(ln)}&sem=${k}`)}
+    ${capBlock(capLineas()[ln])}
     <h2>Demanda y entradas de la línea</h2>
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
       <tr><th scope="row">Demanda</th>${dem.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr>
@@ -821,7 +914,13 @@ async function pageData(main) {
         <div class="row"><label>Exceso Belloch (meses de stock)<input type="number" name="exB" min="1" max="12" value="${(S.cfg.exceso || {}).Belloch || 6}"></label><label>Exceso Yunsey (meses de stock)<input type="number" name="exY" min="1" max="12" value="${(S.cfg.exceso || {}).Yunsey || 12}"></label></div>
         <div><button class="btn ghost">Guardar criterios</button></div></form>
       <p class="muted small">Rotura: stock proyectado &lt; 0 en el horizonte. Bajo mínimo: &lt; stock mínimo. A revisar: depende de propuestas sin fijar, OF atrasada, rotura antes de la entrada de este mes, sin stock ni entradas, o entradas sin demanda. Exceso (contra stock): el stock de hoy supera el stock máximo (stock mínimo + lote); si no tiene lote, la demanda de los próximos meses indicados. Sin demanda: nada previsto en 12 meses.</p></section>
-    <section class="card"><h2>ABC y fabricación</h2>${abcForm()}</section></div>
+    <section class="card"><h2>ABC y fabricación</h2>${abcForm()}</section>
+    ${S.ds ? `<section class="card"><h2>Capacidad</h2>
+      <form class="form" id="capF" style="max-width:none"><div class="row"><label>Horas por turno<input name="ht" inputmode="decimal" value="${String(capGen().horas_turno).replace('.', ',')}"></label><label>Holgura y esperas (%)<input name="hg" inputmode="decimal" value="${String(Math.round(capGen().holgura * 1000) / 10).replace('.', ',')}"></label></div>
+        <p class="muted small">Días laborables de cada mes (vacío: de lunes a viernes).</p>
+        <div class="row" style="flex-wrap:wrap">${Array.from({ length: Cob.H }, (_, i) => `<label style="width:64px">${monthLabel(i)}<input name="d_${mesYM(i)}" inputmode="numeric" value="${capGen().dias[mesYM(i)] ?? ''}" placeholder="${Cob.diasLab(mesYM(i), {})}"></label>`).join('')}</div>
+        <div><button class="btn ghost">Guardar capacidad</button></div></form>
+      <p class="muted small">Capacidad del mes = V.max × OEE × horas por turno × turnos × días × (1 − holgura). V.max, OEE y turnos de cada línea, en Líneas › Editar líneas.</p></section>` : ''}</div>
     <h2>Historial de cargas</h2>
     <div class="tw"><table><thead><tr><th scope="col">Cargado</th><th scope="col">Fichero</th><th scope="col">Fecha datos</th><th scope="col">Previsión</th><th scope="col" class="r">Referencias</th><th scope="col">Estado</th><th scope="col">Usuario</th></tr></thead><tbody>
     ${loads.map(l => `<tr><td>${fdt(l.created)}</td><td>${esc(l.filename)}</td><td>${fdate(l.hoy)}</td><td>${esc(l.version)}</td><td class="r num">${l.n}</td>
@@ -852,6 +951,12 @@ async function pageData(main) {
     const por = (pre) => Object.fromEntries(['Belloch', 'Yunsey'].map(md => [md, ABC_CL.map(c => n(f[`${pre}_${md}_${c}`].value))]));
     const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), freq: por('fr'), ss: por('ss') }, ns: por('ns') };
     try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros guardados'); } catch (e) { toast(e.message); }
+  };
+  if ($('#capF')) $('#capF').onsubmit = async (ev) => {
+    ev.preventDefault(); const f = ev.target, n = (x) => Number(String(x).trim().replace(',', '.'));
+    const dias = {};
+    for (let i = 0; i < Cob.H; i++) { const v = f['d_' + mesYM(i)].value.trim(); dias[mesYM(i)] = v === '' ? null : n(v); }
+    try { S.cfg = await api('/api/config', { method: 'PUT', body: { capacidad: { horas_turno: n(f.ht.value), holgura: n(f.hg.value) / 100, dias } } }); toast('Capacidad guardada'); } catch (e) { toast(e.message); }
   };
   $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target; try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(f.hz.value, 10), exceso: { Belloch: parseInt(f.exB.value, 10), Yunsey: parseInt(f.exY.value, 10) } } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
 }

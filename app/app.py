@@ -425,10 +425,10 @@ def config():
         dias = cp.get("dias") if isinstance(cp, dict) else None
         if not (isinstance(cp, dict) and num(cp.get("horas_turno")) and 1 <= cp["horas_turno"] <= 24
                 and num(cp.get("holgura")) and 0 <= cp["holgura"] <= 0.9 and isinstance(dias, dict)
-                and all(re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", k) and isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 31
+                and all(re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", k) and (v is None or isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 31)
                         for k, v in dias.items())):
             return err("Capacidad: horas por turno entre 1 y 24, holgura entre 0 y 90 % y días laborables enteros entre 0 y 31")
-        save["capacidad"] = {"horas_turno": cp["horas_turno"], "holgura": cp["holgura"], "dias": {**get_config()["capacidad"]["dias"], **dias}}
+        save["capacidad"] = {"horas_turno": cp["horas_turno"], "holgura": cp["holgura"], "dias": {k: v for k, v in {**get_config()["capacidad"]["dias"], **dias}.items() if v is not None}}  # None: vuelve a lunes a viernes
     antes = get_config()["abc"]["cortes"]
     for k, v in save.items():
         db().execute("INSERT INTO config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, json.dumps(v)))

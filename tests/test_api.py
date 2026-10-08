@@ -267,6 +267,8 @@ check("capacidad: holgura fuera de rango se rechaza", c.put("/api/config", json=
 check("capacidad: mes mal escrito se rechaza", c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 0.1, "dias": {"2027-13": 20}}}, headers=H).status_code == 400)
 cfgc = c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 0.1, "dias": {"2027-01": 19}}}, headers=H).json["capacidad"]
 check("capacidad: guardar configuración conserva los demás meses", cfgc["horas_turno"] == 8 and cfgc["dias"]["2027-01"] == 19 and cfgc["dias"]["2027-02"] == 20)
+cfgc = c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 0.1, "dias": {"2027-01": None}}}, headers=H).json["capacidad"]
+check("capacidad: mes vacío vuelve a lunes a viernes", "2027-01" not in cfgc["dias"] and cfgc["dias"]["2027-02"] == 20)
 check("capacidad: el dataset trae el stock mínimo para la carga", any("ss" in r for r in dsj["refs"]))
 
 # Límite de intentos: la IP de X-Forwarded-For no cuenta si no hay proxy de confianza

@@ -306,3 +306,7 @@ tr.area-row>th{text-align:left;color:var(--ink)}
 tr:hover .copy,li:hover .copy,li[aria-selected="true"] .copy,.copy:focus-visible,.copy.on{opacity:1}
 h1 .copy{vertical-align:2px;margin-right:4px}
 h1 .copy svg{width:20px;height:20px}
+/* Capacidad: saturación por línea (verde < 85 %, ámbar 85–100 %, rojo > 100 %) */
+td.sat.sat-v{background:var(--verdeBg)}td.sat.sat-a{background:var(--amarilloBg)}td.sat.sat-r{background:var(--rojoBg);color:var(--rojo);font-weight:600}
+tr.area-row>td.sat{font-weight:600}
+.capm td.sat{min-width:58px}
