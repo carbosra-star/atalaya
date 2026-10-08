@@ -700,7 +700,9 @@ function capLineas() {
   for (const L of Object.values(out)) {
     const p = k => k === '—' ? null : (S.ds.cap || {})[k] || null;
     L.p = p(L.k);
-    L.cap = dias.map(d => Cob.capMes(L.p, gen, d));
+    L.tu = dias.map((_, i) => Cob.turnosMes(L.p, mesYM(i)));  // turnos de cada mes (excepciones del mes o los de la línea)
+    L.exc = !!(L.p && L.p.meses && Object.keys(L.p.meses).length);
+    L.cap = dias.map((d, i) => Cob.capMes(L.p && { ...L.p, turnos: L.tu[i] }, gen, d));
     L.cap1 = dias.map(d => Cob.capMes(L.p && { ...L.p, turnos: 1 }, gen, d));
     L.sat = L.cap.map((c, i) => c ? L.carga[i] / c : null);
     L.tn = L.cap1.map((c, i) => c ? Math.ceil(L.carga[i] / c - 1e-9) : null);
@@ -715,31 +717,50 @@ const satCls = (s) => s == null ? '' : s > 1 ? 'sat-r' : s >= 0.85 ? 'sat-a' : '
 const pctS = (s) => s == null ? '—' : Math.round(s * 100) + ' %';
 const satCell = (s, tip = '') => `<td class="r num sat ${satCls(s)}"${tip ? ` title="${esc(tip)}"` : ''}>${pctS(s)}</td>`;
 const turnTxt = (t) => t == null ? '—' : String(t).replace('.', ',');
+// Turnos de la línea este mes; * si tiene turnos distintos en algún mes
+const turnCell = (L) => `<td class="r num"${L.exc ? ' title="Con turnos distintos en algunos meses (ver la página de la línea)"' : ''}>${L.p ? turnTxt(L.tu[0]) + (L.exc ? '*' : '') : '—'}</td>`;
+
+// Áreas plegadas: una por nombre, las comparten Capacidad y Líneas y se recuerdan en cada navegador
+function plegadas() { try { return new Set(JSON.parse(localStorage.getItem('areasPlegadas') || '[]')); } catch (e) { return new Set(); } }
+function guardaPlegadas(set) { try { localStorage.setItem('areasPlegadas', JSON.stringify([...set])); } catch (e) { /* sin almacenamiento: solo en esta visita */ } }
+const areaTh = (a) => `<th scope="rowgroup"><button type="button" class="plg" data-area="${esc(a)}" aria-expanded="${!plegadas().has(a)}"><span class="chev" aria-hidden="true"></span>${esc(a)}</button></th>`;
+const enArea = (html, a) => html.replace(/^\s*<tr/, `<tr data-a="${esc(a)}"${plegadas().has(a) ? ' hidden' : ''}`);
+const plegarCtl = () => areasUsadas().length ? '<div class="fld"><span>&nbsp;</span><div class="seg" role="group" aria-label="Áreas"><button type="button" data-plg="1">Plegar áreas</button><button type="button" data-plg="0">Desplegar áreas</button></div></div>' : '';
+function bindPlegar(root) {
+  const poner = (a, abierta, set) => {
+    $$('tr[data-a]', root).forEach(tr => { if (tr.dataset.a === a) tr.hidden = !abierta; });
+    $$('button.plg', root).forEach(b => { if (b.dataset.area === a) b.setAttribute('aria-expanded', abierta); });
+    if (abierta) set.delete(a); else set.add(a);
+  };
+  $$('button.plg', root).forEach(b => b.onclick = () => { const set = plegadas(); poner(b.dataset.area, b.getAttribute('aria-expanded') !== 'true', set); guardaPlegadas(set); });
+  $$('[data-plg]', root).forEach(b => b.onclick = () => { const set = plegadas(); $$('button.plg', root).forEach(x => poner(x.dataset.area, b.dataset.plg === '0', set)); guardaPlegadas(set); });
+}
 const CAP_NOTA = 'Carga: contra stock y bajo pedido; OF del mes + lo que falta fabricar para cubrir la demanda y mantener el stock mínimo (las propuestas del MRP no cuentan). Capacidad: V.max × OEE × horas por turno × turnos × días laborables × (1 − holgura). Verde &lt; 85 %, ámbar 85–100 %, rojo &gt; 100 %.';
 async function pageCap(main) {
   if (!S.ds) return noData(main, 'Capacidad');
   const CL = capLineas(), n = capN(), Ls = Object.values(CL);
   const ord = (a, b) => (b.s3 ?? -1) - (a.s3 ?? -1) || lnNom(a.k).localeCompare(lnNom(b.k), 'es');
-  const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.p.turnos) + ' turnos)' : 'sin parámetros'}${L.tn[i] != null ? '\nTurnos necesarios ' + L.tn[i] : ''}`;
+  const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.tu[i]) + ' turnos)' : !L.p ? 'sin parámetros' : 'línea parada (0 turnos)'}${L.tn[i] != null ? '\nTurnos necesarios ' + L.tn[i] : ''}`;
   const fila = (L) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(L.k)}">${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k))}</a> <span class="nm">${esc(lnSub(L.k))}</span></td>
-    <td class="r num">${L.p ? turnTxt(L.p.turnos) : '—'}</td>${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.sAll)}</tr>`;
+    ${turnCell(L)}${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.sAll)}</tr>`;
   const grupos = {}; Ls.forEach(L => (grupos[lnArea(L.k) || SIN_AREA] = grupos[lnArea(L.k) || SIN_AREA] || []).push(L));
   const areas = Object.keys(grupos).sort((a, b) => (a === SIN_AREA) - (b === SIN_AREA) || a.localeCompare(b, 'es'));
   const cuerpo = !areasUsadas().length ? Ls.sort(ord).map(fila).join('') : areas.map(a => {
     const xs = grupos[a].sort(ord);
-    return `<tr class="area-row"><th scope="rowgroup">${esc(a)}</th><td></td>${Array.from({ length: n }, (_, i) => satCell(satAgg(xs, i, i + 1))).join('')}${satCell(satAgg(xs, 0, n))}</tr>${xs.map(fila).join('')}`;
+    return `<tr class="area-row">${areaTh(a)}<td></td>${Array.from({ length: n }, (_, i) => satCell(satAgg(xs, i, i + 1))).join('')}${satCell(satAgg(xs, 0, n))}</tr>${xs.map(L => enArea(fila(L), a)).join('')}`;
   }).join('');
   const rojas = Ls.filter(L => L.s3 > 1).length;
   main.innerHTML = `<h1>Capacidad</h1><p class="lead">Saturación de cada línea de ${monthLabel(0)} a ${monthLabel(n - 1)} (hasta el último mes con previsión)${rojas ? ` · <b>${rojas} ${rojas === 1 ? 'línea' : 'líneas'} por encima del 100 %</b> en los 3 próximos meses` : ''}.</p>
-    <form onsubmit="return false" class="filters">${pvCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="capCsv">Descargar (CSV)</button></div></form>
-    <div class="tw"><table class="mt capm"><caption class="sr">Saturación por línea y mes</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Turnos</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}<th scope="col" class="r">Media ${n} m</th></tr></thead><tbody>
+    <form onsubmit="return false" class="filters">${pvCtl()}${plegarCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="capCsv">Descargar (CSV)</button></div></form>
+    <div class="tw"><table class="mt capm"><caption class="sr">Saturación por línea y mes</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r" title="Turnos de este mes; * = con turnos distintos en algunos meses">Turnos</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}<th scope="col" class="r">Media ${n} m</th></tr></thead><tbody>
     ${cuerpo}</tbody></table></div>
-    <p class="muted small">${CAP_NOTA} Turnos, V.max y OEE se cambian en <a href="#/lineas">Líneas › Editar líneas</a>; horas, holgura y días laborables en Datos.</p>`;
+    <p class="muted small">${CAP_NOTA} Turnos, V.max y OEE se cambian en <a href="#/lineas">Líneas › Editar líneas</a>, y los turnos de meses concretos en la página de cada línea; horas, holgura y días laborables en Datos.</p>`;
   bindScenario(main, () => pageCap(main));
+  bindPlegar(main);
   $('#capCsv').onclick = () => {
-    const head = ['Área', 'Línea', 'Nombre línea', 'Turnos', 'Fila', ...Array.from({ length: n }, (_, i) => monthLabel(i))];
+    const head = ['Área', 'Línea', 'Nombre línea', 'Turnos de la línea', 'Fila', ...Array.from({ length: n }, (_, i) => monthLabel(i))];
     const lines = [];
-    Ls.sort(ord).forEach(L => [['Carga uds', L.carga.map(Math.round)], ['Capacidad uds', L.cap.map(c => c == null ? '' : Math.round(c))],
+    Ls.sort(ord).forEach(L => [['Turnos', L.tu.map(t => t == null ? '' : turnTxt(t))], ['Carga uds', L.carga.map(Math.round)], ['Capacidad uds', L.cap.map(c => c == null ? '' : Math.round(c))],
       ['Saturación %', L.sat.map(s => s == null ? '' : Math.round(s * 100))], ['Turnos necesarios', L.tn.map(t => t == null ? '' : t)]]
       .forEach(([f, v]) => lines.push([lnArea(L.k), L.k, L.k === '—' ? 'Sin línea' : lnNom(L.k), L.p ? turnTxt(L.p.turnos) : '', f, ...v])));
     saveCSV(head, lines, 'capacidad');
@@ -757,7 +778,7 @@ async function pageLines(main) {
   const rows = [...new Set([...Object.keys(gl), ...Object.keys(CL)])].map(k => { const xs = gl[k] || [], c = {}; xs.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1); return { k, xs, c, L: CL[k] }; })
     .sort((a, b) => ((b.L && b.L.s3) ?? -1) - ((a.L && a.L.s3) ?? -1) || (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
   const capCols = (Ls) => { const L = Ls.length === 1 ? Ls[0] : null, d = Ls.filter(Boolean);
-    return `${satCell(satAgg(d, 0, 3))}${satCell(satAgg(d, 0, Cob.H))}<td class="r num">${L && L.p ? turnTxt(L.p.turnos) + ' → ' + L.t3 : ''}</td>`; };
+    return `${satCell(satAgg(d, 0, 3))}${satCell(satAgg(d, 0, Cob.H))}<td class="r num">${L && L.p ? turnTxt(L.tu[0]) + (L.exc ? '*' : '') + ' → ' + L.t3 : ''}</td>`; };
   const canW = can('admin', 'planificador');
   const barra = (c) => `<div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div>`;
   const fila = ({ k, xs, c, L }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
@@ -768,17 +789,18 @@ async function pageLines(main) {
   const cuerpo = !areasUsadas().length ? rows.map(fila).join('') : nombresArea.map(a => {
     const ls = grupos[a], c = {}; ls.forEach(x => SEM.forEach(([s]) => c[s] = (c[s] || 0) + (x.c[s] || 0)));
     const n = ls.reduce((t, x) => t + x.xs.length, 0);
-    return `<tr class="area-row"><th scope="rowgroup">${esc(a)}</th><td class="r num">${n}</td><td>${barra(c)}</td>
-      <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td>${capCols(ls.map(x => x.L))}</tr>${ls.map(fila).join('')}`;
+    return `<tr class="area-row">${areaTh(a)}<td class="r num">${n}</td><td>${barra(c)}</td>
+      <td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td>${capCols(ls.map(x => x.L))}</tr>${ls.map(x => enArea(fila(x), a)).join('')}`;
   }).join('');
   main.innerHTML = `<h1>Líneas</h1><p class="lead">Por grupo de máquina: estado de las referencias y saturación de la línea.</p>
-    <form onsubmit="return false" class="filters">${scenarioCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar líneas</button></div>' : ''}</form>
+    <form onsubmit="return false" class="filters">${scenarioCtl()}${plegarCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar líneas</button></div>' : ''}</form>
     <div id="lnBox"></div>
-    <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th><th scope="col" class="r" title="Carga ÷ capacidad con los turnos actuales, 3 próximos meses">Saturación 3 m</th><th scope="col" class="r">Media 12 m</th><th scope="col" class="r" title="Turnos actuales → turnos necesarios (máximo de los 3 próximos meses)">Turnos</th></tr></thead><tbody>
+    <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th><th scope="col" class="r" title="Carga ÷ capacidad con los turnos actuales, 3 próximos meses">Saturación 3 m</th><th scope="col" class="r">Media 12 m</th><th scope="col" class="r" title="Turnos de este mes → turnos necesarios (máximo de los 3 próximos meses); * = con turnos distintos en algunos meses">Turnos</th></tr></thead><tbody>
     ${cuerpo}
     </tbody></table></div>
     <p class="muted small">Estado: referencias contra stock. Saturación y turnos: ${CAP_NOTA} Detalle mes a mes en <a href="#/capacidad">Capacidad</a>.</p>`;
   bindScenario(main, () => pageLines(main));
+  bindPlegar(main);
   $('#lnCsv').onclick = () => downloadCSV(cs.slice().sort((a, b) => lnNom(a.r.ln || '—').localeCompare(lnNom(b.r.ln || '—')) || SEMORD[a.e.sem] - SEMORD[b.e.sem]), 'lineas');
   const ed = $('#lnEd');
   if (ed) ed.onclick = async () => {
@@ -818,13 +840,31 @@ async function pageLines(main) {
 }
 function capBlock(L) {
   if (!L) return '';
-  const n = capN(), fila = (t, v) => `<tr><th scope="row">${t}</th>${v.join('')}</tr>`;
+  const n = capN(), fila = (t, v) => `<tr><th scope="row">${t}</th>${v.join('')}</tr>`, canW = can('admin', 'planificador');
+  // Turnos de cada mes: vacío = los de la línea; se guardan como excepciones del mes
+  const tuCell = (i) => { const ym = mesYM(i), ex = L.p.meses && L.p.meses[ym] != null;
+    return canW ? `<td class="r"><input class="tu r${ex ? ' exc' : ''}" data-ym="${ym}" value="${ex ? turnTxt(L.p.meses[ym]) : ''}" placeholder="${turnTxt(L.p.turnos)}" inputmode="decimal" aria-label="Turnos de ${monthLabel(i)}"></td>`
+      : `<td class="r num${ex ? ' exc' : ''}">${turnTxt(L.tu[i])}</td>`; };
   return `<h2>Capacidad</h2>${L.p ? `<p class="muted small">${fmt(L.p.vmax)} uds/h · OEE ${pctS(L.p.oee)} · ${turnTxt(L.p.turnos)} ${L.p.turnos === 1 ? 'turno' : 'turnos'}.</p>` : `<p class="muted small">Sin parámetros de capacidad: ponlos en <a href="#/lineas">Líneas › Editar líneas</a>.</p>`}
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
+      ${L.p ? fila('Turnos previstos', Array.from({ length: n }, (_, i) => tuCell(i))) : ''}
       ${L.p ? fila('Capacidad', L.cap.map(v => `<td class="r num">${fmt(v)}</td>`)) : ''}
       ${fila('Carga', L.carga.map(v => `<td class="r num">${fmt(v)}</td>`))}
-      ${L.p ? fila('Saturación', L.sat.map(s => satCell(s))) + fila('Turnos necesarios', L.tn.map(t => `<td class="r num${t > L.p.turnos ? ' neg' : ''}">${t}</td>`)) : ''}
-    </tbody></table></div><p class="muted small">${CAP_NOTA}</p>`;
+      ${L.p ? fila('Saturación', L.sat.map(s => satCell(s))) + fila('Turnos necesarios', L.tn.map((t, i) => `<td class="r num${t > L.tu[i] ? ' neg' : ''}">${t}</td>`)) : ''}
+    </tbody></table></div>${L.p && canW ? `<p class="small"><button type="button" class="btn ghost sm" id="tuSave">Guardar turnos</button> <span class="muted">Turnos de un mes concreto (0 a 3; 0 = línea parada); vacío = los de la línea (${turnTxt(L.p.turnos)}).</span></p>` : ''}<p class="muted small">${CAP_NOTA}</p>`;
+}
+function bindTurnos(main, ln, rerender) {
+  const b = $('#tuSave', main); if (!b) return;
+  b.onclick = async () => {
+    const p = (S.ds.cap || {})[ln] || {}, ant = p.meses || {}, meses = {};
+    for (const inp of $$('input.tu', main)) {
+      const v = inp.value.trim(), ym = inp.dataset.ym, x = v === '' ? null : Number(v.replace(',', '.'));
+      if (x != null && (isNaN(x) || x < 0 || x > 3)) { toast(`Turnos de ${inp.getAttribute('aria-label').slice(10)}: entre 0 y 3`); inp.focus(); return; }
+      if ((ant[ym] ?? null) !== x) meses[ym] = x;
+    }
+    if (!Object.keys(meses).length) { toast('No hay cambios'); return; }
+    try { S.ds.cap[ln] = await api(`/api/lineas/${encodeURIComponent(ln)}/turnos`, { method: 'PUT', body: { meses } }); toast('Turnos guardados'); rerender(); } catch (e) { toast(e.message); }
+  };
 }
 async function pageLine(main, [ln]) {
   if (!S.ds) return noData(main, 'Línea');
@@ -851,6 +891,7 @@ async function pageLine(main, [ln]) {
   };
   draw();
   $('#csv').onclick = () => downloadCSV(rows, 'linea_' + (ln === '—' ? 'sin_linea' : lnNom(ln).replace(/[^\w-]+/g, '_')));
+  bindTurnos(main, ln, () => pageLine(main, [ln]));
 }
 
 // ---------------------------------------------------------------- Reunión semanal

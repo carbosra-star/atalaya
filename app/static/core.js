@@ -185,5 +185,11 @@
     return p.vmax * p.oee * gen.horas_turno * p.turnos * dias * (1 - gen.holgura);
   }
 
-  root.Cob = { counts, project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN, carga, diasLab, capMes };
+  // Turnos de la línea en el mes 'aaaa-mm': la excepción del mes (p.meses) o, si no hay, los de la línea; 0 = parada
+  function turnosMes(p, ym) {
+    if (!p) return null;
+    return p.meses && p.meses[ym] != null ? p.meses[ym] : p.turnos;
+  }
+
+  root.Cob = { counts, project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN, carga, diasLab, capMes, turnosMes };
 })(window);

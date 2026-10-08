@@ -105,6 +105,8 @@ CREATE INDEX IF NOT EXISTS prev_dec_ver ON prev_dec(version, ref, id);
 CREATE TABLE IF NOT EXISTS linea_alias(codigo TEXT PRIMARY KEY, nombre TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linea_area(codigo TEXT PRIMARY KEY, area TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linea_cap(codigo TEXT PRIMARY KEY, vmax REAL NOT NULL, oee REAL NOT NULL, turnos REAL NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS linea_turno(codigo TEXT NOT NULL, ym TEXT NOT NULL, turnos REAL NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL,
+  PRIMARY KEY(codigo, ym));
 """
 
 # Capacidad: valores iniciales de la hoja "TD PMP Capacidad Prev" del Excel de planificación (V.max uds/h, OEE; 1 turno)
@@ -691,8 +693,12 @@ def _areas() -> dict:
 
 
 def _cap() -> dict:
-    """Parámetros de capacidad de cada grupo de máquinas: {codigo: {vmax, oee, turnos}}."""
-    return {r["codigo"]: {"vmax": r["vmax"], "oee": r["oee"], "turnos": r["turnos"]} for r in db().execute("SELECT * FROM linea_cap")}
+    """Parámetros de capacidad de cada grupo de máquinas: {codigo: {vmax, oee, turnos[, meses: {aaaa-mm: turnos}]}}."""
+    cap = {r["codigo"]: {"vmax": r["vmax"], "oee": r["oee"], "turnos": r["turnos"]} for r in db().execute("SELECT * FROM linea_cap")}
+    for r in db().execute("SELECT codigo,ym,turnos FROM linea_turno ORDER BY codigo,ym"):
+        if r["codigo"] in cap:
+            cap[r["codigo"]].setdefault("meses", {})[r["ym"]] = r["turnos"]
+    return cap
 
 
 def _guardar_cap(cap: dict, n: dict) -> str | None:
@@ -707,6 +713,7 @@ def _guardar_cap(cap: dict, n: dict) -> str | None:
     for cod, v in cap.items():
         if v is None:
             db().execute("DELETE FROM linea_cap WHERE codigo=?", (cod,))
+            db().execute("DELETE FROM linea_turno WHERE codigo=?", (cod,))
         else:
             db().execute("INSERT INTO linea_cap(codigo,vmax,oee,turnos,user_id,updated) VALUES(?,?,?,?,?,?) ON CONFLICT(codigo) DO UPDATE SET "
                          "vmax=excluded.vmax, oee=excluded.oee, turnos=excluded.turnos, user_id=excluded.user_id, updated=excluded.updated",
@@ -762,6 +769,27 @@ def lineas():
     al, ar, cp, abas = _alias(), _areas(), _cap(), ds["meta"].get("lineas") or {}
     return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k), "area": ar.get(k, ""), "cap": cp.get(k)}
                     for k in sorted(n)])
+
+
+@app.put("/api/lineas/<codigo>/turnos")
+@need("admin", "planificador")
+def linea_turnos(codigo):
+    """Turnos de una línea en meses concretos (excepciones a sus turnos): {meses: {aaaa-mm: turnos o null}}; null = los de la línea."""
+    if not db().execute("SELECT 1 FROM linea_cap WHERE codigo=?", (codigo,)).fetchone():
+        return err("Pon primero la V.max, el OEE y los turnos de la línea")
+    meses = (request.get_json(silent=True) or {}).get("meses")
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+    if not isinstance(meses, dict) or not meses or not all(
+            isinstance(k, str) and re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", k) and (v is None or num(v) and 0 <= v <= 3) for k, v in meses.items()):
+        return err("Turnos por mes: meses aaaa-mm y turnos entre 0 y 3")
+    for ym, v in meses.items():
+        if v is None:
+            db().execute("DELETE FROM linea_turno WHERE codigo=? AND ym=?", (codigo, ym))
+        else:
+            db().execute("INSERT INTO linea_turno(codigo,ym,turnos,user_id,updated) VALUES(?,?,?,?,?) ON CONFLICT(codigo,ym) DO UPDATE SET "
+                         "turnos=excluded.turnos, user_id=excluded.user_id, updated=excluded.updated", (codigo, ym, v, g.user["id"], now()))
+    db().commit()
+    return jsonify(_cap().get(codigo))
 
 
 # ---------------------------------------------------------------- notas y acciones

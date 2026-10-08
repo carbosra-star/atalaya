@@ -126,6 +126,12 @@ check('días laborables: lunes a viernes si no hay dato', diasLab('2026-10', {})
 const pAer = { vmax: 4200, oee: 0.601, turnos: 1 }, gen = { horas_turno: 7.75, holgura: 0.2 };
 check('capacidad AER-01 en ene-27 (18 días) = Excel', Math.abs(capMes(pAer, gen, 18) - 281700.72) < 0.01, capMes(pAer, gen, 18));
 check('capacidad con 2 turnos', Math.abs(capMes({ ...pAer, turnos: 2 }, gen, 18) - 2 * 281700.72) < 0.01);
+const { turnosMes } = window.Cob;
+const pMes = { ...pAer, turnos: 1, meses: { '2026-10': 3, '2026-11': 2, '2026-12': 0 } };
+check('turnos del mes: excepción del mes', turnosMes(pMes, '2026-10') === 3 && turnosMes(pMes, '2026-11') === 2, turnosMes(pMes, '2026-10'));
+check('turnos del mes: sin excepción, los de la línea', turnosMes(pMes, '2027-01') === 1 && turnosMes(pAer, '2026-10') === 1);
+check('turnos del mes: 0 = línea parada (sin capacidad)', turnosMes(pMes, '2026-12') === 0 && capMes({ ...pMes, turnos: turnosMes(pMes, '2026-12') }, gen, 18) === null);
+check('turnos del mes: sin parámetros, null', turnosMes(null, '2026-10') === null);
 check('capacidad sin parámetros: null', capMes(null, gen, 18) === null && capMes({ vmax: 0, oee: 0.5, turnos: 1 }, gen, 18) === null);
 
 console.log(fails ? `\n${fails} comprobaciones fallidas` : '\nTodo correcto');

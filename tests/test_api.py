@@ -272,6 +272,17 @@ check("capacidad: guardar", c.put("/api/lineas", json={"cap": {cod: {"vmax": 100
       and c.get("/api/dataset").json["cap"][cod] == {"vmax": 1000, "oee": 0.5, "turnos": 2})
 c.put("/api/lineas", json={"cap": {cod: None}}, headers=H)
 check("capacidad: vacío borra", cod not in c.get("/api/dataset").json["cap"])
+# Turnos por mes: excepciones a los turnos de la línea
+_tu = lambda body, cl=c, ln="LA3": cl.put(f"/api/lineas/{ln}/turnos", json=body, headers=H)  # noqa: E731
+check("turnos por mes: un lector no puede cambiarlos", _tu({"meses": {"2026-11": 2}}, c2).status_code == 403)
+check("turnos por mes: más de 3 se rechaza", _tu({"meses": {"2026-11": 4}}).status_code == 400)
+check("turnos por mes: mes mal escrito se rechaza", _tu({"meses": {"2026-13": 2}}).status_code == 400)
+check("turnos por mes: línea sin capacidad se rechaza", _tu({"meses": {"2026-11": 2}}, ln=cod).status_code == 400)
+r = _tu({"meses": {"2026-11": 3, "2026-12": 2.5, "2027-01": 0}})
+check("turnos por mes: guardar", r.status_code == 200 and c.get("/api/dataset").json["cap"]["LA3"]["meses"] == {"2026-11": 3, "2026-12": 2.5, "2027-01": 0},
+      c.get("/api/dataset").json["cap"]["LA3"].get("meses"))
+_tu({"meses": {"2026-11": None}})
+check("turnos por mes: vacío vuelve a los de la línea", "2026-11" not in c.get("/api/dataset").json["cap"]["LA3"]["meses"])
 cfgc = c.get("/api/config").json["capacidad"]
 check("capacidad: configuración por defecto", cfgc["horas_turno"] == 7.75 and cfgc["holgura"] == 0.2 and cfgc["dias"]["2027-01"] == 18, cfgc["dias"].get("2027-01"))
 check("capacidad: holgura fuera de rango se rechaza", c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 2, "dias": {}}}, headers=H).status_code == 400)
