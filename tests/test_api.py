@@ -250,6 +250,25 @@ check("líneas: el dataset trae los nombres", c.get("/api/dataset").json.get("al
 c.put("/api/lineas", json={"nombres": {cod: ""}}, headers=H)
 check("líneas: vacío vuelve al código", next(x for x in c.get("/api/lineas").json if x["codigo"] == cod)["nombre"] == cod and cod not in c.get("/api/dataset").json.get("alias", {}))
 
+# Capacidad por línea: valores iniciales del Excel, edición y configuración general
+dsj = c.get("/api/dataset").json
+check("capacidad: sembrada con el Excel", dsj.get("cap", {}).get("AER-01") == {"vmax": 4200, "oee": 0.601, "turnos": 1}, dsj.get("cap", {}).get("AER-01"))
+check("capacidad: /api/lineas trae los parámetros", any(x["cap"] for x in c.get("/api/lineas").json))
+check("capacidad: un lector no puede cambiarla", c2.put("/api/lineas", json={"cap": {cod: {"vmax": 1000, "oee": 0.5, "turnos": 2}}}, headers=H).status_code == 403)
+check("capacidad: OEE fuera de rango se rechaza", c.put("/api/lineas", json={"cap": {cod: {"vmax": 1000, "oee": 50, "turnos": 1}}}, headers=H).status_code == 400)
+check("capacidad: más de 3 turnos se rechaza", c.put("/api/lineas", json={"cap": {cod: {"vmax": 1000, "oee": 0.5, "turnos": 4}}}, headers=H).status_code == 400)
+check("capacidad: guardar", c.put("/api/lineas", json={"cap": {cod: {"vmax": 1000, "oee": 0.5, "turnos": 2}}}, headers=H).status_code == 200
+      and c.get("/api/dataset").json["cap"][cod] == {"vmax": 1000, "oee": 0.5, "turnos": 2})
+c.put("/api/lineas", json={"cap": {cod: None}}, headers=H)
+check("capacidad: vacío borra", cod not in c.get("/api/dataset").json["cap"])
+cfgc = c.get("/api/config").json["capacidad"]
+check("capacidad: configuración por defecto", cfgc["horas_turno"] == 7.75 and cfgc["holgura"] == 0.2 and cfgc["dias"]["2027-01"] == 18, cfgc["dias"].get("2027-01"))
+check("capacidad: holgura fuera de rango se rechaza", c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 2, "dias": {}}}, headers=H).status_code == 400)
+check("capacidad: mes mal escrito se rechaza", c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 0.1, "dias": {"2027-13": 20}}}, headers=H).status_code == 400)
+cfgc = c.put("/api/config", json={"capacidad": {"horas_turno": 8, "holgura": 0.1, "dias": {"2027-01": 19}}}, headers=H).json["capacidad"]
+check("capacidad: guardar configuración conserva los demás meses", cfgc["horas_turno"] == 8 and cfgc["dias"]["2027-01"] == 19 and cfgc["dias"]["2027-02"] == 20)
+check("capacidad: el dataset trae el stock mínimo para la carga", any("ss" in r for r in dsj["refs"]))
+
 # Límite de intentos: la IP de X-Forwarded-For no cuenta si no hay proxy de confianza
 c3 = A.app.test_client()
 for i in range(8):

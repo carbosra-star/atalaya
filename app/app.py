@@ -104,7 +104,17 @@ CREATE INDEX IF NOT EXISTS prev_dec_ref ON prev_dec(ref, version, id);
 CREATE INDEX IF NOT EXISTS prev_dec_ver ON prev_dec(version, ref, id);
 CREATE TABLE IF NOT EXISTS linea_alias(codigo TEXT PRIMARY KEY, nombre TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linea_area(codigo TEXT PRIMARY KEY, area TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS linea_cap(codigo TEXT PRIMARY KEY, vmax REAL NOT NULL, oee REAL NOT NULL, turnos REAL NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 """
+
+# Capacidad: valores iniciales de la hoja "TD PMP Capacidad Prev" del Excel de planificación (V.max uds/h, OEE; 1 turno)
+CAP_INICIAL = {"AER-01": (4200, 0.601), "AER-02": (2100, 0.488), "AER-03": (1900, 0.45), "CER-01": (754, 0.57),
+               "CS1-1": (1400, 0.42), "CS1-2": (1400, 0.46), "CS1-17": (3200, 0.40), "FO2-4": (60, 0.70),
+               "CS3-1": (2000, 0.35), "CS3-4": (2000, 0.275), "CS3-6": (2500, 0.40), "CS3-11": (3000, 0.73),
+               "LA1": (1800, 0.57), "LA2": (1800, 0.47), "LA3": (1600, 0.51), "LA4": (1300, 0.51), "LA5": (1300, 0.67),
+               "CS1-13": (500, 0.70), "CS1-14": (500, 0.70)}
+_DIAS_EXCEL = {2026: (21, 20, 18, 19, 20, 20, 23, 15, 21, 21, 20, 16), 2027: (18, 20, 17, 21, 21, 21, 22, 16, 22, 20, 21, 16)}
+CAP_DEF = {"horas_turno": 7.75, "holgura": 0.2, "dias": {f"{y}-{m + 1:02d}": d[m] for y, d in _DIAS_EXCEL.items() for m in range(12)}}
 
 
 def now() -> str:
@@ -145,6 +155,10 @@ def init_db() -> None:
                        0 if os.environ.get("ADMIN_PASSWORD") else 1, now()))
             if not os.environ.get("ADMIN_PASSWORD"):
                 print(f"[supply] Usuario administrador creado: {user} / contraseña temporal: {pwd}", flush=True)
+        if not c.execute("SELECT 1 FROM config WHERE key='cap_sembrada'").fetchone():  # una sola vez: después manda lo editado
+            c.executemany("INSERT OR IGNORE INTO linea_cap(codigo,vmax,oee,turnos,user_id,updated) VALUES(?,?,?,1,0,?)",
+                          [(k, v, o, now()) for k, (v, o) in CAP_INICIAL.items()])
+            c.execute("INSERT INTO config(key,value) VALUES('cap_sembrada','true')")
         c.execute("COMMIT")
     except Exception:
         c.execute("ROLLBACK")
@@ -155,8 +169,8 @@ def init_db() -> None:
 
 def get_config() -> dict:
     cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF)), "exceso": dict(core.EXCESO_DEF),
-           "ns": json.loads(json.dumps(parametros.NS_DEF))}
-    for r in db().execute("SELECT key,value FROM config"):
+           "ns": json.loads(json.dumps(parametros.NS_DEF)), "capacidad": json.loads(json.dumps(CAP_DEF))}
+    for r in db().execute("SELECT key,value FROM config WHERE key<>'cap_sembrada'"):
         cfg[r["key"]] = json.loads(r["value"])
     return cfg
 
@@ -293,6 +307,7 @@ def dataset():
     _con_sx(ds["refs"])
     ds["alias"] = _alias()
     ds["areas"] = _areas()
+    ds["cap"] = _cap()
     by = db().execute("SELECT name FROM users WHERE id=?", (row["user_id"],)).fetchone()
     ds["load"] = {"id": row["id"], "created": row["created"], "by": by["name"] if by else "", "filename": row["filename"]}
     prev = db().execute("SELECT id,created,hoy,data FROM loads WHERE hoy<? ORDER BY hoy DESC, id DESC LIMIT 1", (row["hoy"],)).fetchone()
@@ -378,7 +393,7 @@ def config():
     if g.user["role"] != "admin":
         return err("Solo un administrador puede cambiar los criterios", 403)
     b = request.get_json(silent=True) or {}
-    if not any(k in b for k in ("horizonte", "abc", "exceso", "ns")):
+    if not any(k in b for k in ("horizonte", "abc", "exceso", "ns", "capacidad")):
         return err("No hay nada que guardar")
     save = {}
     if "horizonte" in b:
@@ -404,6 +419,16 @@ def config():
                                              for md in ("Belloch", "Yunsey"))):
             return err("Los niveles de servicio deben ser cuatro porcentajes entre 50 y 99,9 para Belloch y Yunsey")
         save["ns"] = {md: ns[md] for md in ("Belloch", "Yunsey")}
+    if "capacidad" in b:
+        cp = b["capacidad"]
+        num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+        dias = cp.get("dias") if isinstance(cp, dict) else None
+        if not (isinstance(cp, dict) and num(cp.get("horas_turno")) and 1 <= cp["horas_turno"] <= 24
+                and num(cp.get("holgura")) and 0 <= cp["holgura"] <= 0.9 and isinstance(dias, dict)
+                and all(re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", k) and isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 31
+                        for k, v in dias.items())):
+            return err("Capacidad: horas por turno entre 1 y 24, holgura entre 0 y 90 % y días laborables enteros entre 0 y 31")
+        save["capacidad"] = {"horas_turno": cp["horas_turno"], "holgura": cp["holgura"], "dias": {**get_config()["capacidad"]["dias"], **dias}}
     antes = get_config()["abc"]["cortes"]
     for k, v in save.items():
         db().execute("INSERT INTO config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, json.dumps(v)))
@@ -452,9 +477,12 @@ def _param_rows(refs: list[dict]) -> list[dict]:
 
 def _con_sx(refs: list[dict]) -> list[dict]:
     """Añade a cada referencia su stock máximo (decidido o del ERP) para el criterio de exceso."""
-    sx = {p["k"]: p["smax"] for p in _param_rows(refs)}
+    ps = {p["k"]: p for p in _param_rows(refs)}
     for r in refs:
-        r["sx"] = sx.get(r["k"])
+        p = ps.get(r["k"])
+        r["sx"] = p["smax"] if p else None
+        if p:  # stock mínimo decidido o, sin decisión, el del ERP (carga de las líneas)
+            r["ss"] = p["ss"] if p["d"] else p["mn"]
     return refs
 
 
@@ -662,6 +690,30 @@ def _areas() -> dict:
     return {r["codigo"]: r["area"] for r in db().execute("SELECT codigo,area FROM linea_area")}
 
 
+def _cap() -> dict:
+    """Parámetros de capacidad de cada grupo de máquinas: {codigo: {vmax, oee, turnos}}."""
+    return {r["codigo"]: {"vmax": r["vmax"], "oee": r["oee"], "turnos": r["turnos"]} for r in db().execute("SELECT * FROM linea_cap")}
+
+
+def _guardar_cap(cap: dict, n: dict) -> str | None:
+    """Guarda V.max, OEE y turnos por línea; None borra los de esa línea. Error o None."""
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+    for cod, v in cap.items():
+        if cod not in n:
+            return f"La línea {cod} no está en la carga vigente"
+        if v is not None and not (isinstance(v, dict) and num(v.get("vmax")) and v["vmax"] > 0 and num(v.get("oee")) and 0 < v["oee"] <= 1
+                                  and num(v.get("turnos")) and 0 <= v["turnos"] <= 3):
+            return f"Capacidad de {cod}: V.max mayor que 0, OEE entre 1 y 100 % y turnos entre 0 y 3"
+    for cod, v in cap.items():
+        if v is None:
+            db().execute("DELETE FROM linea_cap WHERE codigo=?", (cod,))
+        else:
+            db().execute("INSERT INTO linea_cap(codigo,vmax,oee,turnos,user_id,updated) VALUES(?,?,?,?,?,?) ON CONFLICT(codigo) DO UPDATE SET "
+                         "vmax=excluded.vmax, oee=excluded.oee, turnos=excluded.turnos, user_id=excluded.user_id, updated=excluded.updated",
+                         (cod, v["vmax"], v["oee"], v["turnos"], g.user["id"], now()))
+    return None
+
+
 def _guardar(tabla: str, campo: str, valores: dict, n: dict) -> str | None:
     """Guarda nombres cortos o áreas: vacío (o igual al código, en los nombres) borra el valor. Error o None."""
     for cod, v in valores.items():
@@ -694,17 +746,22 @@ def lineas():
         if g.user["role"] not in ("admin", "planificador"):
             return err("Tu usuario no tiene permiso para esta acción", 403)
         body = request.get_json(silent=True) or {}
-        nombres, areas = body.get("nombres") or {}, body.get("areas") or {}
-        if not isinstance(nombres, dict) or not isinstance(areas, dict) or not (nombres or areas):
+        nombres, areas, cap = body.get("nombres") or {}, body.get("areas") or {}, body.get("cap") or {}
+        if not all(isinstance(x, dict) for x in (nombres, areas, cap)) or not (nombres or areas or cap):
             return err("No hay cambios que guardar")
         for tabla, campo, valores in (("linea_alias", "nombre", nombres), ("linea_area", "area", areas)):
             e = _guardar(tabla, campo, valores, n)
             if e:
                 db().rollback()
                 return err(e)
+        e = _guardar_cap(cap, n)
+        if e:
+            db().rollback()
+            return err(e)
         db().commit()
-    al, ar, abas = _alias(), _areas(), ds["meta"].get("lineas") or {}
-    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k), "area": ar.get(k, "")} for k in sorted(n)])
+    al, ar, cp, abas = _alias(), _areas(), _cap(), ds["meta"].get("lineas") or {}
+    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k), "area": ar.get(k, ""), "cap": cp.get(k)}
+                    for k in sorted(n)])
 
 
 # ---------------------------------------------------------------- notas y acciones

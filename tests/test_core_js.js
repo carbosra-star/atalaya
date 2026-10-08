@@ -99,5 +99,27 @@ check('exceso por stock máximo', evaluate({ ...exb, sx: 650 }, cfg).ex === 50 &
 check('con stock máximo no cuentan los meses', evaluate({ ...exb, sx: 800 }, cfg).sem === 'verde');
 check('sin stock máximo vuelve a los meses', evaluate({ ...exb, sx: null }, cfg).ex === 100);
 
+// Capacidad: carga de una referencia = OF del mes + necesidad neta para mantener el stock mínimo
+const { carga, capMes, diasLab } = window.Cob;
+const z12 = new Array(12).fill(0), c100 = { ...base, gp: 'Contra Stock', st: 0, ss: 0, pv: new Array(12).fill(100), pv0r: 100 };
+check('carga: sin stock, la necesidad es la demanda', carga(c100, 'T').every(x => x === 100), carga(c100, 'T'));
+check('carga: el stock por encima del mínimo se consume antes',
+  JSON.stringify(carga({ ...c100, st: 250 }, 'T').slice(0, 4)) === '[0,0,50,100]', carga({ ...c100, st: 250 }, 'T'));
+check('carga: el stock mínimo se repone el primer mes', carga({ ...c100, ss: 300 }, 'T')[0] === 400 && carga({ ...c100, ss: 300 }, 'T')[1] === 100);
+check('carga: la OF carga la línea y cubre la necesidad',
+  JSON.stringify(carga({ ...c100, en: [{ t: 'OF', q: 250, m: 0 }] }, 'T').slice(0, 4)) === '[250,0,50,100]', carga({ ...c100, en: [{ t: 'OF', q: 250, m: 0 }] }, 'T'));
+check('carga: el pedido de compra cubre pero no carga',
+  JSON.stringify(carga({ ...c100, en: [{ t: 'PC', q: 250, m: 0 }] }, 'T').slice(0, 4)) === '[0,0,50,100]');
+check('carga: las propuestas no cuentan', carga({ ...c100, en: [{ t: 'P', q: 900, m: 0 }, { t: 'PF', q: 900, m: 1 }] }, 'T').every(x => x === 100));
+check('carga: bajo pedido sin stock mínimo', carga({ ...c100, gp: 'Bajo Pedido', ss: 500 }, 'T')[0] === 100);
+check('carga: a extinguir solo consume su stock', carga({ ...c100, ext: true, ss: 500, st: 150 }, 'T').slice(0, 3).join() === '0,50,100');
+check('carga: sin demanda ni OF, nada', carga({ ...c100, pv: z12, pv0r: 0 }, 'T').every(x => x === 0));
+check('carga: stock negativo (atrasados) se recupera', carga({ ...c100, st: -40 }, 'T')[0] === 140);
+check('días laborables: lunes a viernes si no hay dato', diasLab('2026-10', {}) === 22 && diasLab('2026-10', { '2026-10': 21 }) === 21);
+const pAer = { vmax: 4200, oee: 0.601, turnos: 1 }, gen = { horas_turno: 7.75, holgura: 0.2 };
+check('capacidad AER-01 en ene-27 (18 días) = Excel', Math.abs(capMes(pAer, gen, 18) - 281700.72) < 0.01, capMes(pAer, gen, 18));
+check('capacidad con 2 turnos', Math.abs(capMes({ ...pAer, turnos: 2 }, gen, 18) - 2 * 281700.72) < 0.01);
+check('capacidad sin parámetros: null', capMes(null, gen, 18) === null && capMes({ vmax: 0, oee: 0.5, turnos: 1 }, gen, 18) === null);
+
 console.log(fails ? `\n${fails} comprobaciones fallidas` : '\nTodo correcto');
 process.exit(fails ? 1 : 0);

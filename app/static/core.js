@@ -150,5 +150,35 @@
     return { all, of, rot, rf, bmin, rotOF, cob, cobp, next, lateOF, sem, why, d3, d12, ex, fa };
   }
 
-  root.Cob = { counts, project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN };
+  // Capacidad (sin gemela en Python): carga de la línea por referencia y mes = OF del mes + necesidad neta para
+  // cubrir la demanda y mantener el stock mínimo. Las propuestas no cuentan (la necesidad ocupa su lugar); los
+  // pedidos de compra (PT fabricado fuera) cubren pero no cargan. Bajo pedido y a extinguir: sin stock mínimo
+  function carga(r, pv) {
+    const dem = project(r, 'OF', pv).dem, of = new Array(H).fill(0), pc = new Array(H).fill(0);
+    for (const e of r.en) { if (e.t === 'OF') of[e.m] += e.q; else if (e.t === 'PC') pc[e.m] += e.q; }
+    const ss = r.ext || r.gp !== 'Contra Stock' ? 0 : Math.max(0, r.ss != null ? r.ss : r.mn || 0);
+    const out = new Array(H);
+    let s = r.st;
+    for (let m = 0; m < H; m++) {
+      const disp = s + of[m] + pc[m], nec = Math.max(0, dem[m] + ss - disp);
+      s = disp + nec - dem[m];
+      out[m] = of[m] + nec;
+    }
+    return out;
+  }
+  // Días laborables del mes 'aaaa-mm': los configurados o, si no hay, de lunes a viernes
+  function diasLab(ym, dias) {
+    if (dias && dias[ym] != null) return dias[ym];
+    const [y, m] = ym.split('-').map(Number), n = new Date(y, m, 0).getDate();
+    let d = 0;
+    for (let i = 1; i <= n; i++) { const w = new Date(y, m - 1, i).getDay(); if (w > 0 && w < 6) d++; }
+    return d;
+  }
+  // Capacidad del mes (uds) = V.max × OEE × horas/turno × turnos × días × (1 − holgura); null sin parámetros
+  function capMes(p, gen, dias) {
+    if (!p || !(p.vmax > 0) || !(p.oee > 0) || !(p.turnos > 0)) return null;
+    return p.vmax * p.oee * gen.horas_turno * p.turnos * dias * (1 - gen.holgura);
+  }
+
+  root.Cob = { counts, project, evaluate, H, EXCESO_DEF, cobertura, cobTxt, ztCubre, ztLimite, ZT_MARGEN, carga, diasLab, capMes };
 })(window);
