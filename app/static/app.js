@@ -708,6 +708,7 @@ function capLineas() {
     L.tn = L.cap1.map((c, i) => c ? Math.ceil(L.carga[i] / c - 1e-9) : null);
     L.s3 = satAgg([L], 0, 3); L.sAll = satAgg([L], 0, n);
     L.t3 = L.p ? Math.max(...L.tn.slice(0, 3)) : null;
+    L.nc = L.cap1.map((c, i) => c && L.tn[i] > TURNOS_MAX ? L.carga[i] - c * TURNOS_MAX : 0);  // uds que no caben ni a 3 turnos
   }
   return out;
 }
@@ -717,6 +718,10 @@ const satCls = (s) => s == null ? '' : s > 1 ? 'sat-r' : s >= 0.85 ? 'sat-a' : '
 const pctS = (s) => s == null ? '—' : Math.round(s * 100) + ' %';
 const satCell = (s, tip = '') => `<td class="r num sat ${satCls(s)}"${tip ? ` title="${esc(tip)}"` : ''}>${pctS(s)}</td>`;
 const turnTxt = (t) => t == null ? '—' : String(t).replace('.', ',');
+// Turnos necesarios: un día da para 3 como mucho; por encima, la carga no cabe ni a 3 turnos ("> 3")
+const TURNOS_MAX = 3;
+const tnTxt = (t) => t == null ? '—' : t > TURNOS_MAX ? '> ' + TURNOS_MAX : String(t);
+const tnTip = (L, i) => L.nc[i] > 0 ? `No caben ni a ${TURNOS_MAX} turnos: sobran ${fmt(L.nc[i])} uds` : '';
 // Turnos de la línea este mes; * si tiene turnos distintos en algún mes
 const turnCell = (L) => `<td class="r num"${L.exc ? ' title="Con turnos distintos en algunos meses (ver la página de la línea)"' : ''}>${L.p ? turnTxt(L.tu[0]) + (L.exc ? '*' : '') : '—'}</td>`;
 
@@ -740,7 +745,7 @@ async function pageCap(main) {
   if (!S.ds) return noData(main, 'Capacidad');
   const CL = capLineas(), n = capN(), Ls = Object.values(CL);
   const ord = (a, b) => (b.s3 ?? -1) - (a.s3 ?? -1) || lnNom(a.k).localeCompare(lnNom(b.k), 'es');
-  const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.tu[i]) + ' turnos)' : !L.p ? 'sin parámetros' : 'línea parada (0 turnos)'}${L.tn[i] != null ? '\nTurnos necesarios ' + L.tn[i] : ''}`;
+  const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.tu[i]) + ' turnos)' : !L.p ? 'sin parámetros' : 'línea parada (0 turnos)'}${L.tn[i] != null ? '\nTurnos necesarios ' + tnTxt(L.tn[i]) : ''}${L.nc[i] > 0 ? '\n' + tnTip(L, i) : ''}`;
   const fila = (L) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(L.k)}">${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k))}</a> <span class="nm">${esc(lnSub(L.k))}</span></td>
     ${turnCell(L)}${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.sAll)}</tr>`;
   const grupos = {}; Ls.forEach(L => (grupos[lnArea(L.k) || SIN_AREA] = grupos[lnArea(L.k) || SIN_AREA] || []).push(L));
@@ -761,7 +766,7 @@ async function pageCap(main) {
     const head = ['Área', 'Línea', 'Nombre línea', 'Turnos de la línea', 'Fila', ...Array.from({ length: n }, (_, i) => monthLabel(i))];
     const lines = [];
     Ls.sort(ord).forEach(L => [['Turnos', L.tu.map(t => t == null ? '' : turnTxt(t))], ['Carga uds', L.carga.map(Math.round)], ['Capacidad uds', L.cap.map(c => c == null ? '' : Math.round(c))],
-      ['Saturación %', L.sat.map(s => s == null ? '' : Math.round(s * 100))], ['Turnos necesarios', L.tn.map(t => t == null ? '' : t)]]
+      ['Saturación %', L.sat.map(s => s == null ? '' : Math.round(s * 100))], ['Turnos necesarios', L.tn.map(t => t == null ? '' : tnTxt(t))], ['No cabe a 3 turnos uds', L.nc.map(x => x > 0 ? Math.round(x) : '')]]
       .forEach(([f, v]) => lines.push([lnArea(L.k), L.k, L.k === '—' ? 'Sin línea' : lnNom(L.k), L.p ? turnTxt(L.p.turnos) : '', f, ...v])));
     saveCSV(head, lines, 'capacidad');
   };
@@ -778,7 +783,7 @@ async function pageLines(main) {
   const rows = [...new Set([...Object.keys(gl), ...Object.keys(CL)])].map(k => { const xs = gl[k] || [], c = {}; xs.forEach(x => c[x.e.sem] = (c[x.e.sem] || 0) + 1); return { k, xs, c, L: CL[k] }; })
     .sort((a, b) => ((b.L && b.L.s3) ?? -1) - ((a.L && a.L.s3) ?? -1) || (b.c.rojo || 0) - (a.c.rojo || 0) || (b.c.naranja || 0) - (a.c.naranja || 0) || b.xs.length - a.xs.length);
   const capCols = (Ls) => { const L = Ls.length === 1 ? Ls[0] : null, d = Ls.filter(Boolean);
-    return `${satCell(satAgg(d, 0, 3))}${satCell(satAgg(d, 0, Cob.H))}<td class="r num">${L && L.p ? turnTxt(L.tu[0]) + (L.exc ? '*' : '') + ' → ' + L.t3 : ''}</td>`; };
+    return `${satCell(satAgg(d, 0, 3))}${satCell(satAgg(d, 0, Cob.H))}<td class="r num">${L && L.p ? turnTxt(L.tu[0]) + (L.exc ? '*' : '') + ' → ' + tnTxt(L.t3) : ''}</td>`; };
   const canW = can('admin', 'planificador');
   const barra = (c) => `<div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div>`;
   const fila = ({ k, xs, c, L }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
@@ -850,7 +855,7 @@ function capBlock(L) {
       ${L.p ? fila('Turnos previstos', Array.from({ length: n }, (_, i) => tuCell(i))) : ''}
       ${L.p ? fila('Capacidad', L.cap.map(v => `<td class="r num">${fmt(v)}</td>`)) : ''}
       ${fila('Carga', L.carga.map(v => `<td class="r num">${fmt(v)}</td>`))}
-      ${L.p ? fila('Saturación', L.sat.map(s => satCell(s))) + fila('Turnos necesarios', L.tn.map((t, i) => `<td class="r num${t > L.tu[i] ? ' neg' : ''}">${t}</td>`)) : ''}
+      ${L.p ? fila('Saturación', L.sat.map(s => satCell(s))) + fila('Turnos necesarios', L.tn.map((t, i) => `<td class="r num${t > L.tu[i] ? ' neg' : ''}"${L.nc[i] > 0 ? ` title="${esc(tnTip(L, i))}"` : ''}>${tnTxt(t)}</td>`)) : ''}
     </tbody></table></div>${L.p && canW ? `<p class="small"><button type="button" class="btn ghost sm" id="tuSave">Guardar turnos</button> <span class="muted">Turnos de un mes concreto (0 a 3; 0 = línea parada); vacío = los de la línea (${turnTxt(L.p.turnos)}).</span></p>` : ''}<p class="muted small">${CAP_NOTA}</p>`;
 }
 function bindTurnos(main, ln, rerender) {
