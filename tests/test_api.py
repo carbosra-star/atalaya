@@ -52,6 +52,11 @@ check("la comprobación avisa de que sustituye la carga del mismo día", bool(r.
 check("republicar el mismo día sustituye la carga", upload(c, False).json.get("ok") and len(c.get("/api/loads").json) == 2, len(c.get("/api/loads").json))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
+# Capacidad llega hasta el último mes de la versión vigente: meses extra con su previsión (px), pedidos (pdx) y OF (ox)
+_hx = ds["meta"].get("hx")
+check("meses de previsión más allá de los 12 (capacidad)", isinstance(_hx, int) and 0 <= _hx <= 12
+      and all(len(r["px"]) == _hx for r in ds["refs"] if "px" in r) and (_hx == 0 or any("px" in r for r in ds["refs"]))
+      and all(_hx and 12 <= m < 12 + _hx for r in ds["refs"] for m, _, _ in r.get("ox", [])), _hx)
 # Propuestas sin fijar que ya no llegan con el plazo de fabricación: a la primera fecha posible (hoy + 21 días)
 import datetime as _dt  # noqa: E402
 _lim = (_dt.date.fromisoformat(ds["meta"]["hoy"]) + _dt.timedelta(days=21)).isoformat()

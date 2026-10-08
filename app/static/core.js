@@ -153,13 +153,18 @@
   // Capacidad (sin gemela en Python): carga de la línea por referencia y mes = OF del mes + necesidad neta para
   // cubrir la demanda y mantener el stock mínimo. Las propuestas no cuentan (la necesidad ocupa su lugar); los
   // pedidos de compra (PT fabricado fuera) cubren pero no cargan. Bajo pedido y a extinguir: sin stock mínimo
-  function carga(r, pv) {
-    const dem = project(r, 'OF', pv).dem, of = new Array(H).fill(0), pc = new Array(H).fill(0);
+  // nx: meses más allá de los 12 (hasta el último con previsión), con la previsión px, los pedidos pdx y las OF y
+  // pedidos de compra ox [[m, q, t]] que trae la carga; una carga antigua sin ellos deja esos meses a 0
+  function carga(r, pv, nx = 0) {
+    const N = H + nx, fc = pv === 'C' && r.pvc ? (r.fc || 1) : 1;
+    const dem = project(r, 'OF', pv).dem.concat(Array.from({ length: nx }, (_, i) => Math.max(((r.px || [])[i] || 0) * fc, (r.pdx || [])[i] || 0)));
+    const of = new Array(N).fill(0), pc = new Array(N).fill(0);
     for (const e of r.en) { if (e.t === 'OF') of[e.m] += e.q; else if (e.t === 'PC') pc[e.m] += e.q; }
+    for (const [m, q, t] of r.ox || []) if (m < N) { if (t === 'OF') of[m] += q; else if (t === 'PC') pc[m] += q; }
     const ss = r.ext || r.gp !== 'Contra Stock' ? 0 : Math.max(0, r.ss != null ? r.ss : r.mn || 0);
-    const out = new Array(H);
+    const out = new Array(N);
     let s = r.st;
-    for (let m = 0; m < H; m++) {
+    for (let m = 0; m < N; m++) {
       const disp = s + of[m] + pc[m], nec = Math.max(0, dem[m] + ss - disp);
       s = disp + nec - dem[m];
       out[m] = of[m] + nec;

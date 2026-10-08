@@ -687,13 +687,15 @@ async function pageRef(main, [k]) {
 // Carga de cada línea (contra stock y bajo pedido: OF + necesidad neta, ver Cob.carga) frente a su capacidad mensual
 const CAP_GEN = { horas_turno: 7.75, holgura: 0.2, dias: {} };
 const capGen = () => (S.cfg && S.cfg.capacidad) || CAP_GEN;
+// Meses de Capacidad: los 12 de la app más los que lleguen hasta el último mes con previsión (hx; 0 en cargas antiguas)
+const capN = () => Cob.H + ((S.ds && S.ds.meta.hx) || 0);
 function mesYM(i) { const [y, m] = S.ds.meta.base.split('-').map(Number); const d = new Date(y, m - 1 + i, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
 function capLineas() {
-  const gen = capGen(), n = Cob.H, out = {};
+  const gen = capGen(), n = capN(), out = {};
   const dias = Array.from({ length: n }, (_, i) => Cob.diasLab(mesYM(i), gen.dias));
   for (const r of S.ds.refs) {
     const k = r.ln || '—', L = out[k] = out[k] || { k, carga: new Array(n).fill(0), n: 0 };
-    L.n++; Cob.carga(r, S.pv).forEach((v, i) => { L.carga[i] += v; });
+    L.n++; Cob.carga(r, S.pv, n - Cob.H).forEach((v, i) => { L.carga[i] += v; });
   }
   for (const L of Object.values(out)) {
     const p = k => k === '—' ? null : (S.ds.cap || {})[k] || null;
@@ -702,7 +704,7 @@ function capLineas() {
     L.cap1 = dias.map(d => Cob.capMes(L.p && { ...L.p, turnos: 1 }, gen, d));
     L.sat = L.cap.map((c, i) => c ? L.carga[i] / c : null);
     L.tn = L.cap1.map((c, i) => c ? Math.ceil(L.carga[i] / c - 1e-9) : null);
-    L.s3 = satAgg([L], 0, 3); L.s12 = satAgg([L], 0, n);
+    L.s3 = satAgg([L], 0, 3); L.sAll = satAgg([L], 0, n);
     L.t3 = L.p ? Math.max(...L.tn.slice(0, 3)) : null;
   }
   return out;
@@ -716,11 +718,11 @@ const turnTxt = (t) => t == null ? '—' : String(t).replace('.', ',');
 const CAP_NOTA = 'Carga: contra stock y bajo pedido; OF del mes + lo que falta fabricar para cubrir la demanda y mantener el stock mínimo (las propuestas del MRP no cuentan). Capacidad: V.max × OEE × horas por turno × turnos × días laborables × (1 − holgura). Verde &lt; 85 %, ámbar 85–100 %, rojo &gt; 100 %.';
 async function pageCap(main) {
   if (!S.ds) return noData(main, 'Capacidad');
-  const CL = capLineas(), n = Cob.H, Ls = Object.values(CL);
+  const CL = capLineas(), n = capN(), Ls = Object.values(CL);
   const ord = (a, b) => (b.s3 ?? -1) - (a.s3 ?? -1) || lnNom(a.k).localeCompare(lnNom(b.k), 'es');
   const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.p.turnos) + ' turnos)' : 'sin parámetros'}${L.tn[i] != null ? '\nTurnos necesarios ' + L.tn[i] : ''}`;
   const fila = (L) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(L.k)}">${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k))}</a> <span class="nm">${esc(lnSub(L.k))}</span></td>
-    <td class="r num">${L.p ? turnTxt(L.p.turnos) : '—'}</td>${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.s12)}</tr>`;
+    <td class="r num">${L.p ? turnTxt(L.p.turnos) : '—'}</td>${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.sAll)}</tr>`;
   const grupos = {}; Ls.forEach(L => (grupos[lnArea(L.k) || SIN_AREA] = grupos[lnArea(L.k) || SIN_AREA] || []).push(L));
   const areas = Object.keys(grupos).sort((a, b) => (a === SIN_AREA) - (b === SIN_AREA) || a.localeCompare(b, 'es'));
   const cuerpo = !areasUsadas().length ? Ls.sort(ord).map(fila).join('') : areas.map(a => {
@@ -728,9 +730,9 @@ async function pageCap(main) {
     return `<tr class="area-row"><th scope="rowgroup">${esc(a)}</th><td></td>${Array.from({ length: n }, (_, i) => satCell(satAgg(xs, i, i + 1))).join('')}${satCell(satAgg(xs, 0, n))}</tr>${xs.map(fila).join('')}`;
   }).join('');
   const rojas = Ls.filter(L => L.s3 > 1).length;
-  main.innerHTML = `<h1>Capacidad</h1><p class="lead">Saturación de cada línea en los 12 próximos meses${rojas ? ` · <b>${rojas} ${rojas === 1 ? 'línea' : 'líneas'} por encima del 100 %</b> en los 3 próximos meses` : ''}.</p>
+  main.innerHTML = `<h1>Capacidad</h1><p class="lead">Saturación de cada línea de ${monthLabel(0)} a ${monthLabel(n - 1)} (hasta el último mes con previsión)${rojas ? ` · <b>${rojas} ${rojas === 1 ? 'línea' : 'líneas'} por encima del 100 %</b> en los 3 próximos meses` : ''}.</p>
     <form onsubmit="return false" class="filters">${pvCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="capCsv">Descargar (CSV)</button></div></form>
-    <div class="tw"><table class="mt capm"><caption class="sr">Saturación por línea y mes</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Turnos</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}<th scope="col" class="r">Media 12 m</th></tr></thead><tbody>
+    <div class="tw"><table class="mt capm"><caption class="sr">Saturación por línea y mes</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Turnos</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}<th scope="col" class="r">Media ${n} m</th></tr></thead><tbody>
     ${cuerpo}</tbody></table></div>
     <p class="muted small">${CAP_NOTA} Turnos, V.max y OEE se cambian en <a href="#/lineas">Líneas › Editar líneas</a>; horas, holgura y días laborables en Datos.</p>`;
   bindScenario(main, () => pageCap(main));
@@ -816,7 +818,7 @@ async function pageLines(main) {
 }
 function capBlock(L) {
   if (!L) return '';
-  const n = Cob.H, fila = (t, v) => `<tr><th scope="row">${t}</th>${v.join('')}</tr>`;
+  const n = capN(), fila = (t, v) => `<tr><th scope="row">${t}</th>${v.join('')}</tr>`;
   return `<h2>Capacidad</h2>${L.p ? `<p class="muted small">${fmt(L.p.vmax)} uds/h · OEE ${pctS(L.p.oee)} · ${turnTxt(L.p.turnos)} ${L.p.turnos === 1 ? 'turno' : 'turnos'}.</p>` : `<p class="muted small">Sin parámetros de capacidad: ponlos en <a href="#/lineas">Líneas › Editar líneas</a>.</p>`}
     <div class="tw"><table class="mt"><thead><tr><th scope="col">Unidades</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
       ${L.p ? fila('Capacidad', L.cap.map(v => `<td class="r num">${fmt(v)}</td>`)) : ''}
@@ -918,7 +920,7 @@ async function pageData(main) {
     ${S.ds ? `<section class="card"><h2>Capacidad</h2>
       <form class="form" id="capF" style="max-width:none"><div class="row"><label>Horas por turno<input name="ht" inputmode="decimal" value="${String(capGen().horas_turno).replace('.', ',')}"></label><label>Holgura y esperas (%)<input name="hg" inputmode="decimal" value="${String(Math.round(capGen().holgura * 1000) / 10).replace('.', ',')}"></label></div>
         <p class="muted small">Días laborables de cada mes (vacío: de lunes a viernes).</p>
-        <div class="row" style="flex-wrap:wrap">${Array.from({ length: Cob.H }, (_, i) => `<label style="width:64px">${monthLabel(i)}<input name="d_${mesYM(i)}" inputmode="numeric" value="${capGen().dias[mesYM(i)] ?? ''}" placeholder="${Cob.diasLab(mesYM(i), {})}"></label>`).join('')}</div>
+        <div class="row" style="flex-wrap:wrap">${Array.from({ length: capN() }, (_, i) => `<label style="width:64px">${monthLabel(i)}<input name="d_${mesYM(i)}" inputmode="numeric" value="${capGen().dias[mesYM(i)] ?? ''}" placeholder="${Cob.diasLab(mesYM(i), {})}"></label>`).join('')}</div>
         <div><button class="btn ghost">Guardar capacidad</button></div></form>
       <p class="muted small">Capacidad del mes = V.max × OEE × horas por turno × turnos × días × (1 − holgura). V.max, OEE y turnos de cada línea, en Líneas › Editar líneas.</p></section>` : ''}</div>
     <h2>Historial de cargas</h2>
@@ -955,7 +957,7 @@ async function pageData(main) {
   if ($('#capF')) $('#capF').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target, n = (x) => Number(String(x).trim().replace(',', '.'));
     const dias = {};
-    for (let i = 0; i < Cob.H; i++) { const v = f['d_' + mesYM(i)].value.trim(); dias[mesYM(i)] = v === '' ? null : n(v); }
+    for (let i = 0; i < capN(); i++) { const v = f['d_' + mesYM(i)].value.trim(); dias[mesYM(i)] = v === '' ? null : n(v); }
     try { S.cfg = await api('/api/config', { method: 'PUT', body: { capacidad: { horas_turno: n(f.ht.value), holgura: n(f.hg.value) / 100, dias } } }); toast('Capacidad guardada'); } catch (e) { toast(e.message); }
   };
   $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target; try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(f.hz.value, 10), exceso: { Belloch: parseInt(f.exB.value, 10), Yunsey: parseInt(f.exY.value, 10) } } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };

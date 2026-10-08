@@ -421,6 +421,9 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     if ver and not all(src):
         warn.append("Hay meses sin previsión en ninguna versión: " + ", ".join(_ym(base_y, base_m + m) for m in range(H) if not src[m]))
     hsrc = vigentes(cover, base_y, base_m)
+    # Capacidad mira hasta el último mes de la versión vigente: meses más allá de los 12 (como mucho otros 12)
+    HX = min(12, max(0, max(cover[ver]) - H + 1)) if ver else 0
+    PX: dict[str, list[float]] = {}  # previsión de la versión vigente de esos meses
     HP: dict[str, list[float]] = {}  # previsión vigente de los 12 meses cerrados
     PREV: dict[str, list[float]] = {}
     PFUT, PPAS = set(), set()  # previsión > 0 más allá del horizonte / en meses pasados (cualquier versión)
@@ -432,6 +435,8 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
                 PFUTV.add(k)
         if -12 <= mi < 0 and hsrc[mi + 12] == v:
             HP.setdefault(k, [0.0] * 12)[mi + 12] += _num(_get(r, iQ))
+        if H <= mi < H + HX and v == ver:
+            PX.setdefault(k, [0.0] * HX)[mi - H] += _num(_get(r, iQ))
         if not (0 <= mi < H and src[mi] == v):
             continue
         PREV.setdefault(k, [0.0] * H)[mi] += _num(_get(r, iQ))
@@ -475,6 +480,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     jd = tpv.opt("Fecha envío", "Fecha envio")
     jq = tpv.col("SumCantidad_pdte_entrega")
     PED: dict[str, list[float]] = {}
+    PDX: dict[str, list[float]] = {}  # pedidos más allá de los 12 meses (solo Capacidad)
     PDD: dict[str, list[list]] = {}  # pedidos con fecha [fecha (las pasadas, hoy), mes, cantidad]: rotura antes de cada entrada
     ATR: dict[str, float] = {}
     AB: dict[str, float] = {}  # atrasados vivos de meses anteriores: demanda que no estaba en la previsión del mes
@@ -497,9 +503,12 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         if mi < H:
             PED.setdefault(k, [0.0] * H)[mi] += q
             PDD.setdefault(k, []).append([max(d or today, today).isoformat(), mi, round(q)])
+        elif mi < H + HX:
+            PDX.setdefault(k, [0.0] * HX)[mi - H] += q
 
     # Entradas: OF abiertas y propuestas del MRP
     E: dict[str, list[dict]] = {}
+    OX: dict[str, list[list]] = {}  # OF y pedidos de compra más allá de los 12 meses: [mes, cantidad, tipo] (solo Capacidad)
     to = _Table(rows["MM_OF"], "num9", "MM_OF")
     jn, jc, jt, jqo, js = to.col("num9"), to.col("nummer"), to.col("tterm"), to.col("mge"), to.opt("such")
     for r in to.data:
@@ -510,6 +519,8 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
         d = _date(_get(r, jt))
         mi = max(0, midx(d)) if d else 0
         if mi >= H:
+            if mi < H + HX:
+                OX.setdefault(k, []).append([mi, round(q), "OF"])
             continue
         E.setdefault(k, []).append(dict(t="OF", q=round(q), m=mi, d=d.isoformat() if d else "", late=bool(d and d < today),
                                         id=_norm(_get(r, jn)), mq=_norm(_get(r, js))))
@@ -527,6 +538,8 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             d = _date(_get(r, jf))
             mi = max(0, midx(d)) if d else 0
             if mi >= H:
+                if mi < H + HX:
+                    OX.setdefault(k, []).append([mi, round(q), "PC"])
                 continue
             E.setdefault(k, []).append(dict(t="PC", q=round(q), m=mi, d=d.isoformat() if d else "", late=bool(d and d < today),
                                             id=_id(_get(r, jp)), pv=prov))
@@ -611,6 +624,12 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
             at=round(ATR.get(k, 0.0)), ab=round(AB.get(k, 0.0)), ao=sorted(AO.get(k, [])), pdd=sorted(PDD.get(k, [])), en=sorted(en or [], key=lambda e: e["d"]),
             vt=[round(x) for x in vt[:12]] if vt else [0] * 12, v0=round(v0),
         ))
+        if any(PX.get(k, ())):
+            refs[-1]["px"] = [round(x) for x in PX[k]]
+        if any(PDX.get(k, ())):
+            refs[-1]["pdx"] = [round(x) for x in PDX[k]]
+        if k in OX:
+            refs[-1]["ox"] = sorted(OX[k])
         if k in ZTS:
             refs[-1]["zt"] = [dict(k=z, n=A.get(z, {}).get("name", ""), q=q, st=round(ST.get(z, 0.0)),
                                    en=[dict(t=e["t"], q=e["q"], d=e["d"], late=e["late"], **({"id": e["id"]} if e.get("id") else {}))
@@ -623,7 +642,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     vers = acierto_versiones([(v, k, mi, _num(_get(r, iQ))) for v, k, mi, r in pr], cover, VALL, amb, base_y, base_m, {mi for _, mi in vcols})
 
     refs.sort(key=lambda r: r["k"])
-    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], n=len(refs), lineas=LNAME, warn=warn, vers=vers)
+    meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], hx=HX, n=len(refs), lineas=LNAME, warn=warn, vers=vers)
     pf = porfolio(A, refs, today, base_y, base_m, ST=ST, PREV=PREV, PFUT=PFUT, PPAS=PPAS - PFUT, VL=VL, LIN=LIN, E=E, TLY=TLY, PFUTV=PFUTV, prev=anterior)
     return {"meta": meta, "refs": refs, "porfolio": pf}
 

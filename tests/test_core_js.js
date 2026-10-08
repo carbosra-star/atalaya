@@ -115,6 +115,13 @@ check('carga: bajo pedido sin stock mínimo', carga({ ...c100, gp: 'Bajo Pedido'
 check('carga: a extinguir solo consume su stock', carga({ ...c100, ext: true, ss: 500, st: 150 }, 'T').slice(0, 3).join() === '0,50,100');
 check('carga: sin demanda ni OF, nada', carga({ ...c100, pv: z12, pv0r: 0 }, 'T').every(x => x === 0));
 check('carga: stock negativo (atrasados) se recupera', carga({ ...c100, st: -40 }, 'T')[0] === 140);
+// Meses más allá de los 12 (hasta el último con previsión): previsión px, pedidos pdx y OF/pedidos de compra ox [m, q, t]
+const largo = { ...c100, st: 1250, px: [100, 300, 0], pdx: [0, 0, 50], ox: [[13, 200, 'OF'], [14, 40, 'PC']] };
+const cl = carga(largo, 'T', 3);
+check('carga: horizonte ampliado con la previsión más allá de 12 meses', cl.length === 15 && cl.slice(12).join() === '50,300,10', cl.slice(10));
+check('carga: sin meses extra sigue con 12', carga(largo, 'T').length === 12);
+check('carga: carga antigua sin px, los meses extra a 0', carga(c100, 'T', 2).slice(12).join() === '0,0');
+check('carga: previsión corregida también más allá de 12 meses', carga({ ...largo, st: 0, pvc: new Array(12).fill(50), pv0rc: 50, fc: 0.5 }, 'C', 3)[13] === 150 + 50);
 check('días laborables: lunes a viernes si no hay dato', diasLab('2026-10', {}) === 22 && diasLab('2026-10', { '2026-10': 21 }) === 21);
 const pAer = { vmax: 4200, oee: 0.601, turnos: 1 }, gen = { horas_turno: 7.75, holgura: 0.2 };
 check('capacidad AER-01 en ene-27 (18 días) = Excel', Math.abs(capMes(pAer, gen, 18) - 281700.72) < 0.01, capMes(pAer, gen, 18));
