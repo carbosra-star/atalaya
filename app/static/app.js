@@ -746,7 +746,7 @@ async function pageCap(main) {
   const CL = capLineas(), n = capN(), Ls = Object.values(CL);
   const ord = (a, b) => (b.s3 ?? -1) - (a.s3 ?? -1) || lnNom(a.k).localeCompare(lnNom(b.k), 'es');
   const tip = (L, i) => `${lnNom(L.k)} · ${monthLabel(i)}\nCarga ${fmt(L.carga[i])} uds\nCapacidad ${L.cap[i] ? fmt(L.cap[i]) + ' uds (' + turnTxt(L.tu[i]) + ' turnos)' : !L.p ? 'sin parámetros' : 'línea parada (0 turnos)'}${L.tn[i] != null ? '\nTurnos necesarios ' + tnTxt(L.tn[i]) : ''}${L.nc[i] > 0 ? '\n' + tnTip(L, i) : ''}`;
-  const fila = (L) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(L.k)}">${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k))}</a> <span class="nm">${esc(lnSub(L.k))}</span></td>
+  const fila = (L) => `<tr><td class="art" title="${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k) + ' · ' + lnSub(L.k))}"><a href="#/linea/${encodeURIComponent(L.k)}">${esc(L.k === '—' ? 'Sin línea asignada' : lnNom(L.k))}</a></td>
     ${turnCell(L)}${L.sat.map((s, i) => satCell(s, tip(L, i))).join('')}${satCell(L.sAll)}</tr>`;
   const grupos = {}; Ls.forEach(L => (grupos[lnArea(L.k) || SIN_AREA] = grupos[lnArea(L.k) || SIN_AREA] || []).push(L));
   const areas = Object.keys(grupos).sort((a, b) => (a === SIN_AREA) - (b === SIN_AREA) || a.localeCompare(b, 'es'));
@@ -786,7 +786,7 @@ async function pageLines(main) {
     return `${satCell(satAgg(d, 0, 3))}${satCell(satAgg(d, 0, Cob.H))}<td class="r num">${L && L.p ? turnTxt(L.tu[0]) + (L.exc ? '*' : '') + ' → ' + tnTxt(L.t3) : ''}</td>`; };
   const canW = can('admin', 'planificador');
   const barra = (c) => `<div class="bar2" style="display:flex;height:12px;border-radius:3px;overflow:hidden;gap:1px;min-width:160px" aria-hidden="true">${SEM.filter(([s]) => c[s]).map(([s]) => `<span class="s-${s}" style="flex:${c[s]};background:var(--c)"></span>`).join('')}</div>`;
-  const fila = ({ k, xs, c, L }) => `<tr><td class="art"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a> <span class="nm">${esc(lnSub(k))}</span></td><td class="r num">${xs.length}</td>
+  const fila = ({ k, xs, c, L }) => `<tr><td class="art" title="${esc(lnNom(k) + ' · ' + lnSub(k))}"><a href="#/linea/${encodeURIComponent(k)}">${esc(lnNom(k))}</a></td><td class="r num">${xs.length}</td>
       <td>${barra(c)}</td><td class="r num">${c.rojo || 0}</td><td class="r num">${c.naranja || 0}</td><td class="r num">${c.amarillo || 0}</td>${capCols([L])}</tr>`;
   // Con áreas: cada área con su fila de totales y debajo sus líneas (las líneas sin área, al final)
   const grupos = {}; rows.forEach(x => (grupos[lnArea(x.k) || SIN_AREA] = grupos[lnArea(x.k) || SIN_AREA] || []).push(x));
@@ -800,7 +800,7 @@ async function pageLines(main) {
   main.innerHTML = `<h1>Líneas</h1><p class="lead">Por grupo de máquina: estado de las referencias y saturación de la línea.</p>
     <form onsubmit="return false" class="filters">${scenarioCtl()}${plegarCtl()}<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnCsv">Descargar todas (CSV)</button></div>${canW ? '<div class="fld"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="lnEd">Editar líneas</button></div>' : ''}</form>
     <div id="lnBox"></div>
-    <div class="tw"><table><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th><th scope="col" class="r" title="Carga ÷ capacidad con los turnos actuales, 3 próximos meses">Saturación 3 m</th><th scope="col" class="r">Media 12 m</th><th scope="col" class="r" title="Turnos de este mes → turnos necesarios (máximo de los 3 próximos meses); * = con turnos distintos en algunos meses">Turnos</th></tr></thead><tbody>
+    <div class="tw"><table class="lnt"><caption class="sr">Estado por línea</caption><thead><tr><th scope="col">Línea</th><th scope="col" class="r">Referencias</th><th scope="col">Reparto</th><th scope="col" class="r">Rotura</th><th scope="col" class="r">Bajo mínimo</th><th scope="col" class="r">A revisar</th><th scope="col" class="r" title="Carga ÷ capacidad con los turnos actuales, 3 próximos meses">Saturación 3 m</th><th scope="col" class="r">Media 12 m</th><th scope="col" class="r" title="Turnos de este mes → turnos necesarios (máximo de los 3 próximos meses); * = con turnos distintos en algunos meses">Turnos</th></tr></thead><tbody>
     ${cuerpo}
     </tbody></table></div>
     <p class="muted small">Estado: referencias contra stock. Saturación y turnos: ${CAP_NOTA} Detalle mes a mes en <a href="#/capacidad">Capacidad</a>.</p>`;

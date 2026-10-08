@@ -309,7 +309,9 @@ h1 .copy svg{width:20px;height:20px}
 /* Capacidad: saturación por línea (verde < 85 %, ámbar 85–100 %, rojo > 100 %) */
 td.sat.sat-v{background:var(--verdeBg)}td.sat.sat-a{background:var(--amarilloBg)}td.sat.sat-r{background:var(--rojoBg);color:var(--rojo);font-weight:600}
 tr.area-row>td.sat{font-weight:600}
-.capm th,.capm td{padding:5px 5px}.capm td.art{max-width:240px}
+.capm th,.capm td{padding:5px 5px}
+/* Capacidad y Líneas: la línea con ancho fijo (nombre completo al pasar el ratón) */
+.capm td.art,.lnt td.art{width:150px;max-width:150px;min-width:0}
 /* Áreas plegables (Capacidad y Líneas) */
 button.plg{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink)}button.plg:focus-visible{outline:2px solid var(--link);outline-offset:2px;border-radius:3px}
 .chev{display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s}button.plg[aria-expanded="true"] .chev{transform:rotate(90deg)}
