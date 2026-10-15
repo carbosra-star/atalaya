@@ -1014,14 +1014,25 @@ const PEST = { decidir: 'Decidir a mano', cambio: 'Con cambio', igual: 'Igual', 
 const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia', extinguir: 'a extinguir', sin_prev: 'sin previsión' };
 // Fuentes que corresponden a la propuesta, para aceptarla tal cual
 const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'estadistico' }, lote: { src: p.ltp === p.lt ? 'erp' : 'calculado' } });
-async function pageParams(main) {
+// Columnas ordenables de la tabla de parámetros (valor de cada fila); las de texto empiezan de la A a la Z
+const PSORT = { k: p => p.k, abc: p => p.abc, pm: p => p.pm, er: p => p.er, mn: p => p.mn, xl: p => p.xl, est: p => p.est,
+  ss: p => p.d ? p.ss : p.ssp, lt: p => p.lt, lote: p => p.d ? p.lote : p.ltp, de: p => p.pr > 0 ? p.de : null, estado: p => PEST[p.estado] };
+const PSORT_TXT = ['k', 'abc', 'estado'];
+async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y buscador, sin volver a pedirlos)
   if (!S.ds) return noData(main, 'Stock mínimo y lotes');
-  const P = await api('/api/parametros');
+  const P = P0 && P0.rows ? P0 : await api('/api/parametros');  // el router pasa las partes de la ruta: no son datos
   if (P.empty) return noData(main, 'Stock mínimo y lotes');
   const canW = can('admin', 'planificador'), { q } = parseHash();
   const estF = (q.get('estado') || 'decidir,cambio').split(','), md = q.get('md') || '', abc = q.get('abc') || '', ln = q.get('ln') || '';
-  const xs = P.rows.filter(p => estF.includes(p.estado) && (!md || p.md === md) && (!abc || p.abc === abc) && (!ln || (p.ln || '—') === ln))
-    .sort((a, b) => Math.abs(b.de) - Math.abs(a.de) || (a.k < b.k ? -1 : 1));
+  const bq = q.get('q') || '', toks = bq.toLowerCase().split(/\s+/).filter(Boolean);
+  const xs = P.rows.filter(p => estF.includes(p.estado) && (!md || p.md === md) && (!abc || p.abc === abc) && (!ln || (p.ln || '—') === ln)
+      && (!toks.length || toks.every(w => (p.k + ' ' + p.n).toLowerCase().includes(w))));
+  // Orden: por defecto, impacto en € (valor absoluto); pulsando la cabecera, por esa columna (vacíos siempre al final)
+  const sk = PSORT[q.get('sort')] ? q.get('sort') : '', sd = parseInt(q.get('dir'), 10) || (PSORT_TXT.includes(sk) ? 1 : -1);
+  xs.sort(sk ? (a, b) => { const x = PSORT[sk](a), y = PSORT[sk](b);
+    return (x == null) - (y == null) || (x == null ? 0 : (x < y ? -1 : x > y ? 1 : 0) * sd) || (a.k < b.k ? -1 : 1); }
+    : (a, b) => Math.abs(b.de) - Math.abs(a.de) || (a.k < b.k ? -1 : 1));
+  const ths = (label, key, cls = '', tip = '') => thSort(label, key, sk, sd, cls, tip);
   const E = P.resumen.estados, nAbas = E.decidido || 0;
   const tot = (k) => P.resumen.grupos.reduce((s, g) => s + g[k], 0);
   const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -1051,6 +1062,7 @@ async function pageParams(main) {
     <div class="kpis">${cnt('decidir', 'Por decidir a mano')}${cnt('cambio', 'Con cambio propuesto')}${cnt('decidido', 'Decididos, pendientes de ABAS')}${cnt('aplicado', 'Aplicados')}</div>
     <p>${nAbas ? `<a class="btn" href="/api/parametros/abas.csv" download>Descargar cambios para ABAS (${fmt(nAbas)})</a>` : '<span class="muted">No hay cambios pendientes de cargar en ABAS.</span>'}</p>
     <form class="filters" id="pF" onsubmit="return false">
+      <label class="fld">Buscar<input type="search" name="q" id="pQ" value="${esc(bq)}" placeholder="Código o artículo" autocomplete="off"></label>
       <label class="fld">Estado<select name="estado">${[['decidir,cambio', 'Por decidir y con cambio'], ['decidir', PEST.decidir], ['cambio', PEST.cambio], ['decidido', PEST.decidido], ['aplicado', PEST.aplicado], ['igual', PEST.igual]].map(([v, t]) => `<option value="${v}" ${estF.join(',') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
@@ -1058,16 +1070,29 @@ async function pageParams(main) {
       ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot" value="${esc(S.pMot || '')}"></label>` : ''}
     </form>
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
-      <a class="btn ghost sm" href="/api/parametros.xlsx?${new URLSearchParams({ estado: estF.join(','), md, abc, ln })}" download>Descargar (Excel)</a>
+      <a class="btn ghost sm" href="/api/parametros.xlsx?${new URLSearchParams({ estado: estF.join(','), md, abc, ln, q: bq })}" download>Descargar (Excel)</a>
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
-    <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([thc('Referencia'), thc('ABC'), thc('Previsión/mes', 'r'), thc('Error previsión', 'r'),
-      { g: 'Stock mínimo', c: [thc('ERP', 'r', 'Stock mínimo del ERP'), thc('Excel', 'r', 'Stock mínimo método Excel'), thc('Estadístico', 'r', 'Stock mínimo estadístico'), thc('Propuesta · Decidido', 'r', 'Stock mínimo propuesto · decidido')] },
-      { g: 'Lote', c: [thc('ERP', 'r', 'Lote del ERP'), thc('Propuesta · Decidido', 'r', 'Lote propuesto · decidido')] },
-      thc('Δ € stock medio', 'r'), thc('Estado'), ...(canW ? [thc('Decisión')] : [])])}</thead>
+    <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([ths('Referencia', 'k'), ths('ABC', 'abc'), ths('Previsión/mes', 'pm', 'r'), ths('Error previsión', 'er', 'r'),
+      { g: 'Stock mínimo', c: [ths('ERP', 'mn', 'r', 'Stock mínimo del ERP'), ths('Excel', 'xl', 'r', 'Stock mínimo método Excel'), ths('Estadístico', 'est', 'r', 'Stock mínimo estadístico'), ths('Propuesta · Decidido', 'ss', 'r', 'Stock mínimo propuesto · decidido')] },
+      { g: 'Lote', c: [ths('ERP', 'lt', 'r', 'Lote del ERP'), ths('Propuesta · Decidido', 'lote', 'r', 'Lote propuesto · decidido')] },
+      ths('Δ € stock medio', 'de', 'r'), ths('Estado', 'estado'), ...(canW ? [thc('Decisión')] : [])])}</thead>
       <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 13 : 12}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
     <p class="muted small">Δ € = variación del stock medio (stock mínimo + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.</p>`;
   xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
-  $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo') return; setQuery({ [n]: ev.target.value }); pageParams(main); });
+  $$('.ptab [data-sort]', main).forEach(b => b.onclick = async () => {
+    const k2 = b.dataset.sort;
+    setQuery({ sort: k2, dir: sk === k2 ? -sd : (PSORT_TXT.includes(k2) ? 1 : -1) }); await pageParams(main, P);
+    const f = $(`.ptab [data-sort="${k2}"]`, main); if (f) f.focus();
+  });
+  $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo' || n === 'q') return; setQuery({ [n]: ev.target.value }); pageParams(main, P); });
+  $('#pQ').addEventListener('input', (ev) => {
+    clearTimeout(S.pQt);
+    S.pQt = setTimeout(async () => {
+      const pos = ev.target.selectionStart;
+      setQuery({ q: ev.target.value.trim() }); await pageParams(main, P);
+      const i = $('#pQ'); if (i) { i.focus(); i.setSelectionRange(pos, pos); }
+    }, 200);
+  });
   const motivo = () => ($('#pMot') ? $('#pMot').value.trim() : '');
   if ($('#pMot')) $('#pMot').oninput = (ev) => { S.pMot = ev.target.value; };  // se conserva al cambiar de filtro
   const enviar = async (items) => { try { const r = await api('/api/parametros/decisiones', { method: 'POST', body: { items, motivo: motivo() } }); toast(`${r.n} ${r.n === 1 ? 'decisión guardada' : 'decisiones guardadas'}`); await pageParams(main); } catch (e) { toast(e.message); } };

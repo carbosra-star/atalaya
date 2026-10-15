@@ -601,9 +601,10 @@ def param_xlsx():
         return err("No hay datos cargados")
     a = request.args
     est = (a.get("estado") or "").split(",") if a.get("estado") else None
-    md, abc, ln = a.get("md", ""), a.get("abc", ""), a.get("ln", "")
+    md, abc, ln, toks = a.get("md", ""), a.get("abc", ""), a.get("ln", ""), a.get("q", "").lower().split()
     rows = [p for p in _param_rows(_refs(row)) if (not est or p["estado"] in est) and (not md or p["md"] == md)
-            and (not abc or p["abc"] == abc) and (not ln or (p["ln"] or "—") == ln)]
+            and (not abc or p["abc"] == abc) and (not ln or (p["ln"] or "—") == ln)
+            and all(w in f'{p["k"]} {p["n"]}'.lower() for w in toks)]
     rows.sort(key=lambda p: (-abs(p["de"]), p["k"]))
     alias = _alias()
     cols = [("Referencia", 14, "@"), ("Artículo", 40, None), ("Mandante", 10, None), ("ABC", 6, None), ("Línea", 14, None),
