@@ -104,6 +104,7 @@ CREATE INDEX IF NOT EXISTS prev_dec_ref ON prev_dec(ref, version, id);
 CREATE INDEX IF NOT EXISTS prev_dec_ver ON prev_dec(version, ref, id);
 CREATE TABLE IF NOT EXISTS linea_alias(codigo TEXT PRIMARY KEY, nombre TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linea_area(codigo TEXT PRIMARY KEY, area TEXT NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS linea_lotemin(codigo TEXT PRIMARY KEY, uds INTEGER NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linea_cap(codigo TEXT PRIMARY KEY, vmax REAL NOT NULL, oee REAL NOT NULL, turnos REAL NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linea_turno(codigo TEXT NOT NULL, ym TEXT NOT NULL, turnos REAL NOT NULL, user_id INTEGER NOT NULL, updated TEXT NOT NULL,
   PRIMARY KEY(codigo, ym));
@@ -474,7 +475,7 @@ def _decisiones() -> dict:
 def _param_rows(refs: list[dict]) -> list[dict]:
     cfg = get_config()
     extra = {r["ref"]: r["dias"] for r in db().execute("SELECT ref,dias FROM param_extra")}
-    return parametros.parametros(refs, cfg["abc"]["freq"], cfg["abc"]["ss"], cfg["ns"], _decisiones(), extra)
+    return parametros.parametros(refs, cfg["abc"]["freq"], cfg["abc"]["ss"], cfg["ns"], _decisiones(), extra, _lotemin())
 
 
 def _con_sx(refs: list[dict]) -> list[dict]:
@@ -620,7 +621,8 @@ def param_xlsx():
     for c in ws[1]:
         c.font = Font(bold=True)
     for p in rows:
-        obs = ", ".join(x for x in (PARAM_TIPO.get(p["tipo"], ""), "corregir previsión" if p["flag"] else "") if x)
+        obs = ", ".join(x for x in (PARAM_TIPO.get(p["tipo"], ""), "corregir previsión" if p["flag"] else "",
+                                    f'lote al mínimo de la línea ({p["lm"]})' if p["lms"] else "") if x)
         ws.append([p["k"], p["n"], p["md"], p["abc"], alias.get(p["ln"], p["ln"]) or "—", p["pr"] or None, p["pm"], p["er"], p["sg"],
                    p["dx"] or None, p["mn"], p["xl"], p["est"], p["ssp"], p["ss"] if p["d"] else None,
                    p["lt"], p["lc"], p["ltp"], p["lote"] if p["d"] else None, p["smax"], p["de"] if p["pr"] else None,
@@ -756,6 +758,27 @@ def _cap() -> dict:
     return cap
 
 
+def _lotemin() -> dict:
+    """Lote mínimo (uds de PT) de las líneas que no fabrican lotes más pequeños; sin valor, sin mínimo."""
+    return {r["codigo"]: r["uds"] for r in db().execute("SELECT codigo,uds FROM linea_lotemin")}
+
+
+def _guardar_lotemin(lmin: dict, n: dict) -> str | None:
+    """Guarda el lote mínimo por línea; None borra el de esa línea. Error o None."""
+    for cod, v in lmin.items():
+        if cod not in n:
+            return f"La línea {cod} no está en la carga vigente"
+        if v is not None and not (isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 10_000_000):
+            return f"Lote mínimo de {cod}: un número entero de unidades mayor que 0"
+    for cod, v in lmin.items():
+        if v is None:
+            db().execute("DELETE FROM linea_lotemin WHERE codigo=?", (cod,))
+        else:
+            db().execute("INSERT INTO linea_lotemin(codigo,uds,user_id,updated) VALUES(?,?,?,?) ON CONFLICT(codigo) DO UPDATE SET "
+                         "uds=excluded.uds, user_id=excluded.user_id, updated=excluded.updated", (cod, v, g.user["id"], now()))
+    return None
+
+
 def _guardar_cap(cap: dict, n: dict) -> str | None:
     """Guarda V.max, OEE y turnos por línea; None borra los de esa línea. Error o None."""
     num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
@@ -808,22 +831,22 @@ def lineas():
         if g.user["role"] not in ("admin", "planificador"):
             return err("Tu usuario no tiene permiso para esta acción", 403)
         body = request.get_json(silent=True) or {}
-        nombres, areas, cap = body.get("nombres") or {}, body.get("areas") or {}, body.get("cap") or {}
-        if not all(isinstance(x, dict) for x in (nombres, areas, cap)) or not (nombres or areas or cap):
+        nombres, areas, cap, lmin = (body.get(x) or {} for x in ("nombres", "areas", "cap", "lmin"))
+        if not all(isinstance(x, dict) for x in (nombres, areas, cap, lmin)) or not (nombres or areas or cap or lmin):
             return err("No hay cambios que guardar")
         for tabla, campo, valores in (("linea_alias", "nombre", nombres), ("linea_area", "area", areas)):
             e = _guardar(tabla, campo, valores, n)
             if e:
                 db().rollback()
                 return err(e)
-        e = _guardar_cap(cap, n)
+        e = _guardar_cap(cap, n) or _guardar_lotemin(lmin, n)
         if e:
             db().rollback()
             return err(e)
         db().commit()
-    al, ar, cp, abas = _alias(), _areas(), _cap(), ds["meta"].get("lineas") or {}
-    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k), "area": ar.get(k, ""), "cap": cp.get(k)}
-                    for k in sorted(n)])
+    al, ar, cp, lm, abas = _alias(), _areas(), _cap(), _lotemin(), ds["meta"].get("lineas") or {}
+    return jsonify([{"codigo": k, "abas": abas.get(k, ""), "n": n[k], "nombre": al.get(k, k), "area": ar.get(k, ""), "cap": cp.get(k),
+                     "lmin": lm.get(k)} for k in sorted(n)])
 
 
 @app.put("/api/lineas/<codigo>/turnos")

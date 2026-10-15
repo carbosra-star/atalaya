@@ -58,15 +58,20 @@ def _estadistico(r: dict, ns: float, dias_extra: int):
     return v, "ok", etr, sesgo, flag
 
 
-def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, extra: dict) -> list[dict]:
-    """Una fila por PT contra stock con ABC A–D. dec: decisión vigente por referencia; extra: días de plazo extra."""
-    rows = []
+def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, extra: dict, lmin: dict | None = None) -> list[dict]:
+    """Una fila por PT contra stock con ABC A–D. dec: decisión vigente por referencia; extra: días de plazo extra;
+    lmin: lote mínimo (uds) de las líneas que lo tienen."""
+    rows, lmin = [], lmin or {}
     for r in refs:
         if r.get("gp") != "Contra Stock" or r.get("abc") not in CLASES:
             continue
         i, md, k = CLASES.index(r["abc"]), r["md"], r["k"]
         mn, lt, pr = r["mn"], r["lt"], r.get("pr") or 0
         lc = lote_calc(sum(r["pv"]), freq[md][i])
+        lm = lmin.get(r.get("ln") or "", 0)
+        sube = 0 < lc < lm  # la línea no fabrica lotes tan pequeños: el calculado sube a su mínimo
+        if sube:
+            lc = lm
         xl = round100(lc * ss_pct[md][i] / 100)
         dx = int(extra.get(k, 0))
         est, tipo, etr, sesgo, flag = _estadistico(r, ns[md][i], dx)
@@ -79,7 +84,8 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
         ssp = est if tipo == "ok" else 0 if sin == "extinguir" else mn
         if sin != "extinguir" and _ruido(ssp, mn):
             ssp = mn
-        ltp = 0 if sin == "extinguir" else lt if sin or _ruido(lc, lt) else lc
+        # El del ERP se mantiene si está cerca del calculado, pero nunca por debajo del mínimo de la línea
+        ltp = 0 if sin == "extinguir" else lt if sin or (_ruido(lc, lt) and lt >= lm) else lc
         d = dec.get(k)
         if d and d.get("aplicado") and (d["ss"] != mn or d["lote"] != lt):
             d = None  # se aplicó y después se cambió en ABAS: la decisión ya no manda
@@ -94,7 +100,7 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
             k=k, n=r.get("n", ""), md=md, abc=r["abc"], ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
             er=None if etr is None else round(etr, 3), sg=None if sesgo is None else round(sesgo, 3), flag=flag, tipo=tipo,
             mn=mn, lt=lt, xl=xl, est=est, ssp=ssp, lc=lc, ltp=ltp, ss=ss, lote=lote, d=bool(d), estado=estado,
-            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx))
+            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube))
     return rows
 
 

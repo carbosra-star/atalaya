@@ -811,30 +811,34 @@ async function pageLines(main) {
   if (ed) ed.onclick = async () => {
     const ls = await api('/api/lineas');
     const yaAreas = [...new Set(ls.map(x => x.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-    $('#lnBox').innerHTML = `<section class="card"><h2>Líneas: nombre, área y capacidad</h2><p class="muted small">Nombre corto para usar en toda la app (vacío o igual al código: se muestra el código). Área: agrupa varias líneas; vacío = sin área. Capacidad: V.max en uds/hora, OEE en % y turnos (0 a 3); los tres vacíos = sin capacidad.</p>
+    $('#lnBox').innerHTML = `<section class="card"><h2>Líneas: nombre, área y capacidad</h2><p class="muted small">Nombre corto para usar en toda la app (vacío o igual al código: se muestra el código). Área: agrupa varias líneas; vacío = sin área. Capacidad: V.max en uds/hora, OEE en % y turnos (0 a 3); los tres vacíos = sin capacidad. Lote mín.: unidades de PT por debajo de las que la línea no fabrica; el lote calculado sube hasta él (vacío = sin mínimo).</p>
       <form class="form" id="lnF" style="max-width:none"><datalist id="lnAreas">${yaAreas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
-      <div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th><th scope="col">Área</th><th scope="col" class="r">V.max (uds/h)</th><th scope="col" class="r">OEE %</th><th scope="col" class="r">Turnos</th></tr></thead><tbody>
+      <div class="tw"><table class="fit"><thead><tr><th scope="col">Código</th><th scope="col">Nombre en ABAS</th><th scope="col" class="r">Referencias</th><th scope="col">Nombre corto</th><th scope="col">Área</th><th scope="col" class="r">V.max (uds/h)</th><th scope="col" class="r">OEE %</th><th scope="col" class="r">Turnos</th><th scope="col" class="r" title="Lote mínimo de fabricación en uds de PT">Lote mín.</th></tr></thead><tbody>
       ${ls.map(x => `<tr><th scope="row">${esc(x.codigo)}</th><td>${esc(x.abas)}</td><td class="r num">${fmt(x.n)}</td><td><input name="${esc(x.codigo)}" value="${esc(x.nombre)}" maxlength="40" aria-label="Nombre corto de ${esc(x.codigo)}" style="width:200px"></td>
         <td><input name="area:${esc(x.codigo)}" value="${esc(x.area)}" list="lnAreas" maxlength="40" aria-label="Área de ${esc(x.codigo)}" style="width:180px"></td>
         <td><input name="vmax:${esc(x.codigo)}" value="${x.cap ? x.cap.vmax : ''}" inputmode="decimal" aria-label="V.max de ${esc(x.codigo)}" style="width:80px" class="r"></td>
         <td><input name="oee:${esc(x.codigo)}" value="${x.cap ? String(Math.round(x.cap.oee * 1000) / 10).replace('.', ',') : ''}" inputmode="decimal" aria-label="OEE de ${esc(x.codigo)}" style="width:64px" class="r"></td>
-        <td><input name="tur:${esc(x.codigo)}" value="${x.cap ? turnTxt(x.cap.turnos) : ''}" inputmode="decimal" aria-label="Turnos de ${esc(x.codigo)}" style="width:56px" class="r"></td></tr>`).join('')}
+        <td><input name="tur:${esc(x.codigo)}" value="${x.cap ? turnTxt(x.cap.turnos) : ''}" inputmode="decimal" aria-label="Turnos de ${esc(x.codigo)}" style="width:56px" class="r"></td>
+        <td><input name="lmin:${esc(x.codigo)}" value="${x.lmin || ''}" inputmode="numeric" aria-label="Lote mínimo de ${esc(x.codigo)}" style="width:80px" class="r"></td></tr>`).join('')}
       </tbody></table></div><div><button class="btn">Guardar</button> <button type="button" class="btn ghost" id="lnX">Cerrar</button></div></form></section>`;
     $('#lnX').onclick = () => { $('#lnBox').innerHTML = ''; };
     $('#lnF').onsubmit = async (ev) => {
       ev.preventDefault();
-      const nombres = {}, areas = {}, cap = {}, el = ev.target.elements, num = (v) => v.trim() === '' ? null : Number(v.trim().replace(',', '.'));
+      const nombres = {}, areas = {}, cap = {}, lmin = {}, el = ev.target.elements, num = (v) => v.trim() === '' ? null : Number(v.trim().replace(',', '.'));
       for (const x of ls) {
         const v = el[x.codigo].value.trim(), a = el['area:' + x.codigo].value.trim(); if (v !== x.nombre) nombres[x.codigo] = v; if (a !== x.area) areas[x.codigo] = a;
+        const lm = num(el['lmin:' + x.codigo].value.replace(/\./g, ''));  // admite 5.000
+        if (lm != null && !(Number.isInteger(lm) && lm > 0)) { toast(`Lote mínimo de ${x.codigo}: un número entero de unidades (o vacío)`); return; }
+        if (lm !== (x.lmin || null)) lmin[x.codigo] = lm;
         const vm = num(el['vmax:' + x.codigo].value), oe = num(el['oee:' + x.codigo].value), tu = num(el['tur:' + x.codigo].value);
         if (vm == null && oe == null && tu == null) { if (x.cap) cap[x.codigo] = null; continue; }
         if ([vm, oe, tu].some(n => n == null || isNaN(n))) { toast(`Capacidad de ${x.codigo}: rellena V.max, OEE y turnos con números (o deja los tres vacíos)`); return; }
         const nv = { vmax: vm, oee: Math.round(oe * 10) / 1000, turnos: tu };
         if (!x.cap || x.cap.vmax !== nv.vmax || Math.abs(x.cap.oee - nv.oee) > 1e-9 || x.cap.turnos !== nv.turnos) cap[x.codigo] = nv;
       }
-      if (!Object.keys(nombres).length && !Object.keys(areas).length && !Object.keys(cap).length) { toast('No hay cambios'); return; }
+      if (![nombres, areas, cap, lmin].some(o => Object.keys(o).length)) { toast('No hay cambios'); return; }
       try {
-        const r = await api('/api/lineas', { method: 'PUT', body: { nombres, areas, cap } });
+        const r = await api('/api/lineas', { method: 'PUT', body: { nombres, areas, cap, lmin } });
         S.ds.cap = Object.fromEntries(r.filter(x => x.cap).map(x => [x.codigo, x.cap]));
         S.ds.alias = Object.fromEntries(r.filter(x => x.nombre !== x.codigo).map(x => [x.codigo, x.nombre]));
         S.ds.areas = Object.fromEntries(r.filter(x => x.area).map(x => [x.codigo, x.area]));
@@ -1039,7 +1043,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   const pct = (x) => x == null ? '<span class="muted">—</span>' : Math.round(x * 100) + ' %';
   const n0 = (v) => v == null ? '<span class="muted">—</span>' : fmt(v);
   const fila = (p) => {
-    const marca = [PTIPO[p.tipo], p.flag ? 'corregir previsión' : ''].filter(Boolean).join(' · ');
+    const marca = [PTIPO[p.tipo], p.flag ? 'corregir previsión' : '', p.lms ? 'mín. de línea' : ''].filter(Boolean).join(' · ');
     const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock mínimo de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="manual">Manual</option></select>
         <input type="number" min="0" step="100" data-ssv="${esc(p.k)}" hidden aria-label="Stock mínimo manual" style="width:90px">
         <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="manual">Manual</option></select>

@@ -42,6 +42,23 @@ check("lote ≥ 10.000 a miles", P.lote_calc(130000, 12) == 11000, P.lote_calc(1
 check("lote pequeño a centenas, mínimo 100", P.lote_calc(1000, 12) == 100 and P.lote_calc(500, 12) == 100)
 check("sin previsión, lote 0", P.lote_calc(0, 12) == 0)
 
+# Lote mínimo de la línea: el calculado (2.000) sube al mínimo; el del ERP cercano no se queda si está por debajo
+_lm = lambda r, lmin: {p["k"]: p for p in P.parametros([r], FREQ, SSP, NS, {}, {}, lmin)}[r["k"]]  # noqa: E731
+p = _lm(ref(lt=1000), {"L1": 5000})
+check("lote mínimo de la línea: el calculado sube al mínimo", p["lc"] == 5000 and p["ltp"] == 5000 and p["lms"] and p["lm"] == 5000, (p["lc"], p["ltp"], p["lms"]))
+p = _lm(ref(lt=1000), {"L2": 5000})
+check("lote mínimo de otra línea no afecta", p["lc"] == 2000 and not p["lms"] and p["lm"] is None, (p["lc"], p["lms"]))
+p = _lm(ref(lt=1000), {"L1": 1500})
+check("calculado por encima del mínimo: no cambia", p["lc"] == 2000 and not p["lms"], (p["lc"], p["lms"]))
+p = _lm(ref(lt=4800), {"L1": 5000})
+check("ERP cercano pero por debajo del mínimo: propuesta al mínimo", p["ltp"] == 5000, p["ltp"])
+p = _lm(ref(lt=5200), {"L1": 5000})
+check("ERP cercano y por encima del mínimo: se queda el ERP", p["ltp"] == 5200, p["ltp"])
+p = _lm(ref(lt=1000, ext=True), {"L1": 5000})
+check("a extinguir con lote mínimo: lote 0", p["ltp"] == 0, p["ltp"])
+p = _lm(ref(lt=1000, pv=[0] * 12), {"L1": 5000})
+check("sin previsión con lote mínimo: sin lote calculado", p["lc"] == 0 and not p["lms"], (p["lc"], p["lms"]))
+
 p = calc([ref()])["P1"]
 check("lote calculado", p["lc"] == 2000, p["lc"])
 check("SS método Excel: lote × 75 %", p["xl"] == 1500, p["xl"])

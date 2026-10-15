@@ -317,6 +317,21 @@ check("líneas: renombrar", c.put("/api/lineas", json={"nombres": {cod: "  Espad
       and next(x for x in c.get("/api/lineas").json if x["codigo"] == cod)["nombre"] == "Espada 1")
 check("líneas: el dataset trae los nombres", c.get("/api/dataset").json.get("alias", {}).get(cod) == "Espada 1")
 c.put("/api/lineas", json={"nombres": {cod: ""}}, headers=H)
+# Lote mínimo por línea: sube el lote calculado de sus referencias; vacío lo quita
+_pl = next((p for p in c.get("/api/parametros").json["rows"] if p["ln"] and p["lc"] > 0 and not p["d"]), None)
+if _pl:
+    _lput = lambda v, cl=c: cl.put("/api/lineas", json={"lmin": {_pl["ln"]: v}}, headers=H)  # noqa: E731
+    _pr = lambda: next(p for p in c.get("/api/parametros").json["rows"] if p["k"] == _pl["k"])  # noqa: E731
+    check("lote mínimo: un lector no puede", _lput(9_000_000, c2).status_code == 403)
+    check("lote mínimo no válido se rechaza", all(_lput(v).status_code == 400 for v in (0, -5, 12.5, "5000", True)))
+    r = _lput(9_000_000)
+    p = _pr()
+    check("lote mínimo: guardado y aplicado al lote propuesto", r.status_code == 200 and next(x for x in r.json if x["codigo"] == _pl["ln"])["lmin"] == 9_000_000
+          and p["lc"] == 9_000_000 and p["ltp"] == 9_000_000 and p["lms"], (r.status_code, p["lc"], p["ltp"]))
+    _xo = openpyxl.load_workbook(io.BytesIO(c.get("/api/parametros.xlsx").data)).active
+    check("lote mínimo: el Excel lo indica", any(x[0] == _pl["k"] and "mínimo de la línea" in (x[22] or "") for x in _xo.iter_rows(min_row=2, values_only=True)))
+    _lput(None)
+    check("lote mínimo: vacío lo quita", _pr()["lc"] == _pl["lc"] and not _pr()["lms"], _pr()["lc"])
 check("líneas: vacío vuelve al código", next(x for x in c.get("/api/lineas").json if x["codigo"] == cod)["nombre"] == cod and cod not in c.get("/api/dataset").json.get("alias", {}))
 
 # Capacidad por línea: valores iniciales del Excel, edición y configuración general
