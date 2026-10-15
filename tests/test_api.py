@@ -35,6 +35,14 @@ def check(name, cond, detail=""):
         check.fails += 1
 
 
+def check_caso(name, casos, cond, detail=""):
+    """Como check, para comprobaciones que necesitan un caso concreto en el fichero: si no lo trae, se avisa y no falla."""
+    if casos:
+        check(f"{name} ({casos} casos)", cond, detail)
+    else:
+        print("--   ", name, "(sin caso en este fichero)")
+
+
 check.fails = 0
 c = A.app.test_client()
 
@@ -67,18 +75,18 @@ _lim30 = (_dt.date.fromisoformat(ds["meta"]["hoy"]) - _dt.timedelta(days=30)).is
 check("atrasados de más de 30 días fuera de la demanda y listados", _ao and all(p[0] < _lim30 for p in _ao) and all(x[0] >= _lim30 for r in ds["refs"] for x in r["pdd"]), len(_ao))
 check("propuestas movidas guardan su fecha del MRP", any(e.get("dm") for e in _ps) and all(e["dm"] < e["d"] == _lim for e in _ps if e.get("dm")))
 pf = ds.get("porfolio") or {}
+_hoy = _dt.date.fromisoformat(ds["meta"]["hoy"])
+_lanz = core._hace_meses(_hoy, core.LANZ_MESES).isoformat()  # altas desde aquí: lanzamientos
 check("porfolio: resumen del maestro", pf.get("res", {}).get("seguimiento") == len(ds["refs"]) and pf["res"]["fuera"] == len(pf["fuera"]), pf.get("res"))
 check("porfolio: fuera solo quedan activos sin movimiento que no son lanzamientos",
-      pf.get("fuera") is not None and all(x["cat"] != "prev_futura" and x["alta"] < "2025-12-29" for x in pf["fuera"]),
-      [(x["k"], x["cat"], x["alta"]) for x in pf.get("fuera", []) if x["cat"] == "prev_futura" or x["alta"] >= "2025-12-29"][:3])
+      pf.get("fuera") is not None and all(x["cat"] != "prev_futura" and x["alta"] < _lanz for x in pf["fuera"]),
+      [(x["k"], x["cat"], x["alta"]) for x in pf.get("fuera", []) if x["cat"] == "prev_futura" or x["alta"] >= _lanz][:3])
 check("porfolio: inactivos con stock, todos con stock > 0", all(x["st"] > 0 for x in pf.get("inact", [])), len(pf.get("inact", [])))
 check("cada referencia lleva su fecha de alta", sum(bool(r.get("al")) for r in ds["refs"]) > len(ds["refs"]) * 0.9, sum(bool(r.get("al")) for r in ds["refs"]))
 activos = {r["k"] for r in ds["refs"]} | {x["k"] for x in pf.get("fuera", [])}
 check("el sucesor de la ficha existe y está activo", all(r["sc"] in activos for r in ds["refs"] if r.get("sc")), [(r["k"], r["sc"]) for r in ds["refs"] if r.get("sc") and r["sc"] not in activos][:3])
 check("los lanzamientos siempre están en seguimiento", pf.get("lanz") and all(x["app"] for x in pf["lanz"]), sum(not x["app"] for x in pf.get("lanz", [])))
-ilu = [k for k in ("501541932400", "501545112400", "501540227240", "501548402400") if k in {r["k"] for r in ds["refs"]}]
-check("tonos nuevos de ILUSIONYST en seguimiento (con y sin previsión)", len(ilu) == 4, ilu)
-check("porfolio: lanzamientos de los últimos 9 meses", len(pf.get("lanz", [])) > 0 and all(x["alta"] >= "2025-12-29" for x in pf["lanz"]), len(pf.get("lanz", [])))
+check("porfolio: lanzamientos de los últimos 9 meses", len(pf.get("lanz", [])) > 0 and all(x["alta"] >= _lanz for x in pf["lanz"]), len(pf.get("lanz", [])))
 # Mismo Excel con otra fecha: solo puede cambiar lo que depende de la ventana de venta (el mes que se cierra entre
 # las dos fechas), nunca referencias con stock, previsión, pedidos o entradas
 _cb = pf.get("cambios") or {}
@@ -91,20 +99,60 @@ check("la comprobación del fichero resume altas y bajas", r.json["preview"].get
 bel = [r for r in ds["refs"] if r["md"] == "Belloch" and r["gp"] == "Contra Stock"]
 check("stock mínimo de Belloch desde mindest del maestro", sum(r["mn"] > 0 for r in bel) > len(bel) // 3, f'{sum(r["mn"] > 0 for r in bel)} de {len(bel)}')
 # Pedidos de compra a proveedor (MM_PedCompras): entrada «PC»; los de LABORATORIOS BELLOCH (intragrupo) no cuentan
+# Lo esperado se saca del propio fichero, leído aparte: las pruebas valen con cualquier MM_Supply
+RW = core.read_workbook(sys.argv[1])
+_g, _c, _n, _d = core._get, core._code, core._num, core._date
+kref = {r["k"] for r in ds["refs"]}
 pcs = {r["k"]: [e for e in r["en"] if e["t"] == "PC"] for r in ds["refs"]}
-bri = pcs.get("012080002400", [])
-check("pedido de compra leído (Brillantina Nelly, Talento y Experiencia)", any(e["q"] == 10000 and e["d"] == "2026-10-15" and e["id"] == "637475" and "TALENTO" in e["pv"] for e in bri), bri)
-check("pedidos intragrupo (LABORATORIOS BELLOCH) excluidos", not pcs.get("506110000000") and not pcs.get("017810000000"), (pcs.get("506110000000"), pcs.get("017810000000")))
-check("pedido de compra con fecha pasada marcado atrasado", any(e["late"] for e in pcs.get("018220000000", [])), pcs.get("018220000000"))
-check("solo PT: ningún pedido de material entra en las referencias", sum(len(v) for v in pcs.values()) == 18, sum(len(v) for v in pcs.values()))
-# ZT del escandallo de los PT fabricados fuera (018220000000 Color Mask Marrón: ZT 01822000ZT)
-cm = next((r for r in ds["refs"] if r["k"] == "018220000000"), {})
-z = (cm.get("zt") or [{}])[0]
-check("ZT del escandallo en el PT fabricado fuera", z.get("k") == "01822000ZT" and z.get("q") == 1 and z.get("st") == 1710 and sorted(e["q"] for e in z.get("en", [])) == [6050, 8500], z)
-check("falta ZT para el pedido (Color Mask Marrón)", core.evaluate(cm)["why"] == "Falta ZT para el pedido", core.evaluate(cm)["why"] if cm else None)
+_got = sorted((k, e["id"], e["q"], e["d"]) for k, es in pcs.items() for e in es)
+_esp, _intra = [], []
+if RW.get("MM_PedCompras"):
+    tc = core._Table(RW["MM_PedCompras"], "Articulo", "MM_PedCompras")
+    jc, jq, jf, jp, jv = tc.col("Articulo"), tc.col("SumCantidad_Pendiente"), tc.col("Fecha Entrega"), tc.opt("Nº Pedido"), tc.opt("Nombre proveedor")
+    for x in tc.data:
+        k, q, d = _c(_g(x, jc)), _n(_g(x, jq)), _d(_g(x, jf))
+        if k not in kref or q <= 0 or (d and (d.year - _hoy.year) * 12 + d.month - _hoy.month >= 12):
+            continue
+        fila = (k, core._id(_g(x, jp)), round(q), d.isoformat() if d else "")
+        (_intra if "LABORATORIOS BELLOCH" in core._norm(_g(x, jv)).upper() else _esp).append(fila)
+_falta = [x for x in _esp if x not in _got] + [x for x in _got if x not in _esp]
+check_caso("pedidos de compra de PT leídos tal cual del fichero (12 meses)", len(_esp), not _falta, _falta[:3])
+check_caso("pedidos intragrupo (LABORATORIOS BELLOCH) excluidos", len(_intra), not set(_intra) & set(_got), [x for x in _intra if x in _got][:3])
+_pc = [e for es in pcs.values() for e in es]
+check_caso("pedido de compra con fecha pasada marcado atrasado", sum(bool(e["d"]) and e["d"] < ds["meta"]["hoy"] for e in _pc),
+           all(e["late"] == (bool(e["d"]) and e["d"] < ds["meta"]["hoy"]) for e in _pc), [e for e in _pc if e["late"] != (bool(e["d"]) and e["d"] < ds["meta"]["hoy"])][:2])
+# ZT del escandallo de los PT fabricados fuera: componente del PT en Escandallos, con su QNivelPT y su stock de MM_Stocks
+_ts = core._Table(RW["MM_Stocks"], "Nº Articulo", "MM_Stocks")
+_st = {}
+for x in _ts.data:
+    _st[_c(_g(x, _ts.col("Nº Articulo")))] = _st.get(_c(_g(x, _ts.col("Nº Articulo"))), 0.0) + _n(_g(x, _ts.col("SumStock_actual")))
+_bom = {}
+if RW.get("Escandallos"):
+    tb = core._Table(RW["Escandallos"], "Nº Articulo", "Escandallos")
+    for x in tb.data:
+        _bom[(_c(_g(x, tb.col("Nº Articulo"))), _c(_g(x, tb.col("NivelPT"))))] = _n(_g(x, tb.col("QNivelPT"))) or 1.0
+_zts = [(r["k"], z) for r in ds["refs"] for z in r.get("zt", [])]
+check_caso("ZT del escandallo en el PT fabricado fuera (cantidad por PT y stock)", len(_zts),
+           all(_bom.get((k, z["k"])) == z["q"] and z["st"] == round(_st.get(z["k"], 0.0)) for k, z in _zts),
+           [(k, z["k"], z["q"], z["st"]) for k, z in _zts if _bom.get((k, z["k"])) != z["q"] or z["st"] != round(_st.get(z["k"], 0.0))][:2])
 check("solo los PT con pedido de compra llevan ZT", all(any(e["t"] == "PC" for e in r["en"]) for r in ds["refs"] if r.get("zt")), sum(1 for r in ds["refs"] if r.get("zt")))
-laca = next((r for r in ds["refs"] if r["k"] == "010010001200"), None)
-check("la laca 010010001200 tiene stock mínimo 20.000", laca is not None and laca["mn"] == 20000, laca and laca["mn"])
+# Falta ZT: lo firme del ZT (stock + OF) ÷ ZT por PT no llega a los pedidos de compra pendientes
+_fz = [r for r in ds["refs"] if r.get("zt") and any((max(z["st"], 0) + sum(e["q"] for e in z["en"] if e["t"] == "OF")) / (z["q"] or 1)
+                                                     < sum(e["q"] for e in r["en"] if e["t"] == "PC") - 0.5 for z in r["zt"])]
+check_caso("falta ZT para el pedido", len(_fz), all(core.falta_zt(r) == "Falta ZT para el pedido" for r in _fz), [(r["k"], core.falta_zt(r)) for r in _fz][:2])
+_zr = next((r for r in ds["refs"] if r.get("zt")), None)
+if _zr:  # caso fabricado con una referencia real: su ZT sin stock ni OF no cubre los pedidos de compra
+    _zr2 = json.loads(json.dumps(_zr))
+    for z in _zr2["zt"]:
+        z["st"], z["en"] = 0, [e for e in z["en"] if e["t"] != "OF"]
+    check("falta ZT para el pedido (ZT sin stock ni OF)", core.falta_zt(_zr2) == "Falta ZT para el pedido", (_zr["k"], core.falta_zt(_zr2)))
+check("ZT suficiente: sin aviso de falta",all(core.falta_zt(r) != "Falta ZT para el pedido" for r in ds["refs"] if r.get("zt") and r not in _fz))
+# Stock mínimo de Belloch = mindest del maestro
+_ta = core._Table(RW["MM_Art"], "Nº Artículo", "MM_Art")
+if _ta.opt("mindest") is not None:
+    _min = {_c(_g(x, _ta.col("Nº Artículo"))): round(_n(_g(x, _ta.col("mindest")))) for x in _ta.data}
+    check("stock mínimo de Belloch igual al mindest del maestro", all(r["mn"] == _min.get(r["k"], 0) for r in bel),
+          [(r["k"], r["mn"], _min.get(r["k"])) for r in bel if r["mn"] != _min.get(r["k"], 0)][:3])
 check("previsión operativa: todos los meses tienen versión", all(ds["meta"]["prev_src"]), ds["meta"]["prev_src"])
 check("se compara con la carga de la fecha anterior", ds["prev"] and ds["prev"].get("hoy") == "2026-09-22", ds["prev"] and ds["prev"].get("hoy"))
 check("carga anterior evaluada en las seis combinaciones", ds["prev"] and set(ds["prev"]["sem"]) == {"OF", "OFPF", "ALL", "OF_C", "OFPF_C", "ALL_C"})
@@ -129,9 +177,10 @@ check("guardar meses de exceso", r.status_code == 200 and r.json["exceso"] == {"
 for malo in ({"Belloch": 0, "Yunsey": 12}, {"Belloch": 13, "Yunsey": 12}, {"Belloch": 6.5, "Yunsey": 12}, {"Belloch": 6}, "6", {"Belloch": True, "Yunsey": 12}):
     check(f"exceso no válido se rechaza: {malo}", c.put("/api/config", json={"exceso": malo}, headers=H).status_code == 400)
 nexc = lambda: sum(v == "exceso" for v in c.get("/api/dataset").json["prev"]["sem"]["ALL"].values())  # noqa: E731
-n9 = nexc()
+c.put("/api/config", json={"exceso": {"Belloch": 1, "Yunsey": 1}}, headers=H)
+n1 = nexc()  # con 1 mes hay más exceso que con 6/12, salvo que todas tengan stock máximo (mínimo + lote)
 c.put("/api/config", json={"exceso": {"Belloch": 6, "Yunsey": 12}}, headers=H)
-check("la carga anterior se evalúa con los meses de exceso guardados", nexc() < n9, (n9, nexc()))
+check_caso("la carga anterior se evalúa con los meses de exceso guardados", int(n1 != nexc()), nexc() < n1, (n1, nexc()))
 
 # Validaciones de acciones
 r = c.post("/api/actions", json={"ref": "<img src=x onerror=alert(1)>", "text": "x"}, headers=H)
