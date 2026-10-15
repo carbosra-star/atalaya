@@ -1228,6 +1228,38 @@ const pfTabla = (rows, cols, empty, fit = true) => {
 // Columnas comunes de Porfolio: ABC (solo en seguimiento) y a extinguir con su sucesor si está activo
 const pfAbc = (k) => `<td>${S.byK[k] ? abcRef(S.byK[k].r) : '<span class="muted">—</span>'}</td>`;
 const pfExt = (x) => `<td class="nowrap">${x.ext ? `Sí${x.sc ? ` · sucesor ${S.byK[x.sc] ? refLink({ k: x.sc }) : `<b>${esc(x.sc)}</b>`}` : ''}` : '<span class="muted">—</span>'}</td>`;
+// Filtros comunes de Porfolio (buscar, mandante, marca, línea, planificación). Las cargas antiguas no traen
+// mandante, marca ni línea en los bloques: se toman de la referencia en seguimiento o del código
+const PF_F = ['q', 'md', 'mc', 'ln', 'gp'];
+const pfAttr = (x) => { const r = S.byK[x.k] && S.byK[x.k].r; return { md: x.md || (r ? r.md : x.k[0] === '5' ? 'Yunsey' : 'Belloch'), mc: x.mc != null ? x.mc : r ? r.mc : '', ln: x.li != null ? x.li : r ? r.ln : '', gp: x.gp != null ? x.gp : r ? r.gp : '' }; };
+function pfMatch(q) {
+  const toks = (q.get('q') || '').toLowerCase().split(/\s+/).filter(Boolean), md = q.get('md') || '', mc = q.get('mc') || '', ln = q.get('ln') || '', gp = q.get('gp') || '';
+  return (x) => { const a = pfAttr(x); return (!md || a.md === md) && (!mc || a.mc === mc) && (!ln || (a.ln || '—') === ln) && (!gp || a.gp === gp) && (!toks.length || toks.every(w => (x.k + ' ' + x.n).toLowerCase().includes(w))); };
+}
+const pfHayFiltro = (q) => PF_F.some(n => q.get(n));
+const pfQs = (q) => { const p = new URLSearchParams(); PF_F.forEach(n => q.get(n) && p.set(n, q.get(n))); return p.toString() ? '?' + p : ''; };
+// Porfolio y referencias en seguimiento (ev) con los filtros aplicados
+function pfFiltrado(pf, q) {
+  if (!pfHayFiltro(q)) return { ...pf, ev: S.ev };
+  const m = pfMatch(q), f = (xs) => xs.filter(m), ev = S.ev.filter(({ r }) => m({ k: r.k, n: r.n, md: r.md, mc: r.mc, li: r.ln, gp: r.gp }));
+  const fuera = f(pf.fuera);
+  return { ...pf, ev, lanz: f(pf.lanz), fuera, inact: f(pf.inact), cambios: pf.cambios && { entran: f(pf.cambios.entran), salen: f(pf.cambios.salen) }, res: { ...pf.res, seguimiento: ev.length, activos: ev.length + fuera.length, fuera: fuera.length } };
+}
+function pfFiltros(pf, q) {
+  const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  // marcas y líneas del mandante elegido (más la elegida, para que no desaparezca del desplegable)
+  const todos = [...S.ds.refs.map(r => ({ md: r.md, mc: r.mc, ln: r.ln })), ...pf.fuera.map(pfAttr), ...pf.inact.map(pfAttr)].filter(x => !q.get('md') || x.md === q.get('md'));
+  const marcas = [...new Set([...todos.map(x => x.mc), q.get('mc')].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const lineas = [...new Set([...todos.map(x => x.ln || '—'), q.get('ln')].filter(Boolean))];
+  const gps = [...new Set([...S.ds.refs.map(r => r.gp), ...pf.fuera.map(x => x.gp)].filter(Boolean))].sort();
+  return `<form class="filters" id="pfF" role="search" aria-label="Filtros" onsubmit="return false">
+    <label class="fld">Buscar<input type="search" name="q" value="${esc(q.get('q') || '')}" placeholder="Código o artículo"></label>
+    <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], q.get('md'), 'Todos')}</select></label>
+    <label class="fld">Marca<select name="mc">${opts(marcas, q.get('mc'), 'Todas')}</select></label>
+    <label class="fld">Línea<select name="ln">${lnOpts(lineas, q.get('ln'))}</select></label>
+    <label class="fld">Planificación<select name="gp">${opts(gps, q.get('gp'), 'Todas')}</select></label>
+    ${pfHayFiltro(q) ? '<button type="button" class="btn ghost sm" data-pflimpia>Quitar filtros</button>' : ''}</form>`;
+}
 const lanzCompleto = (x) => x.app && x.pv && x.ln && x.mn !== false && x.lt && x.en;
 
 // Bloques: cada uno sabe pintar su tabla y es a la vez sección desplegable y vista de detalle
@@ -1266,7 +1298,7 @@ const PF_BLOQUES = {
     lead: () => '',
     html: (pf, q) => {
       const ver = q.get('ver') || '';
-      const rows = [...S.ds.refs.map(r => ({ k: r.k, n: r.n, alta: r.al || '', gp: r.gp, seg: true, m: '', ext: r.ext, sc: r.sc })), ...pf.fuera.map(x => ({ k: x.k, n: x.n, alta: x.alta, gp: x.gp || '', seg: false, m: CATSM[x.cat] || x.cat, ext: x.ext, sc: x.sc }))]
+      const rows = [...pf.ev.map(({ r }) => ({ k: r.k, n: r.n, alta: r.al || '', gp: r.gp, seg: true, m: '', ext: r.ext, sc: r.sc })), ...pf.fuera.map(x => ({ k: x.k, n: x.n, alta: x.alta, gp: x.gp || '', seg: false, m: CATSM[x.cat] || x.cat, ext: x.ext, sc: x.sc }))]
         .filter(x => !ver || (ver === 'seg') === x.seg).sort((a, b) => a.k < b.k ? -1 : 1);
       const op = (v, t) => `<option value="${v}" ${ver === v ? 'selected' : ''}>${t}</option>`;
       return `<form class="filters" onsubmit="return false"><label class="fld">Mostrar<select data-ver>${op('', 'Todos')}${op('seg', 'En seguimiento')}${op('fuera', 'Sin movimiento')}</select></label></form><p class="muted small">${fmt(rows.length)} referencias</p>` +
@@ -1275,11 +1307,11 @@ const PF_BLOQUES = {
     },
   },
   extinguir: {
-    t: 'A extinguir', n: (pf) => fmt(S.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length) + (S.ev.some(x => x.r.ext && x.r.pr > 0 && x.r.st > 0) ? ' · ' + keur(S.ev.reduce((s, { r }) => s + (r.ext && r.pr > 0 ? Math.max(r.st, 0) * r.pr : 0), 0)) : ''),
+    t: 'A extinguir', n: (pf) => fmt(pf.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length) + (pf.ev.some(x => x.r.ext && x.r.pr > 0 && x.r.st > 0) ? ' · ' + keur(pf.ev.reduce((s, { r }) => s + (r.ext && r.pr > 0 ? Math.max(r.st, 0) * r.pr : 0), 0)) : ''),
     lead: () => 'PT activos marcados a extinguir en ABAS: se consume el stock y no se repone. El valor es el del stock que queda por consumir.',
     html: (pf) => {
       const suc = (sc) => sc ? (S.byK[sc] ? refLink({ k: sc }) : `<b>${esc(sc)}</b>`) : '<span class="muted">—</span>';
-      const seg = S.ev.filter(x => x.r.ext).sort((a, b) => (b.r.pr > 0 ? Math.max(b.r.st, 0) * b.r.pr : 0) - (a.r.pr > 0 ? Math.max(a.r.st, 0) * a.r.pr : 0) || (a.r.k < b.r.k ? -1 : 1));
+      const seg = pf.ev.filter(x => x.r.ext).sort((a, b) => (b.r.pr > 0 ? Math.max(b.r.st, 0) * b.r.pr : 0) - (a.r.pr > 0 ? Math.max(a.r.st, 0) * a.r.pr : 0) || (a.r.k < b.r.k ? -1 : 1));
       const fu = pf.fuera.filter(x => x.ext);
       return `<h3>En seguimiento (${seg.length})</h3>` +
         pfTabla(seg.map(({ r, e }) => `<tr>${refCell(r)}<td>${abcRef(r)}</td><td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td><td class="r num">${r.pr > 0 ? eur(Math.max(r.st, 0) * r.pr) : '<span class="muted">sin precio</span>'}</td><td class="r num">${fmt(e.d3)}</td>${cobCell(e)}<td class="nowrap">${suc(r.sc)}</td></tr>`).join(''),
@@ -1289,10 +1321,10 @@ const PF_BLOQUES = {
     },
   },
   abc: {
-    t: 'Vista ABC', n: () => fmt(S.ev.filter(x => x.r.abc !== 'NA').length), soloVista: true,
+    t: 'Vista ABC', n: (pf) => fmt(pf.ev.filter(x => x.r.abc !== 'NA').length), soloVista: true,
     lead: () => 'Referencias en seguimiento. ABC: Pareto por mandante sobre la media de la venta de los 12 meses cerrados y la previsión de los 12 próximos (en uds). XYZ: lo bien que se prevé (error de previsión).',
-    html: (pf, q) => `<div class="abcs">${['Belloch', 'Yunsey'].map(md => {
-      const xs = S.ev.filter(x => x.r.md === md), con = xs.filter(x => x.r.abc !== 'NA');
+    html: (pf, q) => `<div class="abcs">${['Belloch', 'Yunsey'].filter(md => !q.get('md') || q.get('md') === md).map(md => {
+      const xs = pf.ev.filter(x => x.r.md === md), con = xs.filter(x => x.r.abc !== 'NA');
       const tot = con.reduce((s, x) => s + (x.r.abcm || 0), 0) || 1, sel = ABC_CL.includes(q.get('c' + md)) ? q.get('c' + md) : 'A';
       const cl = (c) => con.filter(x => x.r.abc === c), pct = (c) => (cl(c).reduce((s, x) => s + (x.r.abcm || 0), 0) / tot * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 });
       const filas = cl(sel).sort((a, b) => (b.r.abcm || 0) - (a.r.abcm || 0) || (a.r.k < b.r.k ? -1 : 1))
@@ -1300,11 +1332,11 @@ const PF_BLOQUES = {
           <td>${xyzTag(r.xyz, r.xe) || '<span class="muted">—</span>'}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td>${cobCell(e)}</tr>`).join('');
       const na = xs.length - con.length, nx = (x) => cl(sel).filter(y => y.r.xyz === x).length;
       return `<section class="card abcv" aria-label="${md}"><h2>${md} <span class="muted">· ${fmt(con.length)} referencias con ABC${na ? ` · ${fmt(na)} bajo pedido (NA)` : ''}</span></h2>
-        <div class="abcc">${ABC_CL.map(c => `<button type="button" class="abc-${c}" data-abcsel="${md}" data-c="${c}" aria-pressed="${c === sel}"><b>${c}</b><span>${fmt(cl(c).length)} refs</span><span>${pct(c)} % del volumen</span></button>`).join('')}</div>
+        <div class="abcc">${ABC_CL.map(c => `<button type="button" class="abc-${c}" data-abcsel="${md}" data-c="${c}" aria-pressed="${c === sel}"><b>${c}</b><span>${fmt(cl(c).length)} refs</span><span>${pct(c)} % del volumen${pfHayFiltro(q) ? ' filtrado' : ''}</span></button>`).join('')}</div>
         <h3>Clase ${sel} <span class="muted small">(${esc(abcTxt(sel))})</span></h3>
         <p class="muted small">XYZ en la clase ${sel}: ${['X', 'Y', 'Z'].map(x => `${xyzTag(x)} ${fmt(nx(x))}`).join(' · ')}${nx('') ? ` · sin XYZ ${fmt(nx(''))}` : ''}</p>
         ${pfTabla(filas, [['Referencia'], ['Base ABC', 'r', 'Media de la venta de 12 meses y la previsión de 12 meses (uds)'], ['Venta 12 m', 'r'], ['Previsión 12 m', 'r'], ['XYZ'], { g: 'Demanda', c: [['Media/mes', 'r', 'Demanda media de los 3 próximos meses'], ['Resto/mes', 'r', 'Demanda que queda del mes en curso']] }, ['Estado'], ['Stock', 'r'], { g: 'Cobertura', c: [['Meses', 'r', 'Meses que dura el stock de hoy con la demanda prevista'], ['Prudente', 'r', 'Cobertura en meses con la previsión corregida y aumentada en su error']] }], 'Ninguna referencia en esta clase.')}</section>`;
-    }).join('')}</div><p class="muted small">* ABC provisional (menos de 12 meses de venta: venta anualizada; con menos de 3, solo la previsión). XYZ: X ${esc(xyzTxt('X'))}, Y ${esc(xyzTxt('Y'))}, Z ${esc(xyzTxt('Z'))}; error = desviación típica de (venta − previsión) ÷ venta media, con al menos 6 meses de historia.</p>`,
+    }).join('')}</div><p class="muted small">${pfHayFiltro(q) ? 'Con filtros, cada referencia mantiene la clase de su mandante completo; el % es sobre el volumen de lo filtrado. ' : ''}* ABC provisional (menos de 12 meses de venta: venta anualizada; con menos de 3, solo la previsión). XYZ: X ${esc(xyzTxt('X'))}, Y ${esc(xyzTxt('Y'))}, Z ${esc(xyzTxt('Z'))}; error = desviación típica de (venta − previsión) ÷ venta media, con al menos 6 meses de historia.</p>`,
   },
 };
 const PF_ORDEN = ['cambios', 'lanzamientos', 'sin-movimiento', 'inactivos', 'extinguir'];
@@ -1312,10 +1344,16 @@ function pfAbiertos() { try { return JSON.parse(localStorage.getItem('pfOpen')) 
 
 async function pagePortfolio(main, [sub]) {
   if (!S.ds) return noData(main, 'Porfolio');
-  const pf = S.ds.porfolio;
-  if (!pf) { main.innerHTML = '<h1>Porfolio</h1><p class="lead">Esta carga es anterior a la sección Porfolio. Vuelve a cargar el MM_Supply desde Datos para verla.</p>'; return; }
-  const { q } = parseHash(), rerender = () => pagePortfolio(main, [sub]);
+  const pf0 = S.ds.porfolio;
+  if (!pf0) { main.innerHTML = '<h1>Porfolio</h1><p class="lead">Esta carga es anterior a la sección Porfolio. Vuelve a cargar el MM_Supply desde Datos para verla.</p>'; return; }
+  const { q } = parseHash(), rerender = () => pagePortfolio(main, [sub]), pf = pfFiltrado(pf0, q), qs = pfQs(q);
   const bindFiltros = () => {
+    const fl = $('#pfF', main);
+    if (fl) {
+      fl.addEventListener('input', (ev) => { if (ev.target.name !== 'q') return; clearTimeout(main._pft); main._pft = setTimeout(() => { const v = ev.target.value, c = ev.target.selectionStart; setQuery({ q: v.trim() }); rerender().then(() => { const i = $('#pfF input[name="q"]', main); if (i) { i.focus(); i.value = v; i.setSelectionRange(c, c); } }); }, 250); });
+      fl.addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'q') return; setQuery({ [n]: ev.target.value }); rerender().then(() => { const e2 = $(`#pfF [name="${n}"]`, main); if (e2) e2.focus(); }); });
+      const lb = $('[data-pflimpia]', fl); if (lb) lb.onclick = () => { setQuery(Object.fromEntries(PF_F.map(n => [n, '']))); rerender(); };
+    }
     $$('[data-pend]', main).forEach(c => c.onchange = () => { setQuery({ pend: c.checked ? '1' : '' }); rerender(); });
     $$('[data-ver]', main).forEach(s => s.onchange = () => { setQuery({ ver: s.value }); rerender(); });
     $$('[data-abcsel]', main).forEach(b => b.onclick = () => { const { abcsel: md, c } = b.dataset; setQuery({ ['c' + md]: c }); rerender().then(() => { const n = $(`[data-abcsel="${md}"][data-c="${c}"]`, main); if (n) n.focus(); }); });
@@ -1323,16 +1361,17 @@ async function pagePortfolio(main, [sub]) {
   const B = PF_BLOQUES[sub];
   if (sub && !B) return pageNotFound(main);
   if (B) {  // vista de detalle de un caso
-    main.innerHTML = `<p class="crumbs"><a href="#/porfolio">Porfolio</a> › ${B.t}</p><h1>${B.t} <span class="muted">(${B.n(pf)})</span></h1>${B.lead(pf) ? `<p class="lead">${B.lead(pf)}</p>` : ''}${B.html(pf, q)}`;
+    main.innerHTML = `<p class="crumbs"><a href="#/porfolio${qs}">Porfolio</a> › ${B.t}</p><h1>${B.t} <span class="muted">(${B.n(pf)})</span></h1>${B.lead(pf) ? `<p class="lead">${B.lead(pf)}</p>` : ''}${pfFiltros(pf0, q)}${B.html(pf, q)}`;
     return bindFiltros();
   }
-  const card = (href, v, l) => `<a class="kpi kpi-link" href="${href}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
+  const card = (href, v, l) => `<a class="kpi kpi-link" href="${href.startsWith('#/porfolio/') ? href + qs : href}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
   const ab = pfAbiertos();
   main.innerHTML = `<h1>Porfolio</h1>
-    <div class="kpis">${card('#/porfolio/activos', fmt(pf.res.activos), 'PT activos')}${card('#/coberturas?gp=', fmt(pf.res.seguimiento), 'En seguimiento')}
+    <div class="kpis">${card('#/porfolio/activos', fmt(pf.res.activos), 'PT activos')}${card('#/coberturas?gp=' + ['md', 'mc', 'ln', 'q'].filter(n => q.get(n)).map(n => `&${n}=${encodeURIComponent(q.get(n))}`).join(''), fmt(pf.res.seguimiento), 'En seguimiento')}
       ${card('#/porfolio/cambios', pf.cambios ? `${pf.cambios.entran.length} · ${pf.cambios.salen.length}` : '—', 'Entran · salen')}${card('#/porfolio/lanzamientos', fmt(pf.lanz.length), 'Lanzamientos')}
-      ${card('#/porfolio/sin-movimiento', fmt(pf.fuera.length), 'Sin movimiento')}${card('#/porfolio/inactivos', fmt(pf.inact.length), 'Inactivos con stock')}${card('#/porfolio/extinguir', fmt(S.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length), 'A extinguir')}${card('#/porfolio/abc', fmt(S.ev.filter(x => x.r.abc !== 'NA').length), 'Vista ABC')}</div>
-    ${PF_ORDEN.map(k => { const b = PF_BLOQUES[k]; return `<details class="blk" data-blk="${k}" ${ab[k] ? 'open' : ''}><summary><h2>${b.t} <span class="muted">(${b.n(pf)})</span></h2><a class="small" href="#/porfolio/${k}">ver en detalle</a></summary>${b.lead(pf) ? `<p class="muted small">${b.lead(pf)}</p>` : ''}${b.html(pf, q)}</details>`; }).join('')}`;
+      ${card('#/porfolio/sin-movimiento', fmt(pf.fuera.length), 'Sin movimiento')}${card('#/porfolio/inactivos', fmt(pf.inact.length), 'Inactivos con stock')}${card('#/porfolio/extinguir', fmt(pf.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length), 'A extinguir')}${card('#/porfolio/abc', fmt(pf.ev.filter(x => x.r.abc !== 'NA').length), 'Vista ABC')}</div>
+    ${pfFiltros(pf0, q)}
+    ${PF_ORDEN.map(k => { const b = PF_BLOQUES[k]; return `<details class="blk" data-blk="${k}" ${ab[k] ? 'open' : ''}><summary><h2>${b.t} <span class="muted">(${b.n(pf)})</span></h2><a class="small" href="#/porfolio/${k}${qs}">ver en detalle</a></summary>${b.lead(pf) ? `<p class="muted small">${b.lead(pf)}</p>` : ''}${b.html(pf, q)}</details>`; }).join('')}`;
   $$('details.blk', main).forEach(d => d.addEventListener('toggle', () => { const o = pfAbiertos(); o[d.dataset.blk] = d.open; try { localStorage.setItem('pfOpen', JSON.stringify(o)); } catch (e) {} }));
   bindFiltros();
 }

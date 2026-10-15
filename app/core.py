@@ -325,7 +325,9 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
     movimiento, inactivos con stock y altas/bajas frente a la carga anterior (prev = {código: nombre})."""
     en_app = {r["k"]: r for r in refs}
     pt = {k: a for k, a in A.items() if a["estado"] == "Producto terminado"}
-    ex = lambda k: dict(ext=bool(A.get(k, {}).get("ext")), sc=sucesor(A, k))  # noqa: E731  a extinguir y sucesor válido
+    # a extinguir y sucesor válido, más mandante, marca y línea para los filtros
+    ex = lambda k: dict(ext=bool(A.get(k, {}).get("ext")), sc=sucesor(A, k), md="Yunsey" if k.startswith("5") else "Belloch",  # noqa: E731
+                        mc=A.get(k, {}).get("marca", ""), li=LIN.get(k, ""))
     act = {k: a for k, a in pt.items() if not a["inact"]}
     iso = lambda d: d.isoformat() if d else ""  # noqa: E731
 
@@ -351,15 +353,15 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
         fuera.append(dict(k=k, n=a["name"], alta=iso(a["alta"]), gp=a["gp"], cat=cat, uv=_ym(base_y, base_m + VL[k]) if k in VL else "", **ex(k)))
     fuera.sort(key=lambda x: (x["cat"], x["alta"]))
 
-    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), pr=round(a.get("precio", 0.0), 2), fina=iso(a["fina"]), **ex(k)) for k, a in pt.items()
+    inact = sorted((dict(k=k, n=a["name"], st=round(ST.get(k, 0.0)), pr=round(a.get("precio", 0.0), 2), fina=iso(a["fina"]), gp=a["gp"], **ex(k)) for k, a in pt.items()
                     if a["inact"] and ST.get(k, 0.0) > 0), key=lambda x: (-x["st"] * x["pr"], -x["st"]))
 
     cambios = None
     if prev is not None:
         alta_desde = _hace_meses(today, ALTA_MESES)
-        entran = [dict(k=k, n=r["n"], m="alta" if A[k]["alta"] and A[k]["alta"] >= alta_desde else "vuelve", **ex(k))
+        entran = [dict(k=k, n=r["n"], gp=r["gp"], m="alta" if A[k]["alta"] and A[k]["alta"] >= alta_desde else "vuelve", **ex(k))
                   for k, r in en_app.items() if k not in prev]
-        salen = [dict(k=k, n=n, m="no_maestro" if k not in A else "no_pt" if A[k]["estado"] != "Producto terminado"
+        salen = [dict(k=k, n=n, gp=A.get(k, {}).get("gp", ""), m="no_maestro" if k not in A else "no_pt" if A[k]["estado"] != "Producto terminado"
                       else "inactiva" if A[k]["inact"] else "sin_mov", **ex(k)) for k, n in prev.items() if k not in en_app]
         cambios = dict(entran=sorted(entran, key=lambda x: x["k"]), salen=sorted(salen, key=lambda x: x["k"]))
 
