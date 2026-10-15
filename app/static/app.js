@@ -1023,15 +1023,14 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   const P = P0 && P0.rows ? P0 : await api('/api/parametros');  // el router pasa las partes de la ruta: no son datos
   if (P.empty) return noData(main, 'Stock mínimo y lotes');
   const canW = can('admin', 'planificador'), { q } = parseHash();
-  const estF = (q.get('estado') || 'decidir,cambio').split(','), md = q.get('md') || '', abc = q.get('abc') || '', ln = q.get('ln') || '';
+  const estF = q.get('estado') ? q.get('estado').split(',') : null, md = q.get('md') || '', abc = q.get('abc') || '', ln = q.get('ln') || '';
   const bq = q.get('q') || '', toks = bq.toLowerCase().split(/\s+/).filter(Boolean);
-  const xs = P.rows.filter(p => estF.includes(p.estado) && (!md || p.md === md) && (!abc || p.abc === abc) && (!ln || (p.ln || '—') === ln)
+  const xs = P.rows.filter(p => (!estF || estF.includes(p.estado)) && (!md || p.md === md) && (!abc || p.abc === abc) && (!ln || (p.ln || '—') === ln)
       && (!toks.length || toks.every(w => (p.k + ' ' + p.n).toLowerCase().includes(w))));
-  // Orden: por defecto, impacto en € (valor absoluto); pulsando la cabecera, por esa columna (vacíos siempre al final)
-  const sk = PSORT[q.get('sort')] ? q.get('sort') : '', sd = parseInt(q.get('dir'), 10) || (PSORT_TXT.includes(sk) ? 1 : -1);
-  xs.sort(sk ? (a, b) => { const x = PSORT[sk](a), y = PSORT[sk](b);
-    return (x == null) - (y == null) || (x == null ? 0 : (x < y ? -1 : x > y ? 1 : 0) * sd) || (a.k < b.k ? -1 : 1); }
-    : (a, b) => Math.abs(b.de) - Math.abs(a.de) || (a.k < b.k ? -1 : 1));
+  // Orden: por defecto ABC (A → D); pulsando la cabecera, por esa columna (vacíos siempre al final); a igualdad, impacto en €
+  const sk = PSORT[q.get('sort')] ? q.get('sort') : 'abc', sd = parseInt(q.get('dir'), 10) || (PSORT_TXT.includes(sk) ? 1 : -1);
+  xs.sort((a, b) => { const x = PSORT[sk](a), y = PSORT[sk](b);
+    return (x == null) - (y == null) || (x == null ? 0 : (x < y ? -1 : x > y ? 1 : 0) * sd) || Math.abs(b.de) - Math.abs(a.de) || (a.k < b.k ? -1 : 1); });
   const ths = (label, key, cls = '', tip = '') => thSort(label, key, sk, sd, cls, tip);
   const E = P.resumen.estados, nAbas = E.decidido || 0;
   const tot = (k) => P.resumen.grupos.reduce((s, g) => s + g[k], 0);
@@ -1051,7 +1050,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
       <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
       <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
   };
-  const lim = 300;
+  const lim = 2000;  // contra stock con ABC: unas 800 referencias, caben todas
   main.innerHTML = `<h1>Stock mínimo y lotes</h1>
     <p class="lead">Contra stock con ABC. Stock mínimo: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: estadístico si hay cifra; si no, el ERP.</p>
     <div class="tw"><table class="fit"><caption class="sr">Valor por mandante y clase</caption><thead>${head2([thc('Mandante · Clase'), thc('Referencias', 'r'),
@@ -1063,14 +1062,14 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
     <p>${nAbas ? `<a class="btn" href="/api/parametros/abas.csv" download>Descargar cambios para ABAS (${fmt(nAbas)})</a>` : '<span class="muted">No hay cambios pendientes de cargar en ABAS.</span>'}</p>
     <form class="filters" id="pF" onsubmit="return false">
       <label class="fld">Buscar<input type="search" name="q" id="pQ" value="${esc(bq)}" placeholder="Código o artículo" autocomplete="off"></label>
-      <label class="fld">Estado<select name="estado">${[['decidir,cambio', 'Por decidir y con cambio'], ['decidir', PEST.decidir], ['cambio', PEST.cambio], ['decidido', PEST.decidido], ['aplicado', PEST.aplicado], ['igual', PEST.igual]].map(([v, t]) => `<option value="${v}" ${estF.join(',') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="fld">Estado<select name="estado">${[['', 'Todos'], ['decidir,cambio', 'Por decidir y con cambio'], ['decidir', PEST.decidir], ['cambio', PEST.cambio], ['decidido', PEST.decidido], ['aplicado', PEST.aplicado], ['igual', PEST.igual]].map(([v, t]) => `<option value="${v}" ${(estF ? estF.join(',') : '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
       <label class="fld">Línea<select name="ln">${lnOpts([...new Set(P.rows.map(p => p.ln || '—'))], ln)}</select></label>
       ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot" value="${esc(S.pMot || '')}"></label>` : ''}
     </form>
-    <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
-      <a class="btn ghost sm" href="/api/parametros.xlsx?${new URLSearchParams({ estado: estF.join(','), md, abc, ln, q: bq })}" download>Descargar (Excel)</a>
+    <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${fmt(lim)} primeras` : ''}</span>
+      <a class="btn ghost sm" href="/api/parametros.xlsx?${new URLSearchParams({ estado: estF ? estF.join(',') : '', md, abc, ln, q: bq })}" download>Descargar (Excel)</a>
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
     <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([ths('Referencia', 'k'), ths('ABC', 'abc'), ths('Previsión/mes', 'pm', 'r'), ths('Error previsión', 'er', 'r'),
       { g: 'Stock mínimo', c: [ths('ERP', 'mn', 'r', 'Stock mínimo del ERP'), ths('Excel', 'xl', 'r', 'Stock mínimo método Excel'), ths('Estadístico', 'est', 'r', 'Stock mínimo estadístico'), ths('Propuesta · Decidido', 'ss', 'r', 'Stock mínimo propuesto · decidido')] },

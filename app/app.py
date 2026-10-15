@@ -605,7 +605,7 @@ def param_xlsx():
     rows = [p for p in _param_rows(_refs(row)) if (not est or p["estado"] in est) and (not md or p["md"] == md)
             and (not abc or p["abc"] == abc) and (not ln or (p["ln"] or "—") == ln)
             and all(w in f'{p["k"]} {p["n"]}'.lower() for w in toks)]
-    rows.sort(key=lambda p: (-abs(p["de"]), p["k"]))
+    rows.sort(key=lambda p: (p["abc"], -abs(p["de"]), p["k"]))  # como la página por defecto: ABC y, dentro, impacto en €
     alias = _alias()
     cols = [("Referencia", 14, "@"), ("Artículo", 40, None), ("Mandante", 10, None), ("ABC", 6, None), ("Línea", 14, None),
             ("Precio €", 10, "#,##0.00"), ("Previsión/mes", 12, "#,##0"), ("Error previsión", 10, "0%"), ("Sesgo", 9, "0%"),
