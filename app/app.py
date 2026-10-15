@@ -175,6 +175,7 @@ def get_config() -> dict:
            "ns": json.loads(json.dumps(parametros.NS_DEF)), "capacidad": json.loads(json.dumps(CAP_DEF))}
     for r in db().execute("SELECT key,value FROM config WHERE key<>'cap_sembrada'"):
         cfg[r["key"]] = json.loads(r["value"])
+    cfg["abc"].setdefault("xyz", list(core.ABC_DEF["xyz"]))  # guardado antes de que existiera el XYZ
     return cfg
 
 
@@ -354,7 +355,7 @@ def upload():
         f.save(tmp.name)
         path = tmp.name
     try:
-        ds = core.parse(core.read_workbook(path), hoy, prev, cfg["abc"]["cortes"])
+        ds = core.parse(core.read_workbook(path), hoy, prev, cfg["abc"]["cortes"], cfg["abc"]["xyz"])
     except core.DataError as e:
         return err(str(e))
     except Exception as e:  # fichero corrupto u otro formato
@@ -409,6 +410,7 @@ def config():
         if problema:
             return err(problema)
         save["abc"] = {k: b["abc"][k] for k in ("cortes", "freq", "ss")}
+        save["abc"]["xyz"] = b["abc"].get("xyz") or get_config()["abc"]["xyz"]
     if "exceso" in b:
         ex = b["exceso"]
         ok = isinstance(ex, dict) and all(isinstance(ex.get(md), int) and not isinstance(ex.get(md), bool) and 1 <= ex[md] <= 12 for md in ("Belloch", "Yunsey"))
@@ -432,13 +434,13 @@ def config():
                         for k, v in dias.items())):
             return err("Capacidad: horas por turno entre 1 y 24, holgura entre 0 y 90 % y días laborables enteros entre 0 y 31")
         save["capacidad"] = {"horas_turno": cp["horas_turno"], "holgura": cp["holgura"], "dias": {k: v for k, v in {**get_config()["capacidad"]["dias"], **dias}.items() if v is not None}}  # None: vuelve a lunes a viernes
-    antes = get_config()["abc"]["cortes"]
+    antes = get_config()["abc"]
     for k, v in save.items():
         db().execute("INSERT INTO config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, json.dumps(v)))
-    if "abc" in save and save["abc"]["cortes"] != antes:  # el ABC de la carga vigente se recalcula con los cortes nuevos
-        row = _load_row()
+    if "abc" in save and (save["abc"]["cortes"], save["abc"]["xyz"]) != (antes["cortes"], antes["xyz"]):
+        row = _load_row()  # el ABC y el XYZ de la carga vigente se recalculan con los cortes nuevos
         if row:
-            ds = core.recalcular(json.loads(zlib.decompress(row["data"])), save["abc"]["cortes"])
+            ds = core.recalcular(json.loads(zlib.decompress(row["data"])), save["abc"]["cortes"], save["abc"]["xyz"])
             db().execute("UPDATE loads SET data=? WHERE id=?", (zlib.compress(json.dumps(ds, separators=(",", ":")).encode(), 6), row["id"]))
     db().commit()
     return jsonify(get_config())
@@ -452,6 +454,10 @@ def abc_invalido(a) -> str:
     c = a.get("cortes")
     if not (isinstance(c, list) and len(c) == 3 and all(isinstance(x, int) and 1 <= x <= 99 for x in c) and c[0] < c[1] < c[2]):
         return "Los cortes del ABC deben ser tres porcentajes crecientes entre 1 y 99 (por ejemplo 45, 80 y 95)"
+    x = a.get("xyz")
+    if x is not None and not (isinstance(x, list) and len(x) == 2 and all(isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 500 for v in x)
+                              and x[0] < x[1]):
+        return "Los cortes del XYZ deben ser dos porcentajes de error crecientes entre 1 y 500 (por ejemplo 50 y 100)"
     for clave, nombre, lo, hi in (("freq", "La frecuencia de fabricación", 0, 365), ("ss", "El % de stock mínimo", -1, 300)):
         d = a.get(clave)
         for md in ("Belloch", "Yunsey"):
@@ -608,7 +614,7 @@ def param_xlsx():
             and all(w in f'{p["k"]} {p["n"]}'.lower() for w in toks)]
     rows.sort(key=lambda p: (p["abc"], -abs(p["de"]), p["k"]))  # como la página por defecto: ABC y, dentro, impacto en €
     alias = _alias()
-    cols = [("Referencia", 14, "@"), ("Artículo", 40, None), ("Mandante", 10, None), ("ABC", 6, None), ("Línea", 14, None),
+    cols = [("Referencia", 14, "@"), ("Artículo", 40, None), ("Mandante", 10, None), ("ABC", 6, None), ("XYZ", 6, None), ("Línea", 14, None),
             ("Precio €", 10, "#,##0.00"), ("Previsión/mes", 12, "#,##0"), ("Error previsión", 10, "0%"), ("Sesgo", 9, "0%"),
             ("Plazo extra (días lab.)", 10, "0"), ("SM ERP", 10, "#,##0"), ("SM Excel", 10, "#,##0"),
             ("SM estadístico", 11, "#,##0"), ("SM propuesto", 11, "#,##0"), ("SM decidido", 11, "#,##0"),
@@ -623,7 +629,7 @@ def param_xlsx():
     for p in rows:
         obs = ", ".join(x for x in (PARAM_TIPO.get(p["tipo"], ""), "corregir previsión" if p["flag"] else "",
                                     f'lote al mínimo de la línea ({p["lm"]})' if p["lms"] else "") if x)
-        ws.append([p["k"], p["n"], p["md"], p["abc"], alias.get(p["ln"], p["ln"]) or "—", p["pr"] or None, p["pm"], p["er"], p["sg"],
+        ws.append([p["k"], p["n"], p["md"], p["abc"], p["xyz"] or "—", alias.get(p["ln"], p["ln"]) or "—", p["pr"] or None, p["pm"], p["er"], p["sg"],
                    p["dx"] or None, p["mn"], p["xl"], p["est"], p["ssp"], p["ss"] if p["d"] else None,
                    p["lt"], p["lc"], p["ltp"], p["lote"] if p["d"] else None, p["smax"], p["de"] if p["pr"] else None,
                    PARAM_EST[p["estado"]], obs])

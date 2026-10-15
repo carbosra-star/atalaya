@@ -133,15 +133,18 @@ check("altas y bajas también dicen si están a extinguir", all("ext" in x and "
 check("sucesor válido", core.sucesor(A, "L2") == "L1" and core.sucesor(A, "F2") == "" and core.sucesor(A, "F3") == "" and core.sucesor(A, "L1") == "")
 check("sin carga anterior no hay cambios", core.porfolio(A, refs_p, hoy, 2026, 8, prev=None, **sig)["cambios"] is None)
 
-# ABC por venta: 12 meses cerrados; lanzamientos con venta anualizada (3-11 meses) o previsión (< 3 meses)
-def rabc(k, vt, fv, pv=0, gp="Contra Stock", md="Belloch"):
+# ABC: media de la venta de 12 meses cerrados y la previsión de 12 meses; lanzamientos con venta anualizada
+# (3-11 meses) o solo previsión (< 3 meses). Aquí la previsión igual a la venta: el reparto es el de la venta
+def rabc(k, vt, fv, pv=0, gp="Contra Stock", md="Belloch", hp=None):
     r = dict(k=k, md=md, gp=gp, vt=vt, pv=[pv] * 12)
+    if hp is not None:
+        r["hp"] = hp
     if fv != "sin":
         r["fv"] = fv
     return r
 
 
-R = [rabc("R1", [100] * 12, -20), rabc("R2", [10] * 12, -15), rabc("R3", [0] * 7 + [50] * 5, -5), rabc("R4", [0] * 11 + [5], -1, pv=30),
+R = [rabc("R1", [100] * 12, -20, pv=100), rabc("R2", [10] * 12, -15, pv=10), rabc("R3", [0] * 7 + [50] * 5, -5, pv=50), rabc("R4", [0] * 11 + [5], -1, pv=30),
      rabc("R5", [0] * 12, None), rabc("R6", [99] * 12, -30, gp="Bajo Pedido")]
 core.clasificar(R, [45, 80, 95])
 d = {r["k"]: r for r in R}
@@ -156,6 +159,32 @@ check("ABC: con cortes 60/90/99", [d[k]["abc"] for k in ("R1", "R3", "R4", "R2")
 viejo = rabc("V", [0] * 4 + [20] * 8, "sin")
 core.clasificar([viejo], [45, 80, 95])
 check("ABC: carga antigua sin primera venta, se deduce de los 12 meses", viejo["abcx"] == "anual" and viejo["abcn"] == 8, viejo)
+# Venta y previsión pesan la mitad cada una: la que deja de tener previsión baja, la que crece sube
+T = [rabc("T1", [100] * 12, -20, pv=0), rabc("T2", [60] * 12, -20, pv=60), rabc("T3", [20] * 12, -20, pv=120), rabc("T4", [5] * 12, -20, pv=5)]
+core.clasificar(T, [45, 80, 95])
+t = {r["k"]: r for r in T}
+check("ABC mixto: base = (venta + previsión) / 2, con las dos por separado", t["T1"]["abcm"] == 600 and t["T1"]["abcv"] == 1200 and t["T1"]["abcf"] == 0
+      and t["T3"]["abcm"] == 840, (t["T1"]["abcm"], t["T1"]["abcv"], t["T1"]["abcf"], t["T3"]["abcm"]))
+check("ABC mixto: la que crece (T3) pasa por delante de la que se acaba (T1)", t["T3"]["abc"] == "A" and t["T1"]["abc"] == "B", (t["T3"]["abc"], t["T1"]["abc"]))
+check("ABC mixto: solo por previsión no hay venta", d["R4"]["abcv"] is None and d["R4"]["abcf"] == 360, (d["R4"]["abcv"], d["R4"]["abcf"]))
+# XYZ por error de previsión: desviación típica de (venta − previsión) ÷ venta media, al menos 6 meses con previsión
+X1 = rabc("X1", [100, 110, 90] * 4, -20, pv=100, hp=[100] * 12)  # error 8 %
+X2 = rabc("X2", [40, 160] * 6, -20, pv=100, hp=[100] * 12)  # error 60 %
+X3 = rabc("X3", [0, 250] * 6, -20, pv=100, hp=[100] * 12)  # error 100 % justo: Y
+X4 = rabc("X4", [0, 0, 300] * 4, -20, pv=100, hp=[100] * 12)  # error 141 %: Z
+X5 = rabc("X5", [100] * 12, -20, pv=100, hp=[0] * 7 + [100] * 5)  # 5 meses con previsión: sin letra
+X6 = rabc("X6", [0] * 6 + [100, 200] * 3, -20, pv=100, hp=[100] * 12)  # estacional bien previsto no: aquí previsión plana
+X7 = rabc("X7", [0] * 6 + [100, 200] * 3, -20, pv=100, hp=[0] * 6 + [100, 200] * 3)  # estacional bien previsto: X
+X8 = rabc("X8", [100] * 12, -20, gp="Bajo Pedido", hp=[100] * 12)
+core.clasificar([X1, X2, X3, X4, X5, X6, X7, X8], [45, 80, 95])
+check("XYZ: error pequeño es X", X1["xyz"] == "X" and abs(X1["xe"] - 0.082) < 0.001, (X1["xyz"], X1["xe"]))
+check("XYZ: error del 60 % es Y", X2["xyz"] == "Y" and X2["xe"] == 0.6, (X2["xyz"], X2["xe"]))
+check("XYZ: error del 100 % justo es Y; por encima, Z", X3["xyz"] == "Y" and X3["xe"] == 1.0 and X4["xyz"] == "Z", (X3["xe"], X4["xe"], X4["xyz"]))
+check("XYZ: con menos de 6 meses con previsión, sin letra", X5["xyz"] == "" and X5["xe"] is None, (X5["xyz"], X5["xe"]))
+check("XYZ: estacional bien previsto es X; con previsión plana, no", X7["xyz"] == "X" and X6["xyz"] != "X", (X7["xyz"], X6["xyz"]))
+check("XYZ: bajo pedido sin letra", X8["xyz"] == "", X8["xyz"])
+core.clasificar([X2], [45, 80, 95], [70, 120])
+check("XYZ: cortes configurables (70/120: el 60 % pasa a X)", X2["xyz"] == "X", X2["xyz"])
 
 # Evaluación con previsión corregida y cargas antiguas sin pvc
 base = dict(st=500, mn=0, at=0, en=[], pd=[0] * 12, pv=[100] * 12, pv0r=100)

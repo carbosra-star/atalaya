@@ -166,6 +166,15 @@ r = c.put("/api/config", json={"abc": dict(cfg["abc"], cortes=[60, 90, 99])}, he
 check("guardar cortes nuevos", r.status_code == 200 and r.json["abc"]["cortes"] == [60, 90, 99], r.json)
 check("al cambiar los cortes se recalcula el ABC de la carga vigente", nA(c.get("/api/dataset").json) > antes, (antes, nA(c.get("/api/dataset").json)))
 check("cortes no válidos se rechazan", c.put("/api/config", json={"abc": dict(cfg["abc"], cortes=[80, 45, 95])}, headers=H).status_code == 400)
+check("XYZ por defecto 50/100 y cada referencia con su letra", cfg["abc"].get("xyz") == [50, 100]
+      and all(r.get("xyz") in ("X", "Y", "Z", "") for r in c.get("/api/dataset").json["refs"]), cfg["abc"].get("xyz"))
+for malo in ([100, 50], [0, 100], [50], [50, 600], "50,100", [True, 100]):
+    check(f"cortes XYZ no válidos se rechazan: {malo}", c.put("/api/config", json={"abc": dict(cfg["abc"], xyz=malo)}, headers=H).status_code == 400)
+_nx = lambda: sum(r.get("xyz") == "X" for r in c.get("/api/dataset").json["refs"])  # noqa: E731
+_x0 = _nx()
+c.put("/api/config", json={"abc": dict(cfg["abc"], xyz=[90, 150])}, headers=H)
+check("al cambiar los cortes XYZ se recalcula la carga vigente", _nx() > _x0, (_x0, _nx()))
+c.put("/api/config", json={"abc": cfg["abc"]}, headers=H)
 check("frecuencia no válida se rechaza", c.put("/api/config", json={"abc": dict(cfg["abc"], freq={"Belloch": [0, 6, 4, 2], "Yunsey": [6, 4, 2, 1]})}, headers=H).status_code == 400)
 c.put("/api/config", json={"abc": cfg["abc"]}, headers=H)
 check("el horizonte se sigue guardando aparte", c.put("/api/config", json={"horizonte": 3}, headers=H).json.get("abc", {}).get("cortes") == [45, 80, 95])
@@ -248,10 +257,12 @@ check("CSV para ABAS: no trae lo aplicado", k2 not in txt)
 import openpyxl  # noqa: E402
 xl = c.get("/api/parametros.xlsx")
 ws = openpyxl.load_workbook(io.BytesIO(xl.data)).active
-xr = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+_hd = [c_.value for c_ in ws[1]]
+xr = {r[0]: dict(zip(_hd, r)) for r in ws.iter_rows(min_row=2, values_only=True)}  # por cabecera, no por posición
 check("Excel de parámetros: todas las filas, referencia como texto", xl.status_code == 200 and ws.cell(1, 1).value == "Referencia"
       and len(xr) == len(pr_["rows"]) and isinstance(ws.cell(2, 1).value, str), (xl.status_code, len(xr), len(pr_["rows"])))
-check("Excel de parámetros: decidido y estado", xr[k1][14] == p1["ss"] and xr[k1][21] == "Pendiente de ABAS", xr.get(k1))
+check("Excel de parámetros: decidido y estado", xr[k1]["SM decidido"] == p1["ss"] and xr[k1]["Estado"] == "Pendiente de ABAS", xr.get(k1))
+check("Excel de parámetros: lleva el XYZ", xr[k1]["XYZ"] in ("X", "Y", "Z", "—"), xr[k1].get("XYZ"))
 xf = openpyxl.load_workbook(io.BytesIO(c.get("/api/parametros.xlsx?estado=decidido").data)).active
 check("Excel de parámetros: respeta el filtro de estado", [r[0] for r in xf.iter_rows(min_row=2, values_only=True)] == [k1])
 h = c.get(f"/api/parametros/{k1}/historial").json
@@ -329,7 +340,9 @@ if _pl:
     check("lote mínimo: guardado y aplicado al lote propuesto", r.status_code == 200 and next(x for x in r.json if x["codigo"] == _pl["ln"])["lmin"] == 9_000_000
           and p["lc"] == 9_000_000 and p["ltp"] == 9_000_000 and p["lms"], (r.status_code, p["lc"], p["ltp"]))
     _xo = openpyxl.load_workbook(io.BytesIO(c.get("/api/parametros.xlsx").data)).active
-    check("lote mínimo: el Excel lo indica", any(x[0] == _pl["k"] and "mínimo de la línea" in (x[22] or "") for x in _xo.iter_rows(min_row=2, values_only=True)))
+    _ho = [c_.value for c_ in _xo[1]]
+    check("lote mínimo: el Excel lo indica", any(x[0] == _pl["k"] and "mínimo de la línea" in (dict(zip(_ho, x))["Observaciones"] or "")
+                                                  for x in _xo.iter_rows(min_row=2, values_only=True)))
     _lput(None)
     check("lote mínimo: vacío lo quita", _pr()["lc"] == _pl["lc"] and not _pr()["lms"], _pr()["lc"])
 check("líneas: vacío vuelve al código", next(x for x in c.get("/api/lineas").json if x["codigo"] == cod)["nombre"] == cod and cod not in c.get("/api/dataset").json.get("alias", {}))

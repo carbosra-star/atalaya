@@ -97,7 +97,7 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
             estado = "decidir" if tipo not in ("ok", "extinguir") else ("cambio" if (ssp, ltp) != (mn, lt) else "igual")
             smax = mn + lt if lt > 0 else None
         rows.append(dict(
-            k=k, n=r.get("n", ""), md=md, abc=r["abc"], ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
+            k=k, n=r.get("n", ""), md=md, abc=r["abc"], xyz=r.get("xyz", ""), ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
             er=None if etr is None else round(etr, 3), sg=None if sesgo is None else round(sesgo, 3), flag=flag, tipo=tipo,
             mn=mn, lt=lt, xl=xl, est=est, ssp=ssp, lc=lc, ltp=ltp, ss=ss, lote=lote, d=bool(d), estado=estado,
             smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube))

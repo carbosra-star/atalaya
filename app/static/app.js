@@ -298,14 +298,20 @@ const pillShort = (e) => `<span class="pill s-${e.sem}" title="${esc(e.why)}">${
 // ABC por venta: el asterisco marca un ABC provisional (lanzamiento con menos de 12 meses de venta)
 const ABC_CL = ['A', 'B', 'C', 'D'];
 const abcCfg = () => (S.cfg && S.cfg.abc) || { cortes: [45, 80, 95], freq: {}, ss: {} };
-function abcTxt(c) { const k = abcCfg().cortes; return { A: `hasta el ${k[0]} % de la venta`, B: `hasta el ${k[1]} %`, C: `hasta el ${k[2]} %`, D: 'resto', NA: 'bajo pedido' }[c] || ''; }
+function abcTxt(c) { const k = abcCfg().cortes; return { A: `hasta el ${k[0]} % de venta y previsión`, B: `hasta el ${k[1]} %`, C: `hasta el ${k[2]} %`, D: 'resto', NA: 'bajo pedido' }[c] || ''; }
 const abcTag = (c, prov) => `<span class="abc abc-${esc(c)}" title="${esc(abcTxt(c) + (prov ? ' · provisional' : ''))}">${esc(c)}${prov ? '*' : ''}</span>`;
-const abcRef = (r) => abcTag(r.abc, r.abcp && r.abc !== 'NA');
+// XYZ: lo bien que se prevé la referencia (error de previsión), segunda letra junto al ABC
+const XYZ_T = { X: 'se prevé bien', Y: 'error de previsión medio', Z: 'muy difícil de prever' };
+const xyzCfg = () => abcCfg().xyz || [50, 100];
+function xyzTxt(x) { const k = xyzCfg(); return { X: `error de previsión < ${k[0]} %`, Y: `error de previsión ${k[0]}–${k[1]} %`, Z: `error de previsión > ${k[1]} %` }[x] || ''; }
+const xyzTag = (x, e) => x ? `<span class="xyz xyz-${x}" title="${esc(`${x}: ${XYZ_T[x]} (${xyzTxt(x)}${e != null ? `; esta: ${Math.round(e * 100)} %` : ''})`)}">${x}</span>` : '';
+const abcRef = (r) => abcTag(r.abc, r.abcp && r.abc !== 'NA') + xyzTag(r.xyz, r.xe);
 function abcDetalle(r) {
   if (r.abc === 'NA') return '';
   const f = (abcCfg().freq[r.md] || [])[ABC_CL.indexOf(r.abc)];
   const prov = r.abcx === 'anual' ? `provisional: ${r.abcn} meses de venta, anualizada` : r.abcx === 'prev' ? (r.abcn ? `provisional: por previsión (${r.abcn} ${r.abcn === 1 ? 'mes' : 'meses'} de venta)` : 'provisional: sin venta todavía, por previsión') : '';
-  return [prov, f ? `${String(f).replace('.', ',')} fab/año` : ''].filter(Boolean).map(esc).join(' · ');
+  const xy = r.xyz ? `${r.xyz}: error de previsión ${Math.round(r.xe * 100)} %` : (r.xyz === '' ? 'sin XYZ: menos de 6 meses de historia' : '');
+  return [prov, xy, f ? `${String(f).replace('.', ',')} fab/año` : ''].filter(Boolean).map(esc).join(' · ');
 }
 // Mes de más demanda de los 12, si destaca sobre la demanda/mes (estacionalidad, lanzamientos)
 function pico(e) {
@@ -944,8 +950,9 @@ function abcForm() {
   const a = abcCfg(), inp = (name, v, w = 64) => `<input name="${name}" value="${esc(String(v).replace('.', ','))}" inputmode="decimal" style="width:${w}px">`;
   const src = (pre) => pre === 'ns' ? (S.cfg.ns || {}) : a[pre === 'fr' ? 'freq' : 'ss'];
   const fila = (md, pre, lbl) => `<tr><th scope="row">${md} · ${lbl}</th>${ABC_CL.map((c, i) => `<td>${inp(`${pre}_${md}_${c}`, (src(pre)[md] || [])[i] ?? '')}</td>`).join('')}</tr>`;
-  return `<form class="form" id="abcF" style="max-width:none"><p class="muted small" style="margin:0">Pareto por mandante sobre la venta de 12 meses. Al guardar se recalcula la carga vigente.</p>
-    <div class="row">${[0, 1, 2].map(i => `<label>Corte ${ABC_CL[i]} (% acumulado de venta)<input type="number" name="corte${i}" min="1" max="99" value="${a.cortes[i]}"></label>`).join('')}</div>
+  return `<form class="form" id="abcF" style="max-width:none"><p class="muted small" style="margin:0">ABC: Pareto por mandante sobre la media de la venta de 12 meses y la previsión de 12 meses (uds). XYZ: por el error de previsión. Al guardar se recalcula la carga vigente.</p>
+    <div class="row">${[0, 1, 2].map(i => `<label>Corte ${ABC_CL[i]} (% acumulado)<input type="number" name="corte${i}" min="1" max="99" value="${a.cortes[i]}"></label>`).join('')}</div>
+    <div class="row"><label>X hasta (% de error)<input type="number" name="xyz0" min="1" max="500" value="${xyzCfg()[0]}"></label><label>Y hasta (% de error; por encima, Z)<input type="number" name="xyz1" min="1" max="500" value="${xyzCfg()[1]}"></label></div>
     <div class="tw"><table class="fit abcp"><thead><tr><th scope="col">Por clase</th>${ABC_CL.map(c => `<th scope="col">${abcTag(c)}</th>`).join('')}</tr></thead><tbody>
       ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% stock mínimo (Excel)') + fila(md, 'ns', 'nivel de servicio %')).join('')}</tbody></table></div>
     <div><button class="btn ghost">Guardar parámetros del ABC</button></div></form>`;
@@ -1001,7 +1008,7 @@ async function pageData(main) {
   $('#abcF').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target, n = (x) => Number(String(x).replace(',', '.'));
     const por = (pre) => Object.fromEntries(['Belloch', 'Yunsey'].map(md => [md, ABC_CL.map(c => n(f[`${pre}_${md}_${c}`].value))]));
-    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), freq: por('fr'), ss: por('ss') }, ns: por('ns') };
+    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), xyz: [0, 1].map(i => parseInt(f['xyz' + i].value, 10)), freq: por('fr'), ss: por('ss') }, ns: por('ns') };
     try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros guardados'); } catch (e) { toast(e.message); }
   };
   if ($('#capF')) $('#capF').onsubmit = async (ev) => {
@@ -1049,7 +1056,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
         <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="manual">Manual</option></select>
         <input type="number" min="0" step="100" data-ltv="${esc(p.k)}" hidden aria-label="Lote manual" style="width:90px">
         <button class="btn ghost sm" data-dec="${esc(p.k)}">Decidir</button></td>` : '';
-    return `<tr>${refCell({ k: p.k, n: p.n })}<td>${abcTag(p.abc)}</td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
+    return `<tr>${refCell({ k: p.k, n: p.n })}<td class="nowrap">${abcTag(p.abc)}${xyzTag(p.xyz)}</td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
       <td class="r num">${fmt(p.mn)}</td><td class="r num">${fmt(p.xl)}</td><td class="r num">${n0(p.est)}</td><td class="r num"><b>${fmt(p.d ? p.ss : p.ssp)}</b></td>
       <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
       <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
@@ -1283,19 +1290,21 @@ const PF_BLOQUES = {
   },
   abc: {
     t: 'Vista ABC', n: () => fmt(S.ev.filter(x => x.r.abc !== 'NA').length), soloVista: true,
-    lead: () => 'Referencias en seguimiento, sobre la venta de 12 meses.',
+    lead: () => 'Referencias en seguimiento. ABC: Pareto por mandante sobre la media de la venta de los 12 meses cerrados y la previsión de los 12 próximos (en uds). XYZ: lo bien que se prevé (error de previsión).',
     html: (pf, q) => `<div class="abcs">${['Belloch', 'Yunsey'].map(md => {
       const xs = S.ev.filter(x => x.r.md === md), con = xs.filter(x => x.r.abc !== 'NA');
       const tot = con.reduce((s, x) => s + (x.r.abcm || 0), 0) || 1, sel = ABC_CL.includes(q.get('c' + md)) ? q.get('c' + md) : 'A';
       const cl = (c) => con.filter(x => x.r.abc === c), pct = (c) => (cl(c).reduce((s, x) => s + (x.r.abcm || 0), 0) / tot * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 });
       const filas = cl(sel).sort((a, b) => (b.r.abcm || 0) - (a.r.abcm || 0) || (a.r.k < b.r.k ? -1 : 1))
-        .map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.abcm)}${r.abcp ? '*' : ''}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td>${cobCell(e)}</tr>`).join('');
-      const na = xs.length - con.length;
+        .map(({ r, e }) => `<tr>${refCell(r)}<td class="r num">${fmt(r.abcm)}${r.abcp ? '*' : ''}</td><td class="r num">${r.abcv == null ? '<span class="muted">—</span>' : fmt(r.abcv)}</td><td class="r num">${r.abcf == null ? '<span class="muted">—</span>' : fmt(r.abcf)}</td>
+          <td>${xyzTag(r.xyz, r.xe) || '<span class="muted">—</span>'}</td><td class="r num">${fmt(e.d3)}</td>${mesCell(r, e)}<td>${pillShort(e)}</td><td class="r num">${fmt(r.st)}</td>${cobCell(e)}</tr>`).join('');
+      const na = xs.length - con.length, nx = (x) => cl(sel).filter(y => y.r.xyz === x).length;
       return `<section class="card abcv" aria-label="${md}"><h2>${md} <span class="muted">· ${fmt(con.length)} referencias con ABC${na ? ` · ${fmt(na)} bajo pedido (NA)` : ''}</span></h2>
-        <div class="abcc">${ABC_CL.map(c => `<button type="button" class="abc-${c}" data-abcsel="${md}" data-c="${c}" aria-pressed="${c === sel}"><b>${c}</b><span>${fmt(cl(c).length)} refs</span><span>${pct(c)} % venta</span></button>`).join('')}</div>
+        <div class="abcc">${ABC_CL.map(c => `<button type="button" class="abc-${c}" data-abcsel="${md}" data-c="${c}" aria-pressed="${c === sel}"><b>${c}</b><span>${fmt(cl(c).length)} refs</span><span>${pct(c)} % del volumen</span></button>`).join('')}</div>
         <h3>Clase ${sel} <span class="muted small">(${esc(abcTxt(sel))})</span></h3>
-        ${pfTabla(filas, [['Referencia'], ['Venta 12 m', 'r'], { g: 'Demanda', c: [['Media/mes', 'r', 'Demanda media de los 3 próximos meses'], ['Resto/mes', 'r', 'Demanda que queda del mes en curso']] }, ['Estado'], ['Stock', 'r'], { g: 'Cobertura', c: [['Meses', 'r', 'Meses que dura el stock de hoy con la demanda prevista'], ['Prudente', 'r', 'Cobertura en meses con la previsión corregida y aumentada en su error']] }], 'Ninguna referencia en esta clase.')}</section>`;
-    }).join('')}</div><p class="muted small">* ABC provisional (menos de 12 meses de venta).</p>`,
+        <p class="muted small">XYZ en la clase ${sel}: ${['X', 'Y', 'Z'].map(x => `${xyzTag(x)} ${fmt(nx(x))}`).join(' · ')}${nx('') ? ` · sin XYZ ${fmt(nx(''))}` : ''}</p>
+        ${pfTabla(filas, [['Referencia'], ['Base ABC', 'r', 'Media de la venta de 12 meses y la previsión de 12 meses (uds)'], ['Venta 12 m', 'r'], ['Previsión 12 m', 'r'], ['XYZ'], { g: 'Demanda', c: [['Media/mes', 'r', 'Demanda media de los 3 próximos meses'], ['Resto/mes', 'r', 'Demanda que queda del mes en curso']] }, ['Estado'], ['Stock', 'r'], { g: 'Cobertura', c: [['Meses', 'r', 'Meses que dura el stock de hoy con la demanda prevista'], ['Prudente', 'r', 'Cobertura en meses con la previsión corregida y aumentada en su error']] }], 'Ninguna referencia en esta clase.')}</section>`;
+    }).join('')}</div><p class="muted small">* ABC provisional (menos de 12 meses de venta: venta anualizada; con menos de 3, solo la previsión). XYZ: X ${esc(xyzTxt('X'))}, Y ${esc(xyzTxt('Y'))}, Z ${esc(xyzTxt('Z'))}; error = desviación típica de (venta − previsión) ÷ venta media, con al menos 6 meses de historia.</p>`,
   },
 };
 const PF_ORDEN = ['cambios', 'lanzamientos', 'sin-movimiento', 'inactivos', 'extinguir'];

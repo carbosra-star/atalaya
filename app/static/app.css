@@ -156,6 +156,7 @@ tbody tr:hover{background:var(--soft)}
 .abc{font:600 12.5px/1.5 var(--narrow);border:1.5px solid transparent;border-radius:4px;padding:0 6px;display:inline-block;min-width:26px;text-align:center}
 .abc-A{background:var(--abcA);color:var(--abcAt)}.abc-B{background:var(--abcB);color:var(--abcBt)}.abc-C{background:var(--abcC);color:var(--ink)}
 .abc-D{border-color:var(--abcD);background:var(--abcDbg);color:var(--ink)}.abc-NA{border:1.5px dashed var(--gris);color:var(--ink2)}
+.xyz{font:600 12.5px/1.5 var(--narrow);color:var(--ink2);margin-left:3px}.xyz-Z{color:var(--rojo)}
 td.cobc,.nowrap{white-space:nowrap}
 /* Vista ABC de Porfolio: tarjetas por clase que hacen de selector */
 .abcs{display:grid;gap:18px}

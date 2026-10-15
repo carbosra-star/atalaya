@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+import math
 import re
 
 H = 12  # horizonte en meses
@@ -18,7 +19,8 @@ HMIN, FMIN, FMAX = 6, 0.5, 1.5  # acierto: meses mínimos de historia y límites
 LANZ_MESES, ALTA_MESES = 9, 4
 # ABC y parámetros por clase (A, B, C, D); se cambian desde Datos → Criterios
 ABC_DEF = dict(cortes=[45, 80, 95], freq={"Belloch": [12, 6, 4, 2], "Yunsey": [6, 4, 2, 1]},
-               ss={"Belloch": [75, 75, 50, 0], "Yunsey": [75, 75, 50, 0]})
+               ss={"Belloch": [75, 75, 50, 0], "Yunsey": [75, 75, 50, 0]}, xyz=[50, 100])
+XYZ_MIN = 6  # meses con venta y previsión para dar letra XYZ (como el stock mínimo estadístico)
 ABC_VIDA, ABC_MIN = 12, 3  # meses de venta para un ABC definitivo / mínimos para anualizarla  # porfolio: ventana de lanzamientos y antigüedad máxima de un "alta nueva"
 EXCESO_DEF = {"Belloch": 6, "Yunsey": 12}  # exceso: stock para más de N meses de demanda (provisional hasta el módulo de stock mínimo)
 SHEETS = ["MM_Art", "MM_TLY", "MM_Stocks", "MM_Vtas", "MM_PedVentas", "MM_Prev", "MM_PROP", "MM_OF", "MM_Maq"]
@@ -247,23 +249,27 @@ def acierto(refs: list[dict], dq: int, dm: int) -> None:
                  pvc=[round(x * fc) for x in r["pv"]], pv0rc=_resto(r["pv"][0] * fc, r["v0"], dq, dm))
 
 
-def clasificar(refs: list[dict], cortes: list[int]) -> None:
-    """ABC por mandante con Pareto sobre la venta de los 12 meses cerrados. Con menos de ABC_VIDA
-    meses desde la primera venta se anualiza la venta media; con menos de ABC_MIN se usa la previsión
-    de 12 meses (ABC provisional). Bajo pedido: NA. Cada referencia queda en la clase en la que
-    empieza (la que cruza un corte no salta a la siguiente)."""
+def clasificar(refs: list[dict], cortes: list[int], xyz: list[int] | None = None) -> None:
+    """ABC por mandante con Pareto sobre la media de la venta de los 12 meses cerrados y la previsión
+    de los 12 próximos (abcm; por separado abcv y abcf). Con menos de ABC_VIDA meses desde la primera
+    venta, la venta se anualiza; con menos de ABC_MIN, solo cuenta la previsión (ABC provisional).
+    Bajo pedido: NA. Cada referencia queda en la clase en la que empieza (la que cruza un corte no
+    salta a la siguiente). XYZ: por el error de previsión (ver xyz_clase)."""
     for r in refs:
         fv = r.get("fv")
         if "fv" not in r:  # carga antigua: la primera venta se deduce de los 12 meses guardados
             fv = next((i - 12 for i, x in enumerate(r["vt"]) if x > 0), None)
         n = -fv if fv is not None else 0
+        f = sum(r["pv"])
         if n >= ABC_VIDA:
-            m, x = sum(r["vt"]), "venta"
+            v, x = sum(r["vt"]), "venta"
         elif n >= ABC_MIN:
-            m, x = sum(r["vt"][12 - n:]) / n * 12, "anual"
+            v, x = sum(r["vt"][12 - n:]) / n * 12, "anual"
         else:
-            m, x = sum(r["pv"]), "prev"
-        r.update(abcm=round(m), abcx=x, abcn=n, abcp=x != "venta")
+            v, x = None, "prev"
+        m = f if v is None else (v + f) / 2
+        r.update(abcm=round(m), abcv=None if v is None else round(v), abcf=round(f), abcx=x, abcn=n, abcp=x != "venta")
+        r["xe"], r["xyz"] = xyz_clase(r, xyz or ABC_DEF["xyz"]) if r["gp"] != "Bajo Pedido" else (None, "")
     a, b, c = (p / 100 for p in cortes)
     for md in {r["md"] for r in refs}:
         g = sorted((r for r in refs if r["md"] == md and r["gp"] != "Bajo Pedido"), key=lambda r: (-r["abcm"], r["k"]))
@@ -278,10 +284,25 @@ def clasificar(refs: list[dict], cortes: list[int]) -> None:
             r["abc"] = "NA"
 
 
-def recalcular(ds: dict, cortes: list[int]) -> dict:
-    """Vuelve a clasificar el ABC de una carga guardada con otros cortes, y con él el acierto de la
-    previsión (que usa el grupo mandante × ABC), sin volver a leer el Excel."""
-    clasificar(ds["refs"], cortes)
+def xyz_clase(r: dict, cortes: list[int]) -> tuple[float | None, str]:
+    """(error típico relativo, letra). Error = desviación típica de (venta − previsión vigente) ÷ venta media,
+    en los meses cerrados con previsión (el mismo que usa el stock mínimo estadístico). Mide lo que no se
+    sabe prever, no lo que sube y baja la venta: lo estacional bien previsto es X. X < cortes[0] %,
+    Y hasta cortes[1] %, Z por encima; con menos de XYZ_MIN meses, sin letra."""
+    meses = [(v, p) for v, p in zip(r.get("vt") or [], r.get("hp") or []) if p > 0]
+    vm = sum(v for v, _ in meses) / len(meses) if meses else 0
+    if len(meses) < XYZ_MIN or vm <= 0:
+        return None, ""
+    d = [v - p for v, p in meses]
+    md = sum(d) / len(d)
+    e = math.sqrt(sum((x - md) ** 2 for x in d) / len(d)) / vm
+    return round(e, 3), "X" if e < cortes[0] / 100 else "Y" if e <= cortes[1] / 100 else "Z"
+
+
+def recalcular(ds: dict, cortes: list[int], xyz: list[int] | None = None) -> dict:
+    """Vuelve a clasificar el ABC y el XYZ de una carga guardada con otros cortes, y con ellos el acierto
+    de la previsión (que usa el grupo mandante × ABC), sin volver a leer el Excel."""
+    clasificar(ds["refs"], cortes, xyz)
     if ds["refs"] and "hp" in ds["refs"][0] and ds["meta"].get("dias"):
         acierto(ds["refs"], *ds["meta"]["dias"])
     return ds
@@ -346,9 +367,10 @@ def porfolio(A: dict, refs: list[dict], today: dt.date, base_y: int, base_m: int
                 lanz=lanz, fuera=fuera, inact=inact, cambios=cambios, cfg=dict(lanz=LANZ_MESES, alta=ALTA_MESES))
 
 
-def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = None, cortes: list[int] | None = None) -> dict:
+def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = None, cortes: list[int] | None = None,
+          xyz: list[int] | None = None) -> dict:
     """anterior: {código: nombre} de la carga anterior, para las altas y bajas del porfolio.
-    cortes: cortes del ABC en % (por defecto ABC_DEF)."""
+    cortes: cortes del ABC en % (por defecto ABC_DEF); xyz: cortes del XYZ en % de error."""
     base_y, base_m = today.year, today.month - 1
 
     def midx(d: dt.date) -> int:
@@ -636,7 +658,7 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
                                        for e in sorted(E.get(z, []), key=lambda e: e["d"]) if e["t"] in ("OF", "PF", "P")])
                               for z, q in sorted(ZTS[k].items())]
 
-    clasificar(refs, cortes or ABC_DEF["cortes"])
+    clasificar(refs, cortes or ABC_DEF["cortes"], xyz)
     acierto(refs, dias_quedan, dias_mes)
     amb = {r["k"]: r["mc"] or "—" for r in refs if r["gp"] == "Contra Stock" and r.get("abc") in ("A", "B", "C", "D")}
     vers = acierto_versiones([(v, k, mi, _num(_get(r, iQ))) for v, k, mi, r in pr], cover, VALL, amb, base_y, base_m, {mi for _, mi in vcols})
