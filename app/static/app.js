@@ -1058,6 +1058,7 @@ async function pageParams(main) {
       ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio si hay valores manuales)<input name="motivo" maxlength="500" id="pMot" value="${esc(S.pMot || '')}"></label>` : ''}
     </form>
     <div class="toolbar"><span class="count">${fmt(xs.length)} referencias${xs.length > lim ? ` · se muestran las ${lim} de más impacto` : ''}</span>
+      <a class="btn ghost sm" href="/api/parametros.xlsx?${new URLSearchParams({ estado: estF.join(','), md, abc, ln })}" download>Descargar (Excel)</a>
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
     <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([thc('Referencia'), thc('ABC'), thc('Previsión/mes', 'r'), thc('Error previsión', 'r'),
       { g: 'Stock mínimo', c: [thc('ERP', 'r', 'Stock mínimo del ERP'), thc('Excel', 'r', 'Stock mínimo método Excel'), thc('Estadístico', 'r', 'Stock mínimo estadístico'), thc('Propuesta · Decidido', 'r', 'Stock mínimo propuesto · decidido')] },

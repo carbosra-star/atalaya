@@ -585,6 +585,60 @@ def param_csv():
     return Response(txt.encode("latin-1"), mimetype="text/csv", headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
+PARAM_EST = {"decidir": "Decidir a mano", "cambio": "Con cambio", "igual": "Igual", "decidido": "Pendiente de ABAS", "aplicado": "Aplicado"}
+PARAM_TIPO = {"irregular": "irregular", "sin_hist": "sin historia", "extinguir": "a extinguir", "sin_prev": "sin previsión"}
+
+
+@app.get("/api/parametros.xlsx")
+@need()
+def param_xlsx():
+    """La tabla de Stock mínimo y lotes en Excel: todas las filas (sin el tope de pantalla) con los filtros de la página."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    row = _load_row()
+    if not row:
+        return err("No hay datos cargados")
+    a = request.args
+    est = (a.get("estado") or "").split(",") if a.get("estado") else None
+    md, abc, ln = a.get("md", ""), a.get("abc", ""), a.get("ln", "")
+    rows = [p for p in _param_rows(_refs(row)) if (not est or p["estado"] in est) and (not md or p["md"] == md)
+            and (not abc or p["abc"] == abc) and (not ln or (p["ln"] or "—") == ln)]
+    rows.sort(key=lambda p: (-abs(p["de"]), p["k"]))
+    alias = _alias()
+    cols = [("Referencia", 14, "@"), ("Artículo", 40, None), ("Mandante", 10, None), ("ABC", 6, None), ("Línea", 14, None),
+            ("Precio €", 10, "#,##0.00"), ("Previsión/mes", 12, "#,##0"), ("Error previsión", 10, "0%"), ("Sesgo", 9, "0%"),
+            ("Plazo extra (días lab.)", 10, "0"), ("SM ERP", 10, "#,##0"), ("SM Excel", 10, "#,##0"),
+            ("SM estadístico", 11, "#,##0"), ("SM propuesto", 11, "#,##0"), ("SM decidido", 11, "#,##0"),
+            ("Lote ERP", 10, "#,##0"), ("Lote calculado", 11, "#,##0"), ("Lote propuesto", 11, "#,##0"), ("Lote decidido", 11, "#,##0"),
+            ("Stock máximo", 11, "#,##0"), ("Δ € stock medio", 12, "#,##0"), ("Estado", 18, None), ("Observaciones", 28, None)]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Stock mínimo y lotes"
+    ws.append([c[0] for c in cols])
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for p in rows:
+        obs = ", ".join(x for x in (PARAM_TIPO.get(p["tipo"], ""), "corregir previsión" if p["flag"] else "") if x)
+        ws.append([p["k"], p["n"], p["md"], p["abc"], alias.get(p["ln"], p["ln"]) or "—", p["pr"] or None, p["pm"], p["er"], p["sg"],
+                   p["dx"] or None, p["mn"], p["xl"], p["est"], p["ssp"], p["ss"] if p["d"] else None,
+                   p["lt"], p["lc"], p["ltp"], p["lote"] if p["d"] else None, p["smax"], p["de"] if p["pr"] else None,
+                   PARAM_EST[p["estado"]], obs])
+    for i, (_, w, f) in enumerate(cols, 1):
+        letra = ws.cell(1, i).column_letter
+        ws.column_dimensions[letra].width = w
+        if f:
+            for c in ws[letra][1:]:
+                c.number_format = f
+    ws.freeze_panes = "C2"
+    ws.auto_filter.ref = ws.dimensions
+    buf = io.BytesIO()
+    wb.save(buf)
+    nombre = f'stock_minimo_lotes_{today():%Y%m%d}.xlsx'
+    return Response(buf.getvalue(), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
 # ---------------------------------------------------------------- desviación de previsiones
 def _acuerdos(version: str) -> dict:
     """Acuerdo vigente (el último) de cada referencia para la versión de previsión dada."""

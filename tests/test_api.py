@@ -196,6 +196,15 @@ txt = csv.data.decode("latin-1")
 check("CSV para ABAS: cabecera y formato", csv.status_code == 200 and txt.startswith("Referencia;Mandante;Stock mínimo;Lote\r\n") and "attachment" in csv.headers.get("Content-Disposition", ""), txt[:80])
 check("CSV para ABAS: trae lo decidido", f'{k1};{p1["md"]};{p1["ss"]};{p1["lote"]}\r\n' in txt)
 check("CSV para ABAS: no trae lo aplicado", k2 not in txt)
+import openpyxl  # noqa: E402
+xl = c.get("/api/parametros.xlsx")
+ws = openpyxl.load_workbook(io.BytesIO(xl.data)).active
+xr = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+check("Excel de parámetros: todas las filas, referencia como texto", xl.status_code == 200 and ws.cell(1, 1).value == "Referencia"
+      and len(xr) == len(pr_["rows"]) and isinstance(ws.cell(2, 1).value, str), (xl.status_code, len(xr), len(pr_["rows"])))
+check("Excel de parámetros: decidido y estado", xr[k1][14] == p1["ss"] and xr[k1][21] == "Pendiente de ABAS", xr.get(k1))
+xf = openpyxl.load_workbook(io.BytesIO(c.get("/api/parametros.xlsx?estado=decidido").data)).active
+check("Excel de parámetros: respeta el filtro de estado", [r[0] for r in xf.iter_rows(min_row=2, values_only=True)] == [k1])
 h = c.get(f"/api/parametros/{k1}/historial").json
 check("historial con autor, motivo y valores de antes", len(h) == 1 and h[0]["motivo"] == "Prueba de decisión" and h[0]["ss_antes"] == cam[0]["mn"] and h[0]["by"], h)
 check("plazo extra de una referencia fuera de ámbito se rechaza", c.put("/api/parametros/999999999999/plazo", json={"dias": 5}, headers=H).status_code == 400)
