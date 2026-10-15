@@ -305,7 +305,7 @@ const XYZ_T = { X: 'se prevé bien', Y: 'error de previsión medio', Z: 'muy dif
 const xyzCfg = () => abcCfg().xyz || [50, 100];
 function xyzTxt(x) { const k = xyzCfg(); return { X: `error de previsión < ${k[0]} %`, Y: `error de previsión ${k[0]}–${k[1]} %`, Z: `error de previsión > ${k[1]} %` }[x] || ''; }
 const xyzTag = (x, e) => x ? `<span class="xyz xyz-${x}" title="${esc(`${x}: ${XYZ_T[x]} (${xyzTxt(x)}${e != null ? `; esta: ${Math.round(e * 100)} %` : ''})`)}">${x}</span>` : '';
-const abcRef = (r) => abcTag(r.abc, r.abcp && r.abc !== 'NA') + xyzTag(r.xyz, r.xe);
+const abcRef = (r) => r.xyz ? `<span class="abcxyz">${abcTag(r.abc, r.abcp && r.abc !== 'NA')}${xyzTag(r.xyz, r.xe)}</span>` : abcTag(r.abc, r.abcp && r.abc !== 'NA');
 function abcDetalle(r) {
   if (r.abc === 'NA') return '';
   const f = (abcCfg().freq[r.md] || [])[ABC_CL.indexOf(r.abc)];
@@ -1056,7 +1056,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
         <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="manual">Manual</option></select>
         <input type="number" min="0" step="100" data-ltv="${esc(p.k)}" hidden aria-label="Lote manual" style="width:90px">
         <button class="btn ghost sm" data-dec="${esc(p.k)}">Decidir</button></td>` : '';
-    return `<tr>${refCell({ k: p.k, n: p.n })}<td class="nowrap">${abcTag(p.abc)}${xyzTag(p.xyz)}</td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
+    return `<tr>${refCell({ k: p.k, n: p.n })}<td class="nowrap"><span class="abcxyz">${abcTag(p.abc)}${xyzTag(p.xyz)}</span></td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
       <td class="r num">${fmt(p.mn)}</td><td class="r num">${fmt(p.xl)}</td><td class="r num">${n0(p.est)}</td><td class="r num"><b>${fmt(p.d ? p.ss : p.ssp)}</b></td>
       <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
       <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
