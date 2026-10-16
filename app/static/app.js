@@ -152,7 +152,7 @@ window.addEventListener('hashchange', render);
 
 const ROUTES = {
   '': pageHome, coberturas: pageList, ref: pageRef, lineas: pageLines, linea: pageLine, capacidad: pageCap, ...(ACCIONES ? { reunion: pageMeeting } : {}), porfolio: pagePortfolio,
-  datos: pageData, usuarios: pageUsers, cuenta: pageAccount, pronto: pageSoon, parametros: pageParams, desviacion: pageDesv,
+  datos: pageData, usuarios: pageUsers, cuenta: pageAccount, parametros: pageParams, desviacion: pageDesv,
 };
 async function render() {
   const { parts } = parseHash();
@@ -178,7 +178,6 @@ const LOGO = '<img src="/static/img/atalaya.svg" width="34" height="34" alt="">'
 let globalBound = false;
 function shell() {
   if ($('#main') && $('#side')) { updateChrome(); return; }
-  const soon = [['consolidador', 'Consolidador de previsiones']];
   $('#app').innerHTML = `<div class="shell">
     <nav class="side" id="side" aria-label="Menú principal">
       <a class="brand" href="#/">${LOGO}<span><b>Atalaya</b><span>Supply · bellochapplab</span></span></a>
@@ -192,7 +191,7 @@ function shell() {
         ${ACCIONES ? '<a role="listitem" href="#/reunion" data-nav="reunion">Reunión semanal <span class="badge" id="bAct" hidden></span></a>' : ''}
       </div>
       <div class="nav-g" id="g2">Parámetros y previsión</div>
-      <div class="nav" role="list" aria-labelledby="g2"><a role="listitem" href="#/parametros" data-nav="parametros">Stock mínimo y lotes</a><a role="listitem" href="#/desviacion" data-nav="desviacion">Desviación de previsiones</a>${soon.map(([k, t]) => `<a role="listitem" class="soon" href="#/pronto/${k}" data-nav="pronto/${k}">${t} <span class="badge">pronto</span></a>`).join('')}</div>
+      <div class="nav" role="list" aria-labelledby="g2"><a role="listitem" href="#/parametros" data-nav="parametros">Stock mínimo y lotes</a><a role="listitem" href="#/desviacion" data-nav="desviacion">Desviación de previsiones</a></div>
       ${can('admin') ? `<div class="nav-g" id="g3">Administración</div><div class="nav" role="list" aria-labelledby="g3">
         <a role="listitem" href="#/datos" data-nav="datos">Datos</a><a role="listitem" href="#/usuarios" data-nav="usuarios">Usuarios</a></div>` : ''}
       <div class="side-foot"><img src="/static/img/lab_belloch.png" alt="Belloch International Group" height="22"></div>
@@ -237,7 +236,7 @@ function updateChrome() {
   const ba = $('#bAct'); if (ba) { ba.hidden = !S.actions.length; ba.textContent = S.actions.length; ba.setAttribute('aria-label', S.actions.length + ' acciones abiertas'); }
 }
 function markNav(key) {
-  const { parts } = parseHash(); const k = parts[0] === 'ref' ? 'coberturas' : parts[0] === 'linea' ? 'lineas' : parts[0] === 'pronto' ? 'pronto/' + parts[1] : key;
+  const { parts } = parseHash(); const k = parts[0] === 'ref' ? 'coberturas' : parts[0] === 'linea' ? 'lineas' : key;
   $$('.nav a').forEach(a => a.dataset.nav === k ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
 }
 
@@ -1128,8 +1127,8 @@ async function pageDesv(main) {
   const D = await api('/api/desviacion');
   if (D.empty) return noData(main, 'Desviación de previsiones');
   const canW = can('admin', 'planificador'), { q } = parseHash();
-  const mc = q.get('mc') || '', estF = (q.get('estado') || 'propuesta,revisar').split(','), md = q.get('md') || '', abc = q.get('abc') || '';
-  const xs = D.rows.filter(p => (!mc || p.mc === mc) && estF.includes(p.estado) && (!md || p.md === md) && (!abc || p.abc === abc))
+  const mc = q.get('mc') || '', estF = q.get('estado') ? q.get('estado').split(',') : null, md = q.get('md') || '', abc = q.get('abc') || '';
+  const xs = D.rows.filter(p => (!mc || p.mc === mc) && (!estF || estF.includes(p.estado)) && (!md || p.md === md) && (!abc || p.abc === abc))
     .sort((a, b) => Math.abs(b.ee) - Math.abs(a.ee) || Math.abs(b.eu) - Math.abs(a.eu));
   const vs = (D.vers || []).filter(x => !mc || x.mc === mc), V = {};
   vs.forEach(x => { const a = V[x.v] = V[x.v] || { e: 0, s: 0, p: 0, n: 0, m: 0 }; a.e += x.e; a.s += x.s; a.p += x.p; a.n += x.n; a.m = Math.max(a.m, x.m); });
@@ -1149,9 +1148,8 @@ async function pageDesv(main) {
     ${D.vers ? `<div class="tw"><table class="fit"><caption class="sr">Acierto por versión</caption><thead><tr><th scope="col">Versión</th><th scope="col" class="r">Meses cerrados</th><th scope="col" class="r">Referencias</th><th scope="col" class="r">Error previsión</th><th scope="col" class="r">Sesgo</th></tr></thead><tbody>
       ${Object.keys(V).sort().map(v => `<tr><th scope="row">${esc(v)}</th><td class="r num">${V[v].m}</td><td class="r num">${fmt(V[v].n)}</td><td class="r num">${V[v].s ? Math.round(V[v].e / V[v].s * 100) + ' %' : '—'}</td><td class="r num">${pctTxt(ratio(V[v].p, V[v].s) == null ? null : V[v].p / V[v].s - 1)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin versiones con meses cerrados.</td></tr>'}
       </tbody></table></div><p class="muted small">Error = Σ |venta − previsión| ÷ Σ venta en los meses cerrados que cubría cada versión desde el inicio de su trimestre. Sesgo positivo: se previó más de lo vendido.</p>` : '<p class="muted">Esta carga no trae el acierto por versión. Vuelve a cargar el MM_Supply desde Datos para verlo.</p>'}
-    <h2>Para la reunión</h2>
     <form class="filters" id="dF" onsubmit="return false">
-      <label class="fld">Estado<select name="estado">${[['propuesta,revisar', 'Con propuesta y a revisar'], ['propuesta', DEST.propuesta], ['revisar', DEST.revisar], ['acordado', DEST.acordado], ['sin', DEST.sin], ['sin_dato', DEST.sin_dato]].map(([v, t]) => `<option value="${v}" ${estF.join(',') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="fld">Estado<select name="estado">${[['', 'Todos'], ['propuesta,revisar', 'Con propuesta y a revisar'], ['propuesta', DEST.propuesta], ['revisar', DEST.revisar], ['acordado', DEST.acordado], ['sin', DEST.sin], ['sin_dato', DEST.sin_dato]].map(([v, t]) => `<option value="${v}" ${(estF ? estF.join(',') : '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
       <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
       ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio con "Otro %")<input id="dMot" maxlength="500" value="${esc(S.dMot || '')}"></label>` : ''}
@@ -1210,9 +1208,6 @@ async function pageAccount(main) {
     catch (e) { $('#pwM').className = 'msg err'; $('#pwM').textContent = e.message; }
   };
 }
-const SOON = {
-  'consolidador': ['Consolidador de previsiones', 'Validación de la previsión de controlling contra el maestro (extinguir, sucesores, inactivos, lanzamientos) y generación del fichero de carga para ABAS y Power BI.'],
-};
 // ---------------------------------------------------------------- Porfolio
 const MOTIVO = { alta: 'Alta nueva', vuelve: 'Vuelve a tener movimiento', inactiva: 'Inactivada en el maestro', no_pt: 'Ya no es producto terminado', sin_mov: 'Se ha quedado sin movimiento', no_maestro: 'Ya no está en el maestro' };
 const CATSM = { nada: 'Sin ningún dato', venta_antigua: 'Solo venta de hace más de 13 meses', prev_futura: 'Previsión solo más allá de 12 meses', prev_pasada: 'Solo previsión de meses pasados' };
@@ -1340,7 +1335,6 @@ const PF_BLOQUES = {
   },
 };
 const PF_ORDEN = ['cambios', 'lanzamientos', 'sin-movimiento', 'inactivos', 'extinguir'];
-function pfAbiertos() { try { return JSON.parse(localStorage.getItem('pfOpen')) || { cambios: true }; } catch (e) { return { cambios: true }; } }
 
 async function pagePortfolio(main, [sub]) {
   if (!S.ds) return noData(main, 'Porfolio');
@@ -1365,17 +1359,15 @@ async function pagePortfolio(main, [sub]) {
     return bindFiltros();
   }
   const card = (href, v, l) => `<a class="kpi kpi-link" href="${href.startsWith('#/porfolio/') ? href + qs : href}"><div class="v">${v}</div><div class="l">${l}</div></a>`;
-  const ab = pfAbiertos();
+  const ab = { cambios: true };  // al entrar, solo Cambios desplegado; no se recuerda lo abierto la vez anterior
   main.innerHTML = `<h1>Porfolio</h1>
     <div class="kpis">${card('#/porfolio/activos', fmt(pf.res.activos), 'PT activos')}${card('#/coberturas?gp=' + ['md', 'mc', 'ln', 'q'].filter(n => q.get(n)).map(n => `&${n}=${encodeURIComponent(q.get(n))}`).join(''), fmt(pf.res.seguimiento), 'En seguimiento')}
       ${card('#/porfolio/cambios', pf.cambios ? `${pf.cambios.entran.length} · ${pf.cambios.salen.length}` : '—', 'Entran · salen')}${card('#/porfolio/lanzamientos', fmt(pf.lanz.length), 'Lanzamientos')}
       ${card('#/porfolio/sin-movimiento', fmt(pf.fuera.length), 'Sin movimiento')}${card('#/porfolio/inactivos', fmt(pf.inact.length), 'Inactivos con stock')}${card('#/porfolio/extinguir', fmt(pf.ev.filter(x => x.r.ext).length + pf.fuera.filter(x => x.ext).length), 'A extinguir')}${card('#/porfolio/abc', fmt(pf.ev.filter(x => x.r.abc !== 'NA').length), 'Vista ABC')}</div>
     ${pfFiltros(pf0, q)}
     ${PF_ORDEN.map(k => { const b = PF_BLOQUES[k]; return `<details class="blk" data-blk="${k}" ${ab[k] ? 'open' : ''}><summary><h2>${b.t} <span class="muted">(${b.n(pf)})</span></h2><a class="small" href="#/porfolio/${k}${qs}">ver en detalle</a></summary>${b.lead(pf) ? `<p class="muted small">${b.lead(pf)}</p>` : ''}${b.html(pf, q)}</details>`; }).join('')}`;
-  $$('details.blk', main).forEach(d => d.addEventListener('toggle', () => { const o = pfAbiertos(); o[d.dataset.blk] = d.open; try { localStorage.setItem('pfOpen', JSON.stringify(o)); } catch (e) {} }));
   bindFiltros();
 }
-async function pageSoon(main, [k]) { const s = SOON[k] || ['Próximamente', '']; main.innerHTML = `<h1>${s[0]}</h1><p class="lead">${s[1]}</p><p class="muted">Este módulo está en preparación.</p>`; }
 async function pageNotFound(main) { main.innerHTML = '<h1>Página no encontrada</h1><p class="lead">La dirección no corresponde a ninguna sección. Vuelve al <a href="#/">inicio</a>.</p>'; }
 
 function pageLogin() {

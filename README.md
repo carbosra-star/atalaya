@@ -139,7 +139,7 @@ tests/test_core_js.js pruebas de core.js sin gemela en Python: node tests/test_c
 ## Pendiente para próximas versiones
 
 - Stock bloqueado o en cuarentena (hoy cuenta dentro del stock).
-- Módulo de consolidador (visible en el menú como "pronto").
+- Módulo de consolidador de previsiones.
 
 ## Deuda técnica y decisiones provisionales
 
