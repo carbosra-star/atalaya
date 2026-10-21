@@ -709,10 +709,12 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
                 return m
         return -1
 
+    ext = bool(r.get("ext"))
+    mn = 0 if ext else r["mn"]  # a extinguir: no se repone, sin stock mínimo
     rot = first_below(allp, 0)
-    bmin = first_below(allp, r["mn"]) if r["mn"] > 0 else -1
+    bmin = first_below(allp, mn) if mn > 0 else -1
     rot_of = first_below(ofp, 0)
-    bmin_of = first_below(ofp, r["mn"]) if r["mn"] > 0 else -1
+    bmin_of = first_below(ofp, mn) if mn > 0 else -1
     d12 = sum(allp["dem"])
     late_of = any(e["t"] == "OF" and e["late"] for e in r["en"])
     late_pc = any(e["t"] == "PC" and e["late"] for e in r["en"])
@@ -741,6 +743,8 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     elif ((0 <= rot_of < hz) or (0 <= bmin_of < hz)) and has_p and escenario == "ALL":
         tarde = any(e["t"] == "P" and "dm" in e and e["m"] < hz for e in r["en"])  # el MRP la quería antes de lo que da el plazo
         sem, why = "amarillo", "Lanzar ya: propuesta sin fijar que no llega en 3 semanas" if tarde else "Depende de propuestas sin fijar"
+    if sem == "rojo" and ext:  # no se va a fabricar: la decisión es qué hacer con la demanda, no reponer
+        sem, why = "extinguir", why_extinguir(r, hz)
     if sem == "verde":
         antes = cs and rd and rd[0] < hz and rd[1]
         if antes:
@@ -766,6 +770,13 @@ def evaluate(r: dict, horizonte: int = 3, escenario: str = "ALL", prevision: str
     # Faltante: lo que falta en el peor mes del horizonte con el escenario de entradas elegido
     fa = max(0, round(-min(allp["stk"][:hz])), rd[2] if ped_antes else 0)
     return {"sem": sem, "why": why, "rot": rot, "ex": ex, "fa": fa}
+
+
+def why_extinguir(r: dict, hz: int) -> str:
+    """Motivo de una referencia a extinguir sin stock para su demanda: pedidos o previsión, y qué hacer."""
+    ped = r.get("at", 0) > 0 or any(x > 0 for x in (r.get("pd") or [])[:hz])
+    que = "pasar al sucesor " + r["sc"] if r.get("sc") else "anular o servir con otra referencia" if ped else "quitar la previsión"
+    return f"{'Pedidos' if ped else 'Previsión'} sin stock: {que}"
 
 
 ZT_MARGEN = 7  # días naturales: el ZT tiene que estar hecho una semana antes de la fecha del pedido de compra

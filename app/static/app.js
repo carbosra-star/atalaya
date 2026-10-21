@@ -26,9 +26,9 @@ const SIN_AREA = 'Sin área';
 const lnSpan = (c) => `<span title="${esc(lnTit(c))}">${esc(lnNom(c))}</span>`;
 const lnLink = (c) => c ? `<a class="nowrap" href="#/linea/${encodeURIComponent(c)}" title="${esc(lnTit(c))}">${esc(lnNom(c))}</a>` : '—';
 const lnOpts = (codes, cur) => '<option value="">Todas</option>' + codes.slice().sort((a, b) => lnNom(a).localeCompare(lnNom(b), 'es')).map(c => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c === '—' ? 'Sin línea' : lnNom(c))}</option>`).join('');
-const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['verde', 'Cubierto'], ['exceso', 'Exceso'], ['gris', 'Sin demanda']];
+const SEM = [['rojo', 'Rotura'], ['naranja', 'Bajo mínimo'], ['amarillo', 'A revisar'], ['extinguir', 'A extinguir sin stock'], ['verde', 'Cubierto'], ['exceso', 'Exceso'], ['gris', 'Sin demanda']];
 const SEMT = Object.fromEntries(SEM);
-const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, verde: 3, exceso: 4, gris: 5 };
+const SEMORD = { rojo: 0, naranja: 1, amarillo: 2, extinguir: 3, verde: 4, exceso: 5, gris: 6 };
 // Firmes: OF y pedidos de compra a proveedor (PT fabricados fuera); cuentan en todos los escenarios
 const ESC = { OF: 'Solo firmes: OF y pedidos de compra', OFPF: 'Firmes y propuestas fijadas', ALL: 'Firmes y todas las propuestas' };
 const ESC_TXT = { OF: 'solo OF y pedidos de compra', OFPF: 'OF, pedidos de compra y propuestas fijadas', ALL: 'OF, pedidos de compra y todas las propuestas' };  // para mitad de frase
@@ -40,10 +40,10 @@ const ENT = { OF: 'OF', PC: 'Compra', PF: 'PROP fijada', P: 'PROP' };
 // Valor que importa según el estado (a coste, Precio Mixto): exceso, lo que falta en rotura o el stock.
 // null = sin precio (con algo que valorar); 0 = nada que valorar
 function valor(r, e) {
-  const u = e.sem === 'exceso' ? e.ex : e.sem === 'rojo' ? e.fa : Math.max(r.st, 0);
+  const u = e.sem === 'exceso' ? e.ex : ['rojo', 'extinguir'].includes(e.sem) ? e.fa : Math.max(r.st, 0);
   return !u ? 0 : r.pr > 0 ? u * r.pr : null;
 }
-const valorCell = (r, e) => { const v = valor(r, e), t = e.sem === 'exceso' ? 'Exceso' : e.sem === 'rojo' ? 'Falta' : 'Stock';
+const valorCell = (r, e) => { const v = valor(r, e), t = e.sem === 'exceso' ? 'Exceso' : ['rojo', 'extinguir'].includes(e.sem) ? 'Falta' : 'Stock';
   return v == null ? '<td class="r"><span class="muted" title="Sin precio">—<span class="sr"> sin precio</span></span></td>' : `<td class="r num" title="${t}">${v ? eur(v) : '–'}</td>`; };
 
 const S = { me: null, cfg: { horizonte: 3 }, ds: null, ev: [], byK: {}, notes: {}, actions: [], esc: localStorage.getItem('esc') || 'ALL',
@@ -272,6 +272,7 @@ function semCorto(e) {
   if (e.sem === 'rojo') return e.why.startsWith('Pedidos atrasados') ? 'Rotura · atrasos' : e.why.startsWith('Pedidos sin stock') ? 'Rotura · pedidos' : 'Rotura';
   if (e.sem === 'amarillo') return e.why === 'OF con fecha pasada' ? 'OF atrasada' : e.why === 'Falta ZT para el pedido' ? 'Falta ZT' : e.why.startsWith('ZT tarde') ? 'ZT tarde' : e.why === 'Pedido de compra con fecha pasada' ? 'Compra atrasada' : e.why.startsWith('Rotura antes') ? 'Rotura antes de entrada'
     : e.why.startsWith('Sin stock') ? 'Sin entradas' : e.why === 'Entradas sin demanda' ? 'Entradas sin demanda' : e.why.startsWith('Lanzar ya') ? 'Lanzar ya' : 'Propuestas';
+  if (e.sem === 'extinguir') return e.why.includes('sucesor') ? 'A extinguir · sucesor' : 'A extinguir';
   return { naranja: 'Bajo mínimo', verde: 'Cubierto', exceso: 'Exceso', gris: 'Sin demanda' }[e.sem];
 }
 // PT fabricado fuera: el ZT (semiterminado) que fabricamos y enviamos al proveedor; cubre su stock + sus OF (no las propuestas)
@@ -507,7 +508,7 @@ async function pageList(main) {
 }
 function downloadCSV(rows, name = 'coberturas') {
   const head = ['Estado', 'Motivo', 'Referencia', 'Artículo', 'Mandante', 'Marca', 'A extinguir', 'Sucesor', 'Área', 'Línea', 'Nombre línea', 'ABC', 'Stock', 'Stock mínimo', 'Demanda que queda del mes en curso', 'Demanda media 3 próximos meses', 'Cobertura meses', 'Cobertura prudente meses', 'Valor stock €', 'Exceso €', 'Rotura €', 'Factor sesgo', 'Error previsión %', 'Fecha rotura (estimada)', 'Próxima entrada', 'Cantidad', 'Fecha'];
-  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ext ? 'Sí' : '', r.sc || '', lnArea(r.ln), r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && e.sem === 'rojo' && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rf || (e.rot < 0 ? '' : monthLabel(e.rot)), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
+  const lines = rows.map(({ r, e }) => [SEMT[e.sem], e.why, r.k, r.n, r.md, r.mc, r.ext ? 'Sí' : '', r.sc || '', lnArea(r.ln), r.ln, r.ln ? lnNom(r.ln) : '', r.abc, r.st, r.mn, Math.round(e.all.dem[0]), Math.round(e.d3), e.cob >= 99 ? '' : e.cob > 12 ? '>12' : Math.max(0, e.cob).toFixed(1).replace('.', ','), e.cobp == null || e.cobp >= 99 ? '' : e.cobp > 12 ? '>12' : Math.max(0, e.cobp).toFixed(1).replace('.', ','), r.pr > 0 ? Math.round(Math.max(r.st, 0) * r.pr) : '', r.pr > 0 && e.ex ? Math.round(e.ex * r.pr) : '', r.pr > 0 && ['rojo', 'extinguir'].includes(e.sem) && e.fa ? Math.round(e.fa * r.pr) : '', r.fc == null ? '' : String(r.fc).replace('.', ','), r.er == null ? '' : Math.round(r.er * 100), e.rf || (e.rot < 0 ? '' : monthLabel(e.rot)), e.next ? ENT[e.next.t] : '', e.next ? e.next.q : '', e.next ? fdate(e.next.d) : '']);
   saveCSV(head, lines, name);
 }
 function saveCSV(head, lines, name) {
@@ -622,7 +623,7 @@ async function pageRef(main, [k]) {
         <form onsubmit="return false">${scenarioCtl()}</form></div>
       <div class="kpis">
         <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
-        <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? `<br>Exceso: ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : e.sem === 'rojo' && e.fa ? `<br>Falta: ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
+        <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? `<br>Exceso: ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : ['rojo', 'extinguir'].includes(e.sem) && e.fa ? `<br>Falta: ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
         <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · Lote ${fmt(r.lt)}` : ''}</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cob)}</div><div class="l">Cobertura</div></div>
         <div class="kpi"><div class="v">${cobTxt(e.cobp)}</div><div class="l">Cobertura prudente</div></div>

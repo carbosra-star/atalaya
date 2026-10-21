@@ -106,12 +106,20 @@
     return '';
   }
 
+  // Motivo de una referencia a extinguir sin stock para su demanda: pedidos o previsión, y qué hacer. Gemela de core.why_extinguir
+  function whyExtinguir(r, hz) {
+    const ped = (r.at || 0) > 0 || (r.pd || []).slice(0, hz).some(x => x > 0);
+    const que = r.sc ? 'pasar al sucesor ' + r.sc : ped ? 'anular o servir con otra referencia' : 'quitar la previsión';
+    return `${ped ? 'Pedidos' : 'Previsión'} sin stock: ${que}`;
+  }
+
   function evaluate(r, cfg) {
     const hz = cfg.horizonte || 3, pv = cfg.prevision === 'C' ? 'C' : 'T';
     const all = project(r, cfg.escenario || 'ALL', pv), of = project(r, 'OF', pv);
     const firstBelow = (p, lim) => { for (let m = 0; m < H; m++) if (p.stk[m] < lim) return m; return -1; };
-    const rot = firstBelow(all, 0), bmin = r.mn > 0 ? firstBelow(all, r.mn) : -1;
-    const rotOF = firstBelow(of, 0), bminOF = r.mn > 0 ? firstBelow(of, r.mn) : -1;
+    const mn = r.ext ? 0 : r.mn;  // a extinguir: no se repone, sin stock mínimo
+    const rot = firstBelow(all, 0), bmin = mn > 0 ? firstBelow(all, mn) : -1;
+    const rotOF = firstBelow(of, 0), bminOF = mn > 0 ? firstBelow(of, mn) : -1;
     const rd = roturaDia(r, all, cfg.escenario || 'ALL'), rf = fechaRotura(rd, cfg.hoy, cfg.dias);
     // Demanda/mes: media de los 3 próximos meses completos (sin el mes en curso, que solo trae lo que queda)
     const d3 = all.dem.slice(1, 4).reduce((s, x) => s + x, 0) / 3;
@@ -131,6 +139,7 @@
     else if (pedAntes) { sem = 'rojo'; why = `Pedidos sin stock hasta la entrada del ${rd.antes.slice(8, 10)}/${rd.antes.slice(5, 7)}/${rd.antes.slice(2, 4)}`; }
     else if (bmin >= 0 && bmin < hz) { sem = 'naranja'; why = 'Por debajo del stock mínimo'; }
     else if (((rotOF >= 0 && rotOF < hz) || (bminOF >= 0 && bminOF < hz)) && hasP && cfg.escenario === 'ALL') { sem = 'amarillo'; why = r.en.some(e => e.t === 'P' && e.dm != null && e.m < hz) ? 'Lanzar ya: propuesta sin fijar que no llega en 3 semanas' : 'Depende de propuestas sin fijar'; }  // dm: el MRP la quería antes de lo que da el plazo
+    if (sem === 'rojo' && r.ext) { sem = 'extinguir'; why = whyExtinguir(r, hz); }  // no se va a fabricar: la decisión es qué hacer con la demanda
     if (sem === 'verde') {
       const antes = cs && rd && rd.m < hz && rd.antes;
       if (antes) { sem = 'amarillo'; why = `Rotura antes de la entrada del ${antes.slice(8, 10)}/${antes.slice(5, 7)}/${antes.slice(2, 4)}`; }
