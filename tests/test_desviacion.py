@@ -67,6 +67,17 @@ check("marca: previsión y venta 12 meses", nel["p12"] == 2400 and nel["v12"] ==
 check("marca: sesgo histórico", abs(nel["sh"] - 0.25) < 1e-9 and abs(nel["er"] - 0.25) < 1e-9, nel)
 check("marca: propuestas y efecto", nel["prop"] == 2 and nel["eu"] == -480, nel)
 check("marcas ordenadas por venta", [x["mc"] for x in res[1:]] == ["NELLY", "DRN"])
+# Lanzamiento sin 12 meses de venta ni historia propia: con 3+ meses de previsión vigente, desvío > 50 % → revisar
+lz = dict(abcx="anual", fo="grupo", vt=[0] * 7 + [4032, 0, 0, 0, 0], hp=[0] * 7 + [14516, 5645, 5645, 3000, 3000])
+p = f([ref("L1", **lz)])["L1"]
+check("lanzamiento muy por debajo de lo previsto: revisar", p["tipo"] == "revisar" and p["cp"] is None and p["lz"] == 5 and abs(p["cl"] - (4032 / 31806 - 1)) < 1e-3, p)
+p = f([ref("L2", **dict(lz, vt=[0] * 7 + [12000, 5000, 5000, 3000, 3000]))])["L2"]
+check("lanzamiento cerca de lo previsto: sin datos", p["tipo"] == "sin_dato" and p["cl"] is not None, (p["tipo"], p["cl"]))
+p = f([ref("L3", **dict(lz, vt=[0] * 10 + [5000, 0], hp=[0] * 10 + [3000, 3000]))])["L3"]
+check("lanzamiento con menos de 3 meses de previsión: sin datos", p["tipo"] == "sin_dato" and p["cl"] is None, (p["tipo"], p["cl"]))
+p = f([ref("L4", **dict(lz, vt=[0] * 9 + [9000, 9000, 9000], hp=[0] * 9 + [3000, 3000, 3000]))])["L4"]
+check("lanzamiento muy por encima de lo previsto: revisar", p["tipo"] == "revisar", p["tipo"])
+check("lanzamiento a extinguir: a extinguir", f([ref("L5", ext=True, **lz)])["L5"]["tipo"] == "extinguir")
 sinhp = ref("H1"); del sinhp["hp"]
 check("sin histórico de previsión: no falla", D.resumen_marcas(D.filas([sinhp], {}), [sinhp])[1]["sh"] is None)
 

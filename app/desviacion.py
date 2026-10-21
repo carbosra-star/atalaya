@@ -6,6 +6,7 @@ Se calcula en el servidor y no tiene gemela en JS. Diseño: docs/superpowers/spe
 from __future__ import annotations
 
 CAP, UMBRAL = 0.5, 0.10  # tope de la propuesta automática y corrección mínima que se propone
+LZ_MESES, LZ_UMBRAL = 3, 0.5  # lanzamientos sin dato: meses con previsión vigente y desvío que manda revisar
 CLASES = ("A", "B", "C", "D")
 
 
@@ -39,12 +40,22 @@ def filas(refs: list[dict], acuerdos: dict) -> list[dict]:
         cr = v12 / p12 - 1 if (not r.get("ext") and r.get("abcx") == "venta" and p12 > 0 and v12 > 0) else None
         cs = r["fc"] - 1 if r.get("fo") == "ref" and r.get("fc") is not None and not r.get("ext") else None
         cp, tipo = (None, "extinguir") if r.get("ext") else _propuesta(cr, cs)  # a extinguir: su demanda pasa al sucesor
+        # Lanzamientos (sin 12 meses de venta ni 6 de historia propia): con 3 meses o más de previsión vigente, si la
+        # venta se aparta más de un 50 % de lo previsto en esos meses, revisar con comercial (sin corrección automática)
+        cl, lz = None, 0
+        if tipo == "sin_dato":
+            ms = [(v, h) for v, h in zip(r.get("vt") or [], r.get("hp") or []) if h > 0]
+            if len(ms) >= LZ_MESES:
+                cl, lz = sum(v for v, _ in ms) / sum(h for _, h in ms) - 1, len(ms)
+                if abs(cl) > LZ_UMBRAL:
+                    tipo = "revisar"
         a = acuerdos.get(r["k"])
         ca = a["pct"] if a else (cp or 0.0)
         pvc = [max(0, round(x * (1 + ca))) for x in pv]
         eu = sum(pvc) - p12
         out.append(dict(k=r["k"], n=r.get("n", ""), md=r["md"], mc=r.get("mc") or "—", abc=r["abc"], pr=pr,
                         p12=round(p12), v12=round(v12), cr=None if cr is None else round(cr, 3), cs=None if cs is None else round(cs, 3),
+                        cl=None if cl is None else round(cl, 3), lz=lz,
                         cp=cp, tipo=tipo, estado="acordado" if a else tipo, ca=round(ca, 4), src=a["src"] if a else None, mo=(a.get("motivo") or "") if a else "",
                         pvc=pvc, eu=round(eu), ee=round(eu * pr)))
     return out
