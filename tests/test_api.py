@@ -267,6 +267,21 @@ xf = openpyxl.load_workbook(io.BytesIO(c.get("/api/parametros.xlsx?estado=decidi
 check("Excel de parámetros: respeta el filtro de estado", [r[0] for r in xf.iter_rows(min_row=2, values_only=True)] == [k1])
 h = c.get(f"/api/parametros/{k1}/historial").json
 check("historial con autor, motivo y valores de antes", len(h) == 1 and h[0]["motivo"] == "Prueba de decisión" and h[0]["ss_antes"] == cam[0]["mn"] and h[0]["by"], h)
+check("reparto: % por defecto", c.get("/api/me").json["config"].get("reparto") == {"pct": 50})
+check("reparto: % no válido se rechaza", c.put("/api/config", json={"reparto": {"pct": 150}}, headers=H).status_code == 400)
+F0 = pr_["resumen"]["frec"]
+check("reparto: guardar el %", c.put("/api/config", json={"reparto": {"pct": 0}}, headers=H).status_code == 200)
+F1 = c.get("/api/parametros").json["resumen"]["frec"]
+check("reparto: con 0 % el stock mínimo repartido no pasa del ERP (± redondeo)", F1["ss_rep"] <= F1["ss_erp"] * 1.02 and F1["ss_rep"] <= F0["ss_rep"], (F1["ss_erp"], F1["ss_rep"], F0["ss_rep"]))
+k3 = next((p["k"] for p in rows.values() if p["lo"] is not None and p["k"] not in (k1, k2)), None)
+if k3:
+    r = dec([{"ref": k3, "ss": {"src": "reparto"}, "lote": {"src": "optimo"}}])
+    p3 = c.get(f"/api/parametros?ref={k3}").json["rows"][0]
+    check("decidir con reparto y frecuencia óptima", r.status_code == 200 and p3["ss"] == p3["sr"] and p3["lote"] == p3["lo"], (r.json, p3["ss"], p3["sr"], p3["lote"], p3["lo"]))
+k4 = next((p["k"] for p in rows.values() if p["lo"] is None), None)
+if k4:
+    check("decidir con frecuencia óptima sin cifra se rechaza", dec([{"ref": k4, "ss": {"src": "erp"}, "lote": {"src": "optimo"}}]).status_code == 400)
+c.put("/api/config", json={"reparto": {"pct": 50}}, headers=H)
 check("plazo extra de una referencia fuera de ámbito se rechaza", c.put("/api/parametros/999999999999/plazo", json={"dias": 5}, headers=H).status_code == 400)
 check("plazo extra fuera de rango se rechaza", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 300}, headers=H).status_code == 400)
 check("plazo extra", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 21, "motivo": "Tubos 66 días"}, headers=H).status_code == 200

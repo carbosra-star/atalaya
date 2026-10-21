@@ -15,6 +15,9 @@ PLAZO_BASE, DIAS_MES = 15, 21  # plazo de fabricación (3 semanas) y días labor
 HMIN, SESGO = 6, 0.2  # meses mínimos con previsión y umbral de sesgo
 CLASES = "ABCD"
 FABS = (1, 2, 3, 4, 6, 12, 24)  # fabricaciones al año admitidas para la frecuencia óptima
+PCT_DEF = 50  # % del ahorro de lote con la frecuencia óptima que se reinvierte en stock mínimo
+ETR_MAX = 1.5  # error tope de los irregulares en el reparto del stock mínimo
+N01 = NormalDist()
 
 
 def round100(x: float) -> int:
@@ -42,22 +45,76 @@ def frecuencia_optima(rows: list[dict], lmin: dict) -> None:
     línea. Sin lote del ERP, a extinguir o sin previsión: no entra en el reparto (fo, lo = None)."""
     con_pr = [p["pr"] for p in rows if p["pr"]]
     med = median(con_pr) if con_pr else 1.0
+    prl: dict[str, list] = {}
+    for p in rows:
+        if p["pr"]:
+            prl.setdefault(p["ln"] or "", []).append(p["pr"])
     lineas: dict[str, list[dict]] = {}
     for p in rows:
         p["fe"] = p["fo"] = p["lo"] = None
+        l_ = prl.get(p["ln"] or "")
+        p["pp"] = p["pr"] or (median(l_) if l_ else med)  # precio para repartir: sin precio, mediana de la línea
         if p["pa"] > 0 and p["lt"] > 0:
             p["fe"] = round(p["pa"] / p["lt"], 1)
             if p["tipo"] not in ("extinguir", "sin_prev"):
                 lineas.setdefault(p["ln"] or "", []).append(p)
     for ln, g in lineas.items():
-        prl = [p["pr"] for p in g if p["pr"]]
-        pl = median(prl) if prl else med
-        w = {p["k"]: math.sqrt(p["pa"] * (p["pr"] or pl)) for p in g}
+        w = {p["k"]: math.sqrt(p["pa"] * p["pp"]) for p in g}
         n, sw = sum(p["pa"] / p["lt"] for p in g), sum(w.values())
         lm = lmin.get(ln, 0)
         for p in g:
             p["fo"] = _fab(n * w[p["k"]] / sw)
             p["lo"] = max(lote_calc(p["pa"], p["fo"]), lm)
+
+
+def _ss_lambda(e: list[dict], lam: float) -> list[float]:
+    """Stock mínimo de cada referencia con el mismo beneficio marginal por € (lam): las roturas al año que evita la
+    última unidad, n × φ(SM/σ) / σ, valen lam × precio; es decir φ(z) = lam × precio × σ / n, con z ≥ 0."""
+    out = []
+    for p in e:
+        x = lam * p["pp"] * p["sl"] * math.sqrt(2 * math.pi) / p["nr"]  # φ(z) / φ(0)
+        v = math.sqrt(-2 * math.log(x)) * p["sl"] if 0 < x < 1 else 0.0
+        out.append(min(v, p["mn"]) if p["sg"] is not None and p["sg"] > SESGO else v)  # sobreprevisión: no se sube
+    return out
+
+
+def reparto(rows: list[dict], pct: float) -> None:
+    """Stock mínimo repartido con un presupuesto fijo en €: el stock mínimo del ERP más pct % del ahorro de stock medio
+    de lote con la frecuencia óptima. Entran las referencias con error de previsión (irregulares con el error a
+    ETR_MAX), Yunsey también; el resto conserva el del ERP (0 a extinguir) y se descuenta del presupuesto.
+    Añade sr (stock mínimo repartido), nh y nr (fabricaciones/año de hoy y del reparto)."""
+    ahorro = sum((p["lt"] - p["lo"]) / 2 * p["pp"] for p in rows if p["lo"] is not None)
+    pres = sum(p["mn"] * p["pp"] for p in rows) + pct / 100 * max(0.0, ahorro)
+    e = []
+    for p in rows:
+        p["nh"] = p["fe"] or p["fc"]  # hoy: con el lote del ERP (sin lote, la frecuencia de la clase)
+        p["nr"] = p["fo"] or p["nh"]
+        if p["sl"] and p["nr"]:
+            e.append(p)
+        else:
+            p["sr"] = 0 if p["tipo"] == "extinguir" else p["mn"]
+            pres -= p["sr"] * p["pp"]
+    if not e:
+        return
+    lo, hi = 1e-12, 1e6
+    if sum(v * p["pp"] for v, p in zip(_ss_lambda(e, lo), e)) <= pres:
+        hi = lo  # el presupuesto da para todo: nivel máximo
+    for _ in range(100):
+        if hi <= lo:
+            break
+        mid = math.sqrt(lo * hi)
+        if sum(v * p["pp"] for v, p in zip(_ss_lambda(e, mid), e)) > pres:
+            lo = mid
+        else:
+            hi = mid
+    for v, p in zip(_ss_lambda(e, hi), e):
+        p["sr"] = round100(v)
+
+
+def roturas(rows: list[dict], ss_key: str, n_key: str) -> float:
+    """Roturas al año esperadas: por ciclo de fabricación, probabilidad de que el error de previsión en el plazo
+    supere el stock mínimo."""
+    return sum(p[n_key] * (1 - N01.cdf(p[ss_key] / p["sl"])) for p in rows if p["sl"] and p[n_key])
 
 
 def _ruido(p: float, erp: float) -> bool:
@@ -89,9 +146,10 @@ def _estadistico(r: dict, ns: float, dias_extra: int):
     return v, "ok", etr, sesgo, flag
 
 
-def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, extra: dict, lmin: dict | None = None) -> list[dict]:
+def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, extra: dict, lmin: dict | None = None,
+               pct: float = PCT_DEF) -> list[dict]:
     """Una fila por PT contra stock con ABC A–D. dec: decisión vigente por referencia; extra: días de plazo extra;
-    lmin: lote mínimo (uds) de las líneas que lo tienen."""
+    lmin: lote mínimo (uds) de las líneas que lo tienen; pct: % del ahorro de lote que se reinvierte en stock mínimo."""
     rows, lmin = [], lmin or {}
     for r in refs:
         if r.get("gp") != "Contra Stock" or r.get("abc") not in CLASES:
@@ -106,6 +164,7 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
         xl = round100(lc * ss_pct[md][i] / 100)
         dx = int(extra.get(k, 0))
         est, tipo, etr, sesgo, flag = _estadistico(r, ns[md][i], dx)
+        sl = min(etr, ETR_MAX) * sum(r["pv"][1:4]) / 3 * math.sqrt((PLAZO_BASE + dx) / DIAS_MES) if etr is not None else 0
         # A extinguir: se consume el stock del PT y no se repone (stock mínimo y lote 0); si hay que fabricar para
         # gastar material, se decide a mano. Sin previsión en 12 meses o en el próximo trimestre (p. ej.
         # temporada): sin propuesta automática (daría lote 0 o la mitad del stock mínimo), se decide a mano desde el ERP
@@ -131,8 +190,10 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
             k=k, n=r.get("n", ""), md=md, abc=r["abc"], xyz=r.get("xyz", ""), ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
             er=None if etr is None else round(etr, 3), sg=None if sesgo is None else round(sesgo, 3), flag=flag, tipo=tipo,
             mn=mn, lt=lt, xl=xl, est=est, ssp=ssp, lc=lc, ltp=ltp, ss=ss, lote=lote, d=bool(d), estado=estado,
-            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube, pa=sum(r["pv"])))
+            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube, pa=sum(r["pv"]),
+            sl=sl if tipo in ("ok", "irregular") else 0, fc=freq[md][i]))
     frecuencia_optima(rows, lmin)
+    reparto(rows, pct)
     return rows
 
 
@@ -155,4 +216,6 @@ def resumen(rows: list[dict]) -> dict:
     fo = [p for p in rows if p["fo"]]  # frecuencia óptima frente al lote del ERP, en las mismas referencias
     frec = dict(n=len(fo), fab_erp=round(sum(p["fe"] for p in fo)), fab_opt=sum(p["fo"] for p in fo),
                 lote_erp=round(sum(p["lt"] / 2 * (p["pr"] or 0) for p in fo)), lote_opt=round(sum(p["lo"] / 2 * (p["pr"] or 0) for p in fo)))
+    frec.update(ss_erp=round(sum(p["mn"] * p["pp"] for p in rows)), ss_rep=round(sum(p["sr"] * p["pp"] for p in rows)),
+                n_rep=sum(1 for p in rows if p["sl"]), rot_erp=round(roturas(rows, "mn", "nh")), rot_rep=round(roturas(rows, "sr", "nr")))
     return dict(grupos=grupos, estados=dict(Counter(p["estado"] for p in rows)), frec=frec)

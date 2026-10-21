@@ -643,10 +643,10 @@ async function pageRef(main, [k]) {
         <section><h2>Próximas semanas</h2>${diarioHTML(r, e)}</section>
         <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.dm != null ? `<span class="neg" title="Sin fijar y con fecha del MRP dentro del plazo de fabricación: se cuenta en la primera fecha posible si se lanzara hoy">MRP ${v.dm ? fdate(v.dm) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}</section></div>
       ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
-        const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', manual: 'manual', calculado: 'calculado' };
+        const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', reparto: 'reparto', manual: 'manual', calculado: 'calculado', optimo: 'frec. óptima' };
         return blkFicha('par', 'Parámetros', `ERP ${fmt(p.mn)} · ${fmt(p.lt)} · propuesta ${fmt(p.ssp)} · ${fmt(p.ltp)}`, `
         <div class="kpis"><div class="kpi"><div class="v">${fmt(p.mn)} · ${fmt(p.lt)}</div><div class="l">ERP: Stock mínimo · Lote</div></div>
-          <div class="kpi"><div class="v">${fmt(p.xl)} · ${p.est == null ? '—' : fmt(p.est)}</div><div class="l">Stock mínimo Excel · Estadístico${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}</div></div>
+          <div class="kpi"><div class="v">${fmt(p.xl)} · ${p.est == null ? '—' : fmt(p.est)} · ${fmt(p.sr)}</div><div class="l">Stock mínimo Excel · Estadístico · Reparto${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}</div></div>
           <div class="kpi"><div class="v">${fmt(p.ssp)} · ${fmt(p.ltp)}</div><div class="l">Propuesta: Stock mínimo · Lote</div></div>
           <div class="kpi"><div class="v">${p.d ? fmt(p.ss) + ' · ' + fmt(p.lote) : '—'}</div><div class="l">${PEST[p.estado]}${p.smax ? ' · Stock máximo ' + fmt(p.smax) : ''}</div></div></div>
         ${can('admin', 'planificador') ? `<form class="form" id="plzF" style="max-width:none"><div class="row"><label>Plazo extra de material (días laborables)<input type="number" name="dias" min="0" max="250" value="${p.dx}"></label><label style="flex:1">Motivo<input name="motivo" maxlength="500"></label><button class="btn ghost">Guardar plazo</button></div></form>` : (p.dx ? `<p class="muted small">Plazo extra de material: ${p.dx} días laborables.</p>` : '')}
@@ -954,6 +954,7 @@ function abcForm() {
     <div class="row"><label>X hasta (% de error)<input type="number" name="xyz0" min="1" max="500" value="${xyzCfg()[0]}"></label><label>Y hasta (% de error; por encima, Z)<input type="number" name="xyz1" min="1" max="500" value="${xyzCfg()[1]}"></label></div>
     <div class="tw"><table class="fit abcp"><thead><tr><th scope="col">Por clase</th>${ABC_CL.map(c => `<th scope="col">${abcTag(c)}</th>`).join('')}</tr></thead><tbody>
       ${['Belloch', 'Yunsey'].map(md => fila(md, 'fr', 'fabricaciones/año') + fila(md, 'ss', '% stock mínimo (Excel)') + fila(md, 'ns', 'nivel de servicio %')).join('')}</tbody></table></div>
+    <div class="row"><label>Reparto del stock mínimo: % del ahorro de lote que se reinvierte<input type="number" name="rpct" min="0" max="100" value="${S.cfg.reparto ? S.cfg.reparto.pct : 50}"></label></div>
     <div><button class="btn ghost">Guardar parámetros del ABC</button></div></form>`;
 }
 async function pageData(main) {
@@ -1007,7 +1008,7 @@ async function pageData(main) {
   $('#abcF').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target, n = (x) => Number(String(x).replace(',', '.'));
     const por = (pre) => Object.fromEntries(['Belloch', 'Yunsey'].map(md => [md, ABC_CL.map(c => n(f[`${pre}_${md}_${c}`].value))]));
-    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), xyz: [0, 1].map(i => parseInt(f['xyz' + i].value, 10)), freq: por('fr'), ss: por('ss') }, ns: por('ns') };
+    const body = { abc: { cortes: [0, 1, 2].map(i => parseInt(f['corte' + i].value, 10)), xyz: [0, 1].map(i => parseInt(f['xyz' + i].value, 10)), freq: por('fr'), ss: por('ss') }, ns: por('ns'), reparto: { pct: parseInt(f.rpct.value, 10) } };
     try { S.cfg = await api('/api/config', { method: 'PUT', body }); await loadData(); updateChrome(); toast('Parámetros guardados'); } catch (e) { toast(e.message); }
   };
   if ($('#capF')) $('#capF').onsubmit = async (ev) => {
@@ -1025,7 +1026,7 @@ const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia', extinguir: 'a 
 // Fuentes que corresponden a la propuesta, para aceptarla tal cual
 const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'estadistico' }, lote: { src: p.ltp === p.lt ? 'erp' : 'calculado' } });
 // Columnas ordenables de la tabla de parámetros (valor de cada fila); las de texto empiezan de la A a la Z
-const PSORT = { k: p => p.k, abc: p => p.abc, pm: p => p.pm, er: p => p.er, mn: p => p.mn, xl: p => p.xl, est: p => p.est,
+const PSORT = { k: p => p.k, abc: p => p.abc, pm: p => p.pm, er: p => p.er, mn: p => p.mn, xl: p => p.xl, est: p => p.est, sr: p => p.sr,
   ss: p => p.d ? p.ss : p.ssp, lt: p => p.lt, lote: p => p.d ? p.lote : p.ltp, fe: p => p.fe, fo: p => p.fo, lo: p => p.lo, de: p => p.pr > 0 ? p.de : null, estado: p => PEST[p.estado] };
 const PSORT_TXT = ['k', 'abc', 'estado'];
 async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y buscador, sin volver a pedirlos)
@@ -1051,13 +1052,13 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   const d1 = (v) => v == null ? '<span class="muted">—</span>' : v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
   const fila = (p) => {
     const marca = [PTIPO[p.tipo], p.flag ? 'corregir previsión' : '', p.lms ? 'mín. de línea' : ''].filter(Boolean).join(' · ');
-    const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock mínimo de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="manual">Manual</option></select>
+    const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock mínimo de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="reparto">Reparto</option><option value="manual">Manual</option></select>
         <input type="number" min="0" step="100" data-ssv="${esc(p.k)}" hidden aria-label="Stock mínimo manual" style="width:90px">
-        <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="manual">Manual</option></select>
+        <select data-lt="${esc(p.k)}" aria-label="Lote de ${esc(p.k)}"><option value="erp">ERP</option><option value="calculado">Calculado</option><option value="optimo" ${p.lo == null ? 'disabled' : ''}>Frec. óptima</option><option value="manual">Manual</option></select>
         <input type="number" min="0" step="100" data-ltv="${esc(p.k)}" hidden aria-label="Lote manual" style="width:90px">
         <button class="btn ghost sm" data-dec="${esc(p.k)}">Decidir</button></td>` : '';
     return `<tr>${refCell({ k: p.k, n: p.n })}<td class="nowrap"><span class="abcxyz">${abcTag(p.abc)}${xyzTag(p.xyz)}</span></td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
-      <td class="r num">${fmt(p.mn)}</td><td class="r num">${fmt(p.xl)}</td><td class="r num">${n0(p.est)}</td><td class="r num"><b>${fmt(p.d ? p.ss : p.ssp)}</b></td>
+      <td class="r num">${fmt(p.mn)}</td><td class="r num">${fmt(p.xl)}</td><td class="r num">${n0(p.est)}</td><td class="r num">${fmt(p.sr)}</td><td class="r num"><b>${fmt(p.d ? p.ss : p.ssp)}</b></td>
       <td class="r num">${d1(p.fe)}</td><td class="r num">${n0(p.fo)}</td>
       <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num">${n0(p.lo)}</td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
       <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
@@ -1070,7 +1071,10 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
       { g: 'Stock medio €', c: [thc('ERP', 'r', 'Stock medio del ERP'), thc('Prop.', 'r', 'Stock medio propuesto'), thc('Dec.', 'r', 'Stock medio decidido')] }])}</thead><tbody>
       ${P.resumen.grupos.map(g => `<tr><th scope="row">${esc(g.md)} · ${abcTag(g.abc)}</th><td class="r num">${fmt(g.n)}</td><td class="r num">${keur(g.ss_erp)}</td><td class="r num">${keur(g.ss_prop)}</td><td class="r num">${keur(g.ss_dec)}</td><td class="r num">${keur(g.med_erp)}</td><td class="r num">${keur(g.med_prop)}</td><td class="r num">${keur(g.med_dec)}</td></tr>`).join('')}
       <tr><th scope="row"><b>Total</b></th><td class="r num"><b>${fmt(tot('n'))}</b></td>${['ss_erp', 'ss_prop', 'ss_dec', 'med_erp', 'med_prop', 'med_dec'].map(k => `<td class="r num"><b>${keur(tot(k))}</b></td>`).join('')}</tr></tbody></table></div>
-    ${F.n ? `<p><b>Frecuencia óptima por referencia</b> (informativa): con las mismas fabricaciones al año que hoy en cada línea (${fmt(F.fab_erp)} con el lote del ERP; ${fmt(F.fab_opt)} tras redondear), el stock medio de lote de ${fmt(F.n)} referencias pasa de <b>${keur(F.lote_erp)}</b> a <b>${keur(F.lote_opt)}</b> (${F.lote_opt <= F.lote_erp ? '−' : '+'}${keur(Math.abs(F.lote_opt - F.lote_erp))}).</p>` : ''}
+    ${F.n ? `<div class="kpis">
+      <div class="kpi"><div class="v">${keur(F.lote_erp)} → ${keur(F.lote_opt)}</div><div class="l">Stock medio de lote: ERP → frecuencia óptima (mismas ${fmt(F.fab_erp)} fabricaciones/año, ${fmt(F.n)} refs.)</div></div>
+      <div class="kpi"><div class="v">${keur(F.ss_erp)} → ${keur(F.ss_rep)}</div><div class="l">Stock mínimo: ERP → reparto (+${S.cfg.reparto ? S.cfg.reparto.pct : 50} % del ahorro de lote)</div></div>
+      <div class="kpi"><div class="v">${fmt(F.rot_erp)} → ${fmt(F.rot_rep)}</div><div class="l">Roturas/año estimadas: hoy → frecuencia óptima + reparto (${fmt(F.n_rep)} refs. con error de previsión)</div></div></div>` : ''}
     <div class="kpis">${cnt('decidir', 'Por decidir a mano')}${cnt('cambio', 'Con cambio propuesto')}${cnt('decidido', 'Decididos, pendientes de ABAS')}${cnt('aplicado', 'Aplicados')}</div>
     <p>${nAbas ? `<a class="btn" href="/api/parametros/abas.csv" download>Descargar cambios para ABAS (${fmt(nAbas)})</a>` : '<span class="muted">No hay cambios pendientes de cargar en ABAS.</span>'}</p>
     <form class="filters" id="pF" onsubmit="return false">
@@ -1085,13 +1089,14 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
       <a class="btn ghost sm" href="/api/parametros.xlsx?${new URLSearchParams({ estado: estF ? estF.join(',') : '', md, abc, ln, q: bq })}" download>Descargar (Excel)</a>
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
     <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([ths('Referencia', 'k'), ths('ABC', 'abc'), ths('Previsión/mes', 'pm', 'r'), ths('Error previsión', 'er', 'r'),
-      { g: 'Stock mínimo', c: [ths('ERP', 'mn', 'r', 'Stock mínimo del ERP'), ths('Excel', 'xl', 'r', 'Stock mínimo método Excel'), ths('Estadístico', 'est', 'r', 'Stock mínimo estadístico'), ths('Propuesta · Decidido', 'ss', 'r', 'Stock mínimo propuesto · decidido')] },
+      { g: 'Stock mínimo', c: [ths('ERP', 'mn', 'r', 'Stock mínimo del ERP'), ths('Excel', 'xl', 'r', 'Stock mínimo método Excel'), ths('Estadístico', 'est', 'r', 'Stock mínimo estadístico'), ths('Reparto', 'sr', 'r', 'Stock mínimo repartido con presupuesto fijo'), ths('Propuesta · Decidido', 'ss', 'r', 'Stock mínimo propuesto · decidido')] },
       { g: 'Fabricaciones/año', c: [ths('ERP', 'fe', 'r', 'Fabricaciones al año con el lote del ERP'), ths('Óptima', 'fo', 'r', 'Fabricaciones al año con la frecuencia óptima')] },
       { g: 'Lote', c: [ths('ERP', 'lt', 'r', 'Lote del ERP'), ths('Propuesta · Decidido', 'lote', 'r', 'Lote propuesto · decidido'), ths('Frec. óptima', 'lo', 'r', 'Lote con la frecuencia óptima')] },
       ths('Δ € stock medio', 'de', 'r'), ths('Estado', 'estado'), ...(canW ? [thc('Decisión')] : [])])}</thead>
-      <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 16 : 15}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
+      <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 17 : 16}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
     <p class="muted small">Δ € = variación del stock medio (stock mínimo + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.
-      Frecuencia óptima: en cada línea se reparten las fabricaciones al año de hoy (previsión anual ÷ lote del ERP) en proporción a la raíz del consumo anual en €, redondeadas a 1, 2, 3, 4, 6, 12 o 24; de momento solo informativa.</p>`;
+      Frecuencia óptima: en cada línea se reparten las fabricaciones al año de hoy (previsión anual ÷ lote del ERP) en proporción a la raíz del consumo anual en €, redondeadas a 1, 2, 3, 4, 6, 12 o 24.
+      Reparto: el presupuesto (stock mínimo del ERP en € + el % del ahorro de lote fijado en Datos) se reparte para evitar el mayor número de roturas por €, contando una rotura por ciclo de fabricación cuando el error de previsión en el plazo supera el stock mínimo; sin error de previsión se queda el del ERP y la sobreprevisión no sube. Se puede elegir al decidir.</p>`;
   xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
   $$('.ptab [data-sort]', main).forEach(b => b.onclick = async () => {
     const k2 = b.dataset.sort;

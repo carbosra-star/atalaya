@@ -89,8 +89,8 @@ CREATE INDEX IF NOT EXISTS actions_ref ON actions(ref);
 CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS param_dec(
   id INTEGER PRIMARY KEY, ref TEXT NOT NULL, md TEXT NOT NULL, ss INTEGER NOT NULL, lote INTEGER NOT NULL,
-  src_ss TEXT NOT NULL CHECK(src_ss IN ('erp','excel','estadistico','manual')),
-  src_lote TEXT NOT NULL CHECK(src_lote IN ('erp','calculado','manual')),
+  src_ss TEXT NOT NULL CHECK(src_ss IN ('erp','excel','estadistico','reparto','manual')),
+  src_lote TEXT NOT NULL CHECK(src_lote IN ('erp','calculado','optimo','manual')),
   ss_antes INTEGER, lote_antes INTEGER, motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL,
   aplicado TEXT);
 CREATE INDEX IF NOT EXISTS param_dec_ref ON param_dec(ref, id);
@@ -158,6 +158,14 @@ def init_db() -> None:
                        0 if os.environ.get("ADMIN_PASSWORD") else 1, now()))
             if not os.environ.get("ADMIN_PASSWORD"):
                 print(f"[supply] Usuario administrador creado: {user} / contraseña temporal: {pwd}", flush=True)
+        sql = c.execute("SELECT sql FROM sqlite_master WHERE name='param_dec'").fetchone()[0]
+        if "'reparto'" not in sql:  # fuentes nuevas (reparto, frecuencia óptima): el CHECK solo cambia rehaciendo la tabla
+            c.execute("ALTER TABLE param_dec RENAME TO param_dec_v1")
+            c.execute("DROP INDEX IF EXISTS param_dec_ref")
+            c.execute("CREATE TABLE param_dec(" + SCHEMA.split("CREATE TABLE IF NOT EXISTS param_dec(")[1].split(";")[0])
+            c.execute("INSERT INTO param_dec SELECT * FROM param_dec_v1")
+            c.execute("DROP TABLE param_dec_v1")
+            c.execute("CREATE INDEX IF NOT EXISTS param_dec_ref ON param_dec(ref, id)")
         if not c.execute("SELECT 1 FROM config WHERE key='cap_sembrada'").fetchone():  # una sola vez: después manda lo editado
             c.executemany("INSERT OR IGNORE INTO linea_cap(codigo,vmax,oee,turnos,user_id,updated) VALUES(?,?,?,1,0,?)",
                           [(k, v, o, now()) for k, (v, o) in CAP_INICIAL.items()])
@@ -172,7 +180,8 @@ def init_db() -> None:
 
 def get_config() -> dict:
     cfg = {"horizonte": 3, "abc": json.loads(json.dumps(core.ABC_DEF)), "exceso": dict(core.EXCESO_DEF),
-           "ns": json.loads(json.dumps(parametros.NS_DEF)), "capacidad": json.loads(json.dumps(CAP_DEF))}
+           "ns": json.loads(json.dumps(parametros.NS_DEF)), "capacidad": json.loads(json.dumps(CAP_DEF)),
+           "reparto": {"pct": parametros.PCT_DEF}}
     for r in db().execute("SELECT key,value FROM config WHERE key<>'cap_sembrada'"):
         cfg[r["key"]] = json.loads(r["value"])
     cfg["abc"].setdefault("xyz", list(core.ABC_DEF["xyz"]))  # guardado antes de que existiera el XYZ
@@ -397,7 +406,7 @@ def config():
     if g.user["role"] != "admin":
         return err("Solo un administrador puede cambiar los criterios", 403)
     b = request.get_json(silent=True) or {}
-    if not any(k in b for k in ("horizonte", "abc", "exceso", "ns", "capacidad")):
+    if not any(k in b for k in ("horizonte", "abc", "exceso", "ns", "capacidad", "reparto")):
         return err("No hay nada que guardar")
     save = {}
     if "horizonte" in b:
@@ -424,6 +433,11 @@ def config():
                                              for md in ("Belloch", "Yunsey"))):
             return err("Los niveles de servicio deben ser cuatro porcentajes entre 50 y 99,9 para Belloch y Yunsey")
         save["ns"] = {md: ns[md] for md in ("Belloch", "Yunsey")}
+    if "reparto" in b:
+        pc = b["reparto"].get("pct") if isinstance(b["reparto"], dict) else None
+        if not (isinstance(pc, int) and not isinstance(pc, bool) and 0 <= pc <= 100):
+            return err("El % del ahorro de lote que se reinvierte debe ser un número entero entre 0 y 100")
+        save["reparto"] = {"pct": pc}
     if "capacidad" in b:
         cp = b["capacidad"]
         num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
@@ -481,7 +495,8 @@ def _decisiones() -> dict:
 def _param_rows(refs: list[dict]) -> list[dict]:
     cfg = get_config()
     extra = {r["ref"]: r["dias"] for r in db().execute("SELECT ref,dias FROM param_extra")}
-    return parametros.parametros(refs, cfg["abc"]["freq"], cfg["abc"]["ss"], cfg["ns"], _decisiones(), extra, _lotemin())
+    return parametros.parametros(refs, cfg["abc"]["freq"], cfg["abc"]["ss"], cfg["ns"], _decisiones(), extra, _lotemin(),
+                                 cfg["reparto"]["pct"])
 
 
 def _con_sx(refs: list[dict]) -> list[dict]:
@@ -508,7 +523,8 @@ def param_list():
     return jsonify({"rows": rows, "resumen": parametros.resumen(rows), "hoy": row["hoy"]})
 
 
-SRC_SS, SRC_LOTE = {"erp": "mn", "excel": "xl", "estadistico": "est", "manual": None}, {"erp": "lt", "calculado": "lc", "manual": None}
+SRC_SS = {"erp": "mn", "excel": "xl", "estadistico": "est", "reparto": "sr", "manual": None}
+SRC_LOTE = {"erp": "lt", "calculado": "lc", "optimo": "lo", "manual": None}
 
 
 @app.post("/api/parametros/decisiones")
@@ -542,7 +558,8 @@ def param_decidir():
             else:
                 v = p[SRC[src]]
                 if v is None:
-                    return err(f"{p['k']}: el método estadístico no da cifra (irregular o sin historia)")
+                    return err(f"{p['k']}: el lote con frecuencia óptima no tiene cifra (sin lote en el ERP)" if src == "optimo"
+                               else f"{p['k']}: el método estadístico no da cifra (irregular o sin historia)")
             vals.append((src, int(v)))
         (sss, ss), (srl, lote) = vals
         aplicado = row["hoy"] if (ss, lote) == (p["mn"], p["lt"]) else None  # mantener el ERP: ya está aplicado
@@ -617,7 +634,7 @@ def param_xlsx():
     cols = [("Referencia", 14, "@"), ("Artículo", 40, None), ("Mandante", 10, None), ("ABC", 6, None), ("XYZ", 6, None), ("Línea", 14, None),
             ("Precio €", 10, "#,##0.00"), ("Previsión/mes", 12, "#,##0"), ("Error previsión", 10, "0%"), ("Sesgo", 9, "0%"),
             ("Plazo extra (días lab.)", 10, "0"), ("SM ERP", 10, "#,##0"), ("SM Excel", 10, "#,##0"),
-            ("SM estadístico", 11, "#,##0"), ("SM propuesto", 11, "#,##0"), ("SM decidido", 11, "#,##0"),
+            ("SM estadístico", 11, "#,##0"), ("SM reparto", 11, "#,##0"), ("SM propuesto", 11, "#,##0"), ("SM decidido", 11, "#,##0"),
             ("Lote ERP", 10, "#,##0"), ("Lote calculado", 11, "#,##0"), ("Lote propuesto", 11, "#,##0"), ("Lote decidido", 11, "#,##0"),
             ("Fab./año ERP", 9, "0.0"), ("Fab./año óptima", 9, "0"), ("Lote frecuencia óptima", 12, "#,##0"),
             ("Stock máximo", 11, "#,##0"), ("Δ € stock medio", 12, "#,##0"), ("Estado", 18, None), ("Observaciones", 28, None)]
@@ -631,7 +648,7 @@ def param_xlsx():
         obs = ", ".join(x for x in (PARAM_TIPO.get(p["tipo"], ""), "corregir previsión" if p["flag"] else "",
                                     f'lote al mínimo de la línea ({p["lm"]})' if p["lms"] else "") if x)
         ws.append([p["k"], p["n"], p["md"], p["abc"], p["xyz"] or "—", alias.get(p["ln"], p["ln"]) or "—", p["pr"] or None, p["pm"], p["er"], p["sg"],
-                   p["dx"] or None, p["mn"], p["xl"], p["est"], p["ssp"], p["ss"] if p["d"] else None,
+                   p["dx"] or None, p["mn"], p["xl"], p["est"], p["sr"], p["ssp"], p["ss"] if p["d"] else None,
                    p["lt"], p["lc"], p["ltp"], p["lote"] if p["d"] else None, p["fe"], p["fo"], p["lo"], p["smax"], p["de"] if p["pr"] else None,
                    PARAM_EST[p["estado"]], obs])
     for i, (_, w, f) in enumerate(cols, 1):

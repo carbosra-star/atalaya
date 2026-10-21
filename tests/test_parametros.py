@@ -136,7 +136,29 @@ check("frecuencia óptima: sin lote del ERP o a extinguir, sin cifra", c["N"]["f
 c = calc([ref("G", pv=[4000] * 12, lt=4000, pr=0), ref("S", pv=[250] * 12, lt=3000), ref("T", pv=[4000] * 12, lt=4000)])
 check("frecuencia óptima: sin precio, mediana de la línea", c["G"]["fo"] == c["T"]["fo"], (c["G"]["fo"], c["T"]["fo"]))
 F = P.resumen(list(calc([ref("G", pv=[4000] * 12, lt=4000), ref("S", pv=[250] * 12, lt=3000)]).values()))["frec"]
-check("resumen de la frecuencia óptima", F == dict(n=2, fab_erp=13, fab_opt=15, lote_erp=3500, lote_opt=2500), F)
+check("resumen de la frecuencia óptima", {k: F[k] for k in ("n", "fab_erp", "fab_opt", "lote_erp", "lote_opt")}
+      == dict(n=2, fab_erp=13, fab_opt=15, lote_erp=3500, lote_opt=2500), F)
+
+# Reparto del stock mínimo con presupuesto fijo (stock mínimo del ERP en € + % del ahorro de lote)
+def rep(rs, pct=0):
+    return {p["k"]: p for p in P.parametros(rs, FREQ, SSP, NS, {}, {}, None, pct)}
+
+
+ruido = [800, 1200] * 6  # error típico relativo 20 %
+loco = [200, 1800] * 6  # 80 %
+c = rep([ref("Q", vt=ruido), ref("L", vt=loco), ref("X", ext=True), ref("H", vt=[1000] * 3, hp=[1000] * 3)])
+check("reparto: a extinguir 0 y sin historia se queda el del ERP", c["X"]["sr"] == 0 and c["H"]["sr"] == 1000, (c["X"]["sr"], c["H"]["sr"]))
+# presupuesto: 4 × 1.000 del ERP; H se queda con 1.000 y lo de X (a extinguir, 0) se reparte
+check("reparto: el presupuesto se mantiene (± redondeo)", abs(c["Q"]["sr"] + c["L"]["sr"] - 3000) <= 100, (c["Q"]["sr"], c["L"]["sr"]))
+check("reparto: más stock mínimo a la que peor se prevé", c["L"]["sr"] > c["Q"]["sr"], (c["Q"]["sr"], c["L"]["sr"]))
+c = rep([ref("Q", vt=ruido, lt=2000), ref("L", vt=loco, lt=2000)], pct=100)  # lote del ERP 2.000, frecuencia óptima 12 → lote 2.000: sin ahorro
+check("reparto: sin ahorro de lote el % no cambia el presupuesto", abs(c["Q"]["sr"] + c["L"]["sr"] - 2000) <= 100, (c["Q"]["sr"], c["L"]["sr"]))
+c0, c1 = rep([ref("Q", vt=ruido, lt=40000)], 0), rep([ref("Q", vt=ruido, lt=40000)], 50)  # lote 40.000 → 4.000 (12/año): ahorro 18.000 € de stock medio
+check("reparto: el % del ahorro de lote suma presupuesto", c1["Q"]["sr"] > c0["Q"]["sr"], (c0["Q"]["sr"], c1["Q"]["sr"]))
+c = rep([ref("S", vt=[600, 1000] * 6), ref("L", vt=loco)], pct=0)  # S: previsión 1.000, venta media 800 → sobreprevisión 25 %
+check("reparto: la sobreprevisión no sube del ERP", c["S"]["sr"] <= 1000, c["S"]["sr"])
+R = P.resumen(list(rep([ref("Q", vt=ruido), ref("L", vt=loco)]).values()))["frec"]
+check("reparto: menos roturas con el mismo dinero", R["rot_rep"] <= R["rot_erp"] and R["n_rep"] == 2, R)
 
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)
