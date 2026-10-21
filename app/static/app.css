@@ -324,3 +324,9 @@ button.plg{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6
 /* Turnos por mes en la página de línea */
 input.tu{width:44px;padding:2px 4px;font:inherit}input.tu.exc,td.exc{background:var(--sel);font-weight:600}
 input.tu::placeholder{color:var(--ink2);opacity:.45}
+/* Versiones de la previsión (Desviación) */
+.dvt td.vig{font-weight:700;box-shadow:inset 0 0 0 1.5px var(--ink2)}
+.dvt td.sube{background:var(--verdeBg)}.dvt td.baja{background:var(--rojoBg)}
+.dvt .dvar{font-size:9px;margin-left:2px;color:var(--ink2);vertical-align:1px}
+.dvt tr.dvventa th,.dvt tr.dvventa td{border-top:2px solid var(--rule)}
+.dvt th.cur{text-decoration:underline}

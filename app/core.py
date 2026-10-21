@@ -666,9 +666,30 @@ def parse(rows: dict[str, list[list]], today: dt.date, anterior: dict | None = N
     vers = acierto_versiones([(v, k, mi, _num(_get(r, iQ))) for v, k, mi, r in pr], cover, VALL, amb, base_y, base_m, {mi for _, mi in vcols})
 
     refs.sort(key=lambda r: r["k"])
+    pvers = versiones_ref(pr, iQ, VALL, refs)
     meta = dict(base=f"{base_y}-{base_m + 1:02d}", hoy=today.isoformat(), version=ver, prev_src=src, hist_src=hsrc, dias=[dias_quedan, dias_mes], hx=HX, n=len(refs), lineas=LNAME, warn=warn, vers=vers)
     pf = porfolio(A, refs, today, base_y, base_m, ST=ST, PREV=PREV, PFUT=PFUT, PPAS=PPAS - PFUT, VL=VL, LIN=LIN, E=E, TLY=TLY, PFUTV=PFUTV, prev=anterior)
-    return {"meta": meta, "refs": refs, "porfolio": pf}
+    return {"meta": meta, "refs": refs, "porfolio": pf, "pvers": pvers}
+
+
+VERS_DESDE = -24  # meses hacia atrás que se guardan de cada versión de previsión
+
+
+def versiones_ref(pr, iQ, VALL, refs) -> dict:
+    """Por referencia: la previsión de cada versión mes a mes y la venta real (meses como índice respecto al mes en
+    curso; el mes en curso con lo vendido hasta hoy). Se guarda aparte del dataset: solo la pide Desviación."""
+    ks = {r["k"]: r for r in refs}
+    out: dict[str, dict] = {}
+    for v, k, mi, r in pr:
+        if k in ks and mi >= VERS_DESDE:
+            d = out.setdefault(k, {"p": {}, "s": {}})["p"].setdefault(v, {})
+            d[mi] = d.get(mi, 0.0) + _num(_get(r, iQ))
+    for k, x in out.items():
+        x["p"] = {v: {mi: round(q) for mi, q in sorted(d.items())} for v, d in sorted(x["p"].items())}
+        x["s"] = {mi: round(q) for mi, q in sorted(VALL.get(k, {}).items()) if mi >= VERS_DESDE}
+        if ks[k].get("v0"):
+            x["s"][0] = ks[k]["v0"]
+    return out
 
 
 # ---------------------------------------------------------------- evaluación

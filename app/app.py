@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS users(
   active INTEGER NOT NULL DEFAULT 1, must_change INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS loads(
   id INTEGER PRIMARY KEY, created TEXT NOT NULL, user_id INTEGER, filename TEXT, version TEXT, base TEXT, hoy TEXT,
-  n INTEGER, counts TEXT, sem TEXT, data BLOB NOT NULL);
+  n INTEGER, counts TEXT, sem TEXT, data BLOB NOT NULL, vers BLOB);
 CREATE TABLE IF NOT EXISTS notes(
   id INTEGER PRIMARY KEY, ref TEXT NOT NULL, user_id INTEGER NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS notes_ref ON notes(ref);
@@ -158,6 +158,8 @@ def init_db() -> None:
                        0 if os.environ.get("ADMIN_PASSWORD") else 1, now()))
             if not os.environ.get("ADMIN_PASSWORD"):
                 print(f"[supply] Usuario administrador creado: {user} / contraseña temporal: {pwd}", flush=True)
+        if "vers" not in {r[1] for r in c.execute("PRAGMA table_info(loads)")}:  # versiones de previsión por referencia
+            c.execute("ALTER TABLE loads ADD COLUMN vers BLOB")
         sql = c.execute("SELECT sql FROM sqlite_master WHERE name='param_dec'").fetchone()[0]
         if "'reparto'" not in sql:  # fuentes nuevas (reparto, frecuencia óptima): el CHECK solo cambia rehaciendo la tabla
             c.execute("ALTER TABLE param_dec RENAME TO param_dec_v1")
@@ -371,6 +373,7 @@ def upload():
         return err("No se ha podido leer el fichero: " + str(e)[:200])
     finally:
         os.unlink(path)
+    pvers = ds.pop("pvers", {})  # aparte del dataset: solo la pide Desviación
     sem = {r["k"]: core.evaluate(r, cfg.get("horizonte", 3), "ALL", "T", cfg["exceso"])["sem"] for r in _con_sx(json.loads(json.dumps(ds["refs"])))}
     counts = defaultdict(int)
     for s in sem.values():
@@ -385,9 +388,9 @@ def upload():
         return jsonify({"preview": summary})
     blob = zlib.compress(json.dumps(ds, separators=(",", ":")).encode(), 6)
     db().execute("DELETE FROM loads WHERE hoy=?", (ds["meta"]["hoy"],))  # una carga por fecha de datos
-    cur = db().execute("INSERT INTO loads(created,user_id,filename,version,base,hoy,n,counts,sem,data) VALUES(?,?,?,?,?,?,?,?,?,?)",
+    cur = db().execute("INSERT INTO loads(created,user_id,filename,version,base,hoy,n,counts,sem,data,vers) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                        (now(), g.user["id"], f.filename, ds["meta"]["version"], ds["meta"]["base"], ds["meta"]["hoy"], ds["meta"]["n"],
-                        json.dumps(counts), json.dumps(sem), blob))
+                        json.dumps(counts), json.dumps(sem), blob, zlib.compress(json.dumps(pvers, separators=(",", ":")).encode(), 6)))
     db().execute("DELETE FROM loads WHERE id NOT IN (SELECT id FROM loads ORDER BY hoy DESC, id DESC LIMIT ?)", (KEEP_LOADS,))
     # Decisiones de parámetros que la carga nueva ya trae en el ERP: aplicadas
     erp = {r["k"]: (r["mn"], r["lt"]) for r in ds["refs"]}
@@ -729,6 +732,28 @@ def desv_acordar():
     db().executemany("INSERT INTO prev_dec(ref,md,version,pct,src,motivo,user_id,created) VALUES(?,?,?,?,?,?,?,?)", ins)
     db().commit()
     return jsonify({"ok": True, "n": len(ins)})
+
+
+@app.get("/api/desviacion/<ref>/versiones")
+@need()
+def desv_versiones(ref):
+    """Previsión de cada versión mes a mes y venta real de una referencia (meses como índice respecto al mes en curso)."""
+    if not REF_RE.fullmatch(ref):
+        return err("La referencia no es válida")
+    row = _load_row()
+    if not row:
+        return jsonify({"empty": True})
+    ds = json.loads(zlib.decompress(row["data"]))
+    r = next((x for x in ds["refs"] if x["k"] == ref), None)
+    if not r:
+        return err("La referencia no está en la carga vigente", 404)
+    m = ds["meta"]
+    out = {"k": ref, "n": r["n"], "md": r["md"], "mc": r.get("mc"), "base": m["base"], "hoy": m["hoy"], "version": m["version"],
+           "prev_src": m.get("prev_src"), "hist_src": m.get("hist_src"), "sin": row["vers"] is None}
+    if row["vers"] is not None:
+        x = json.loads(zlib.decompress(row["vers"])).get(ref) or {"p": {}, "s": {}}
+        out.update(p=x["p"], s=x["s"])
+    return jsonify(out)
 
 
 @app.get("/api/desviacion/<ref>/historial")

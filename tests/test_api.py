@@ -60,6 +60,17 @@ check("la comprobación avisa de que sustituye la carga del mismo día", bool(r.
 check("republicar el mismo día sustituye la carga", upload(c, False).json.get("ok") and len(c.get("/api/loads").json) == 2, len(c.get("/api/loads").json))
 ds = c.get("/api/dataset").json
 check("referencias publicadas", len(ds["refs"]) > 0, f'{len(ds["refs"])} · previsión {ds["meta"]["version"]}')
+# Versiones de la previsión por referencia: aparte del dataset; la vigente cuadra con la previsión operativa de sus meses
+check("el dataset no lleva las versiones de previsión", "pvers" not in ds)
+_rv = next(r for r in ds["refs"] if sum(r["pv"]) > 0)
+_V = c.get(f'/api/desviacion/{_rv["k"]}/versiones').json
+_src = ds["meta"]["prev_src"]
+check("versiones: guardadas y con la vigente", not _V["sin"] and ds["meta"]["version"] in _V["p"], (_V.get("sin"), list(_V.get("p", {}))))
+check("versiones: la vigente cuadra con la previsión operativa", all(round(_V["p"][v].get(str(i), 0)) == _rv["pv"][i] for i, v in enumerate(_src) if v),
+      [(i, v, _V["p"].get(v, {}).get(str(i)), _rv["pv"][i]) for i, v in enumerate(_src) if v][:4])
+check("versiones: venta del mes en curso", _V["s"].get("0", 0) == _rv["v0"], (_V["s"].get("0"), _rv["v0"]))
+check("versiones: referencia no válida", c.get("/api/desviacion/" + "9" * 25 + "/versiones").status_code == 400)
+check("versiones: referencia fuera de la carga", c.get("/api/desviacion/999999999999/versiones").status_code == 404)
 # Capacidad llega hasta el último mes de la versión vigente: meses extra con su previsión (px), pedidos (pdx) y OF (ox)
 _hx = ds["meta"].get("hx")
 check("meses de previsión más allá de los 12 (capacidad)", isinstance(_hx, int) and 0 <= _hx <= 12

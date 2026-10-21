@@ -656,6 +656,7 @@ async function pageRef(main, [k]) {
       ${(() => { const p = dvr && dvr.rows && dvr.rows[0]; if (!p) return '';
         const SRCD = { propuesta: 'propuesta', manual: 'manual', mantener: 'mantener' };
         return blkFicha('rev', 'Revisión de la previsión ' + esc(dvr.version), `propuesta ${pctTxt(p.cp)}${p.estado === 'acordado' ? ' · acordado ' + pctTxt(p.ca) : ' · sin acuerdo'}`, `
+        <p class="small"><a href="#/desviacion/versiones/${encodeURIComponent(p.k)}">Ver cada versión de la previsión mes a mes</a></p>
         <div class="kpis"><div class="kpi"><div class="v">${fmt(p.p12)} · ${fmt(p.v12)}</div><div class="l">Previsión 12 m · Venta 12 m</div></div>
           <div class="kpi"><div class="v">${pctTxt(p.cr)} · ${p.cs == null && p.cl != null ? pctTxt(p.cl) + '*' : pctTxt(p.cs)}</div><div class="l">Corrección por ritmo · Por sesgo${p.cs == null && p.cl != null ? ` (* lanzamiento, ${p.lz} meses con previsión)` : ''}</div></div>
           <div class="kpi"><div class="v">${pctTxt(p.cp)}</div><div class="l">Propuesta (${DEST[p.tipo]})</div></div>
@@ -1133,7 +1134,48 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
 // ---------------------------------------------------------------- Desviación de previsiones
 const DEST = { propuesta: 'Con propuesta', revisar: 'Revisar con comercial', sin: 'Sin corrección', sin_dato: 'Sin datos', extinguir: 'A extinguir', acordado: 'Acordado' };
 const pctTxt = (x) => x == null ? '<span class="muted">—</span>' : x > 3 ? '&gt; +300 %' : (x > 0 ? '+' : '') + Math.round(x * 100) + ' %';  // casi sin venta (lanzamientos): no se da la cifra
-async function pageDesv(main) {
+// Versiones de la previsión de una referencia: una fila por versión y una columna por mes, con la venta real debajo;
+// lo que cambia frente a la versión anterior se marca y la versión vigente de cada mes va resaltada
+async function pageDesvVers(main, k) {
+  const fmtYM = (base, i) => { const [y, m] = base.split('-').map(Number), d = new Date(y, m - 1 + i, 1); return [d.getFullYear(), d.getMonth() + 1]; };
+  const form = (v) => `<form class="filters" id="dvF"><label class="fld">Referencia<input name="k" value="${esc(v || '')}" placeholder="Código de 12 dígitos" inputmode="numeric" autocomplete="off" required></label><button class="btn ghost">Ver versiones</button></form>`;
+  const bind = () => { $('#dvF').onsubmit = (ev) => { ev.preventDefault(); const v = ev.target.k.value.trim().padStart(12, '0'); go('#/desviacion/versiones/' + encodeURIComponent(v)); }; };
+  const head = `<h1>Versiones de la previsión</h1><p class="lead"><a href="#/desviacion">Desviación de previsiones</a> · cada iteración de previsión mes a mes, frente a la venta real.</p>`;
+  if (!k) { main.innerHTML = head + form(''); bind(); return; }
+  let D;
+  try { D = await api(`/api/desviacion/${encodeURIComponent(k)}/versiones`); } catch (e) { main.innerHTML = head + form(k) + `<p class="msg err">${esc(e.message)}</p>`; bind(); return; }
+  if (D.empty) return noData(main, 'Versiones de la previsión');
+  const titulo = `<p>${refLink({ k: D.k, n: D.n })} <b>${esc(D.n)}</b> <span class="muted">· ${esc(D.md)}${D.mc ? ' · ' + esc(D.mc) : ''} · versión vigente ${esc(D.version)}</span></p>`;
+  if (D.sin) { main.innerHTML = head + form(k) + titulo + `<p class="notice">Esta carga no guarda las versiones de previsión. ${can('admin') ? 'Vuelve a publicar el MM_Supply desde <a href="#/datos">Datos</a>' : 'Aparecerán cuando se vuelva a publicar el MM_Supply'}.</p>`; bind(); return; }
+  const vs = Object.keys(D.p).sort(), P = Object.fromEntries(vs.map(v => [v, Object.fromEntries(Object.entries(D.p[v]).map(([i, q]) => [+i, q]))]));
+  const Sv = Object.fromEntries(Object.entries(D.s || {}).map(([i, q]) => [+i, q]));
+  // Desde el primer mes con previsión o con venta (los ceros de antes del lanzamiento no aportan)
+  const idx = [...new Set([...vs.flatMap(v => Object.keys(P[v]).map(Number)), ...Object.keys(Sv).map(Number).filter(i => Sv[i] > 0)])].sort((a, b) => a - b);
+  if (!vs.length) { main.innerHTML = head + form(k) + titulo + '<p class="muted">Ninguna versión de previsión tiene esta referencia.</p>'; bind(); return; }
+  const meses = []; for (let i = idx[0]; i <= idx[idx.length - 1]; i++) meses.push(i);
+  // Versión vigente de cada mes: la del trimestre para los cerrados (hist_src) y la operativa para el resto (prev_src)
+  const vig = (i) => i < 0 ? (D.hist_src || [])[i + 12] : (D.prev_src || [])[i];
+  const anos = [...new Set(meses.map(i => fmtYM(D.base, i)[0]))];
+  const grupos = anos.map(y => ({ g: String(y), c: meses.filter(i => fmtYM(D.base, i)[0] === y).map(i => { const [, m] = fmtYM(D.base, i); return thc(pad(m), 'r' + (i === 0 ? ' cur' : ''), `${pad(m)}/${String(y).slice(2)}${i === 0 ? ' (mes en curso)' : ''}`); }) }));
+  const tot = { g: 'Total', c: anos.map(y => thc(String(y), 'r')) };
+  const sumY = (o, y) => meses.filter(i => fmtYM(D.base, i)[0] === y && o[i] != null).reduce((t, i) => t + o[i], 0);
+  const celda = (v, i, j) => {
+    const q = P[v][i]; if (q == null) return '<td class="r num muted">·</td>';
+    const ant = vs.slice(0, j).reverse().find(w => P[w][i] != null), qa = ant ? P[ant][i] : null;
+    const cambia = qa != null && q !== qa, fuerte = cambia && Math.abs(q - qa) > Math.max(0.1 * Math.max(qa, 1), 1);
+    const tit = [vig(i) === v ? 'versión vigente de este mes' : '', cambia ? `${ant}: ${fmt(qa)} (${q > qa ? '+' : ''}${fmt(q - qa)})` : ''].filter(Boolean).join(' · ');
+    return `<td class="r num${vig(i) === v ? ' vig' : ''}${fuerte ? (q > qa ? ' sube' : ' baja') : ''}"${tit ? ` title="${esc(tit)}"` : ''}>${fmt(q)}${cambia ? `<span class="dvar" aria-label="${q > qa ? 'sube' : 'baja'}">${q > qa ? '▲' : '▼'}</span>` : ''}</td>`;
+  };
+  const filas = vs.map((v, j) => `<tr><th scope="row">${esc(v)}</th>${meses.map(i => celda(v, i, j)).join('')}${anos.map(y => `<td class="r num">${fmt(sumY(P[v], y))}</td>`).join('')}</tr>`).join('');
+  const venta = `<tr class="dvventa"><th scope="row">Venta real</th>${meses.map(i => i > 0 ? '<td class="r num muted">·</td>' : `<td class="r num"${i === 0 ? ' title="Mes en curso: vendido hasta hoy"' : ''}><b>${fmt(Sv[i] || 0)}</b>${i === 0 ? '*' : ''}</td>`).join('')}${anos.map(y => meses.some(i => i <= 0 && fmtYM(D.base, i)[0] === y) ? `<td class="r num"><b>${fmt(sumY(Sv, y))}</b></td>` : '<td class="r num muted">·</td>').join('')}</tr>`;
+  main.innerHTML = head + form(k) + titulo + `
+    <div class="tw"><table class="mt dvt"><caption class="sr">Previsión de cada versión por mes y venta real</caption><thead>${head2([thc('Versión'), ...grupos, tot])}</thead><tbody>${filas}${venta}</tbody></table></div>
+    <p class="muted small">Recuadro: versión vigente de ese mes (la del trimestre en los meses cerrados; la operativa en el resto). ▲▼: cambio frente a la versión anterior que tenía ese mes (detalle al pasar el ratón); fondo de color si el cambio supera el 10 %. * Mes en curso: venta hasta hoy. Se guardan los 24 meses anteriores.</p>`;
+  bind();
+}
+
+async function pageDesv(main, parts = []) {
+  if (parts[0] === 'versiones') return pageDesvVers(main, parts[1] || '');
   if (!S.ds) return noData(main, 'Desviación de previsiones');
   const D = await api('/api/desviacion');
   if (D.empty) return noData(main, 'Desviación de previsiones');
@@ -1150,9 +1192,9 @@ async function pageDesv(main) {
     <td class="r num">${fmt(x.prop)}</td><td class="r num">${fmt(x.rev)}</td><td class="r num">${fmt(x.acu)}</td><td class="r num">${fmt(x.eu)}</td><td class="r num">${eur(x.ee)}</td></tr>`;
   const ctl = (p) => canW ? `<td class="nowrap">${p.cp != null && p.cp !== 0 ? `<button class="btn ghost sm" data-acc="${esc(p.k)}">Aceptar</button> ` : ''}<input type="number" step="1" min="-90" max="300" data-pct="${esc(p.k)}" aria-label="Corrección en % de ${esc(p.k)}" style="width:70px"> <button class="btn ghost sm" data-otro="${esc(p.k)}">Otro %</button> <button class="btn ghost sm" data-man="${esc(p.k)}">Mantener</button></td>` : '';
   const fila = (p) => `<tr>${refCell({ k: p.k, n: p.n })}<td>${abcTag(p.abc)}</td><td class="r num">${fmt(p.p12)}</td><td class="r num">${fmt(p.v12)}</td><td class="r num">${pctTxt(p.cr)}</td><td class="r num">${p.cs == null && p.cl != null ? `<span title="Lanzamiento: venta ÷ previsión vigente de sus ${p.lz} meses con previsión − 1">${pctTxt(p.cl)}*</span>` : pctTxt(p.cs)}</td>
-    <td class="r num"><b>${p.estado === 'acordado' ? pctTxt(p.ca) : pctTxt(p.cp)}</b></td><td class="r num">${fmt(p.pvc.reduce((s, x) => s + x, 0))}</td><td class="r num">${p.pr > 0 ? eur(p.ee) : '<span class="muted">sin precio</span>'}</td><td class="nowrap">${DEST[p.estado]}${p.estado === 'revisar' && p.cl != null ? ' <span class="muted small">(lanzamiento)</span>' : ''}</td>${ctl(p)}</tr>`;
+    <td class="r num"><b>${p.estado === 'acordado' ? pctTxt(p.ca) : pctTxt(p.cp)}</b></td><td class="r num">${fmt(p.pvc.reduce((s, x) => s + x, 0))}</td><td class="r num">${p.pr > 0 ? eur(p.ee) : '<span class="muted">sin precio</span>'}</td><td class="nowrap">${DEST[p.estado]}${p.estado === 'revisar' && p.cl != null ? ' <span class="muted small">(lanzamiento)</span>' : ''} <a class="small" href="#/desviacion/versiones/${encodeURIComponent(p.k)}" title="Previsión de cada versión mes a mes">versiones</a></td>${ctl(p)}</tr>`;
   main.innerHTML = `<h1>Desviación de previsiones${mc ? ' · ' + esc(mc) : ''}</h1>
-    <p class="lead">Contra stock con ABC · previsión ${esc(D.version)}. Corrección propuesta: la más prudente entre el ritmo de venta (venta de 12 meses frente a la previsión de 12 meses) y el sesgo histórico de la referencia; si se contradicen, revisar con comercial; menos del 10 %, sin corrección.</p>
+    <p class="lead">Contra stock con ABC · previsión ${esc(D.version)}. Corrección propuesta: la más prudente entre el ritmo de venta (venta de 12 meses frente a la previsión de 12 meses) y el sesgo histórico de la referencia; si se contradicen, revisar con comercial; menos del 10 %, sin corrección. <a href="#/desviacion/versiones">Ver las versiones de una referencia</a>.</p>
     <div class="tw"><table class="fit"><caption class="sr">Desviación por marca</caption><thead><tr><th scope="col">Marca</th><th scope="col" class="r">Referencias</th><th scope="col" class="r">Previsión 12 m</th><th scope="col" class="r">Venta 12 m</th><th scope="col" class="r" title="Previsión 12 m ÷ venta 12 m">Prev./venta</th><th scope="col" class="r">Sesgo pasado</th><th scope="col" class="r">Error pasado</th><th scope="col" class="r">Con propuesta</th><th scope="col" class="r">A revisar</th><th scope="col" class="r">Acordadas</th><th scope="col" class="r">Efecto uds</th><th scope="col" class="r">Efecto €</th></tr></thead>
       <tbody>${D.marcas.map(marcaFila).join('')}</tbody></table></div>
     <h2>Acierto por versión${mc ? ' · ' + esc(mc) : ''}</h2>
