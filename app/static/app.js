@@ -344,7 +344,7 @@ const entTag = (t, corto = true) => `<span class="ent ent-${t}" title="${ENT_TIT
 function nextEntry(e) {
   const n = e.next;
   if (!n) return '<span class="muted" title="Sin entradas">—<span class="sr"> sin entradas</span></span>';
-  return `<span class="nowrap">${entTag(n.t)} ${fmt(n.q)} · <span class="${n.late || n.dm != null ? 'neg' : ''}"${n.late ? ` title="${n.t === 'PC' ? 'Pedido de compra' : 'OF'} con fecha pasada"` : n.dm != null ? ` title="Propuesta del MRP ${n.dm ? fdate(n.dm) : 'sin fecha'}: no llega en 3 semanas, primera fecha posible"` : ''}>${fdate(n.d, true)}</span></span>`;
+  return `<span class="nowrap">${entTag(n.t)} ${fmt(n.q)} · <span class="${n.late ? 'neg' : n.dm != null ? 'aviso' : ''}"${n.late ? ` title="${n.t === 'PC' ? 'Pedido de compra' : 'OF'} con fecha pasada"` : n.dm != null ? ` title="Propuesta del MRP ${n.dm ? fdate(n.dm) : 'sin fecha'}: no llega en 3 semanas; como pronto, esta fecha"` : ''}>${n.dm != null ? '≥ ' : ''}${fdate(n.d, true)}</span></span>`;
 }
 // Fecha estimada de rotura (demanda de cada mes repartida por igual entre sus días, entradas en su fecha)
 const rfTxt = (e) => e.rf ? '≈ ' + fdate(e.rf, true) : e.rot < 0 ? '' : monthLabel(e.rot);
@@ -589,7 +589,7 @@ function diarioHTML(r, e) {
     if (resto > 0) ev.push({ d: fin(m), o: 2, q: -resto, t: `Resto de previsión de ${monthLabel(m)} sin pedido` });
   }
   for (const x of r.en) if (x.m < DIARIO_MESES && Cob.counts(x.t, S.esc))
-    ev.push({ d: x.d || hoy, o: 0, q: x.q, t: `${entTag(x.t, false)}${x.id ? ` <span class="muted small">nº ${esc(x.id)}</span>` : ''}${x.dm != null ? ` <span class="neg small">MRP ${x.dm ? fdate(x.dm, true) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}` });
+    ev.push({ d: x.d || hoy, o: 0, q: x.q, t: `${entTag(x.t, false)}${x.id ? ` <span class="muted small">nº ${esc(x.id)}</span>` : ''}${x.dm != null ? ` <span class="aviso small">MRP ${x.dm ? fdate(x.dm, true) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}` });
   ev.sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : a.o - b.o);  // el mismo día, primero la entrada
   let s = r.st, roto = false;
   const filas = ev.map(x => {
@@ -642,7 +642,7 @@ async function pageRef(main, [k]) {
         r.ao && r.ao.length ? `<span class="neg">Con más de 30 días de retraso, no cuentan: ${r.ao.map(p => `${fdate(p[0], true)} · ${fmt(p[1])}`).join('; ')}. Revisar en ABAS.</span>` : ''].filter(Boolean).map(t => `<li>${t}</li>`).join('')}</ul>
       <div class="two">
         <section><h2>Próximas semanas</h2>${diarioHTML(r, e)}</section>
-        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.dm != null ? `<span class="neg" title="Sin fijar y con fecha del MRP dentro del plazo de fabricación: se cuenta en la primera fecha posible si se lanzara hoy">MRP ${v.dm ? fdate(v.dm) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}</section></div>
+        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.dm != null ? `<span class="aviso" title="Sin fijar y con fecha del MRP dentro del plazo de fabricación: se cuenta en la primera fecha posible si se lanzara hoy">MRP ${v.dm ? fdate(v.dm) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}</section></div>
       ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
         const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', reparto: 'reparto', manual: 'manual', calculado: 'calculado', optimo: 'frec. óptima' };
         return blkFicha('par', 'Parámetros', `ERP ${fmt(p.mn)} · ${fmt(p.lt)} · propuesta ${fmt(p.ssp)} · ${fmt(p.ltp)}`, `

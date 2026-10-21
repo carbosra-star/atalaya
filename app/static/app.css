@@ -175,6 +175,7 @@ td.cobc,.nowrap{white-space:nowrap}
 .leyenda .lg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
 .leyenda .lgi{display:inline-flex;align-items:center;gap:5px}
 .neg{color:var(--rojo);font-weight:600}
+.aviso{color:var(--amarillo);font-weight:600}  /* fecha futura condicionada (p. ej. propuesta que no llega en 3 semanas) */
 .ok{color:var(--verde);font-weight:700}.no{color:var(--rojo);font-weight:700}
 th.c,td.c{text-align:center}
 .note-dot{font-size:12px;color:var(--link);margin-right:6px;white-space:nowrap}
