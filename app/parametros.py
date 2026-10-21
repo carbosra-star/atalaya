@@ -150,7 +150,7 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
                pct: float = PCT_DEF) -> list[dict]:
     """Una fila por PT contra stock con ABC A–D. dec: decisión vigente por referencia; extra: días de plazo extra;
     lmin: lote mínimo (uds) de las líneas que lo tienen; pct: % del ahorro de lote que se reinvierte en stock mínimo."""
-    rows, lmin = [], lmin or {}
+    rows, lmin, decs = [], lmin or {}, {}
     for r in refs:
         if r.get("gp") != "Contra Stock" or r.get("abc") not in CLASES:
             continue
@@ -165,36 +165,50 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
         dx = int(extra.get(k, 0))
         est, tipo, etr, sesgo, flag = _estadistico(r, ns[md][i], dx)
         sl = min(etr, ETR_MAX) * sum(r["pv"][1:4]) / 3 * math.sqrt((PLAZO_BASE + dx) / DIAS_MES) if etr is not None else 0
-        # A extinguir: se consume el stock del PT y no se repone (stock mínimo y lote 0); si hay que fabricar para
-        # gastar material, se decide a mano. Sin previsión en 12 meses o en el próximo trimestre (p. ej.
-        # temporada): sin propuesta automática (daría lote 0 o la mitad del stock mínimo), se decide a mano desde el ERP
+        # A extinguir y sin previsión en 12 meses o en el próximo trimestre: sin cálculo (ver _propuesta)
         sin = "extinguir" if r.get("ext") else "sin_prev" if not sum(r["pv"]) or not sum(r["pv"][1:4]) else ""
         if sin:
             est, tipo = None, sin
-        ssp = est if tipo == "ok" else 0 if sin == "extinguir" else mn
-        if sin != "extinguir" and _ruido(ssp, mn):
-            ssp = mn
-        # El del ERP se mantiene si está cerca del calculado, pero nunca por debajo del mínimo de la línea
-        ltp = 0 if sin == "extinguir" else lt if sin or (_ruido(lc, lt) and lt >= lm) else lc
+        if sin == "extinguir":  # no se repone: tampoco hay lote calculado (aceptar la propuesta deja el lote a 0)
+            lc, xl, sube = 0, 0, False
         d = dec.get(k)
         if d and d.get("aplicado") and (d["ss"] != mn or d["lote"] != lt):
             d = None  # se aplicó y después se cambió en ABAS: la decisión ya no manda
-        if d:
-            ss, lote, estado = d["ss"], d["lote"], ("aplicado" if d.get("aplicado") else "decidido")
-            smax = ss + lote if lote > 0 else None
-        else:
-            ss, lote = ssp, ltp
-            estado = "decidir" if tipo not in ("ok", "extinguir") else ("cambio" if (ssp, ltp) != (mn, lt) else "igual")
-            smax = mn + lt if lt > 0 else None
+        decs[k] = d
         rows.append(dict(
             k=k, n=r.get("n", ""), md=md, abc=r["abc"], xyz=r.get("xyz", ""), ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
             er=None if etr is None else round(etr, 3), sg=None if sesgo is None else round(sesgo, 3), flag=flag, tipo=tipo,
-            mn=mn, lt=lt, xl=xl, est=est, ssp=ssp, lc=lc, ltp=ltp, ss=ss, lote=lote, d=bool(d), estado=estado,
-            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube, pa=sum(r["pv"]),
+            mn=mn, lt=lt, xl=xl, est=est, lc=lc, dx=dx, lm=lm or None, lms=sube, pa=sum(r["pv"]),
             sl=sl if tipo in ("ok", "irregular") else 0, fc=freq[md][i]))
     frecuencia_optima(rows, lmin)
     reparto(rows, pct)
+    for p in rows:
+        _propuesta(p, decs[p["k"]])
     return rows
+
+
+def _propuesta(p: dict, d: dict | None) -> None:
+    """Propuesta (stock mínimo del reparto y lote con la frecuencia óptima), lo vigente y el estado de la decisión."""
+    mn, lt, tipo, lm = p["mn"], p["lt"], p["tipo"], p["lm"] or 0
+    # A extinguir: se consume el stock del PT y no se repone (stock mínimo y lote 0); si hay que fabricar para
+    # gastar material, se decide a mano. Sin previsión en 12 meses o en el próximo trimestre (p. ej. temporada):
+    # sin propuesta automática (daría lote 0 o la mitad del stock mínimo), se decide a mano desde el ERP
+    ssp = 0 if tipo == "extinguir" else mn if tipo == "sin_prev" else p["sr"]
+    if tipo != "extinguir" and _ruido(ssp, mn):
+        ssp = mn
+    # Lote con la frecuencia óptima (sin lote en el ERP, el calculado por clase); el del ERP se mantiene si está
+    # cerca, pero nunca por debajo del mínimo de la línea
+    lcp = p["lo"] if p["lo"] is not None else p["lc"]
+    ltp = 0 if tipo == "extinguir" else lt if tipo == "sin_prev" or (_ruido(lcp, lt) and lt >= lm) else lcp
+    if d:
+        ss, lote, estado = d["ss"], d["lote"], ("aplicado" if d.get("aplicado") else "decidido")
+        smax = ss + lote if lote > 0 else None
+    else:
+        ss, lote = ssp, ltp
+        estado = "decidir" if tipo not in ("ok", "extinguir") else ("cambio" if (ssp, ltp) != (mn, lt) else "igual")
+        smax = mn + lt if lt > 0 else None
+    p.update(ssp=ssp, ltp=ltp, ss=ss, lote=lote, d=bool(d), estado=estado, smax=smax,
+             de=round(((ss - mn) + (lote - lt) / 2) * p["pr"]))
 
 
 def resumen(rows: list[dict]) -> dict:

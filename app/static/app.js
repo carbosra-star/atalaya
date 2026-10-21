@@ -1024,7 +1024,7 @@ async function pageData(main) {
 const PEST = { decidir: 'Decidir a mano', cambio: 'Con cambio', igual: 'Igual', decidido: 'Pendiente de ABAS', aplicado: 'Aplicado' };
 const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia', extinguir: 'a extinguir', sin_prev: 'sin previsión' };
 // Fuentes que corresponden a la propuesta, para aceptarla tal cual
-const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'estadistico' }, lote: { src: p.ltp === p.lt ? 'erp' : 'calculado' } });
+const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'reparto' }, lote: { src: p.ltp === p.lt ? 'erp' : p.ltp === p.lo ? 'optimo' : 'calculado' } });
 // Columnas ordenables de la tabla de parámetros (valor de cada fila); las de texto empiezan de la A a la Z
 const PSORT = { k: p => p.k, abc: p => p.abc, pm: p => p.pm, er: p => p.er, mn: p => p.mn, xl: p => p.xl, est: p => p.est, sr: p => p.sr,
   ss: p => p.d ? p.ss : p.ssp, lt: p => p.lt, lote: p => p.d ? p.lote : p.ltp, fe: p => p.fe, fo: p => p.fo, lo: p => p.lo, de: p => p.pr > 0 ? p.de : null, estado: p => PEST[p.estado] };
@@ -1065,7 +1065,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   };
   const lim = 2000;  // contra stock con ABC: unas 800 referencias, caben todas
   main.innerHTML = `<h1>Stock mínimo y lotes</h1>
-    <p class="lead">Contra stock con ABC. Stock mínimo: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: estadístico si hay cifra; si no, el ERP.</p>
+    <p class="lead">Contra stock con ABC. Stock mínimo: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: stock mínimo del reparto con presupuesto fijo y lote con la frecuencia óptima (sin lote en el ERP, el calculado por clase); se queda el ERP si el cambio es pequeño.</p>
     <div class="tw"><table class="fit"><caption class="sr">Valor por mandante y clase</caption><thead>${head2([thc('Mandante · Clase'), thc('Referencias', 'r'),
       { g: 'Stock mínimo €', c: [thc('ERP', 'r', 'Stock mínimo del ERP'), thc('Prop.', 'r', 'Stock mínimo propuesto'), thc('Dec.', 'r', 'Stock mínimo decidido')] },
       { g: 'Stock medio €', c: [thc('ERP', 'r', 'Stock medio del ERP'), thc('Prop.', 'r', 'Stock medio propuesto'), thc('Dec.', 'r', 'Stock medio decidido')] }])}</thead><tbody>
