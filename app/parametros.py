@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from statistics import NormalDist, mean, pstdev
+from statistics import NormalDist, mean, median, pstdev
 
 NS_DEF = {"Belloch": [95, 90, 85, 85], "Yunsey": [95, 90, 85, 85]}  # nivel de servicio (%) por clase A, B, C, D
 PLAZO_BASE, DIAS_MES = 15, 21  # plazo de fabricación (3 semanas) y días laborables de un mes
 HMIN, SESGO = 6, 0.2  # meses mínimos con previsión y umbral de sesgo
 CLASES = "ABCD"
+FABS = (1, 2, 3, 4, 6, 12, 24)  # fabricaciones al año admitidas para la frecuencia óptima
 
 
 def round100(x: float) -> int:
@@ -27,6 +28,36 @@ def lote_calc(anual: float, f: float) -> int:
         return 0
     x = anual / f
     return math.floor(x / 1000.0 + 0.5) * 1000 if x >= 10000 else max(100, round100(x))
+
+
+def _fab(n: float) -> int:
+    """Fabricaciones al año admitidas más cercanas (en proporción, no en diferencia)."""
+    return min(FABS, key=lambda f: abs(math.log(f / n)))
+
+
+def frecuencia_optima(rows: list[dict], lmin: dict) -> None:
+    """Frecuencia por referencia: en cada línea se reparten las fabricaciones de hoy (previsión anual / lote del ERP)
+    en proporción a la raíz del consumo anual en € (regla de la raíz cuadrada), redondeadas a FABS. Añade a cada fila
+    fe (fabricaciones/año con el lote del ERP), fo (óptima) y lo (lote con esa frecuencia). Sin precio: mediana de la
+    línea. Sin lote del ERP, a extinguir o sin previsión: no entra en el reparto (fo, lo = None)."""
+    con_pr = [p["pr"] for p in rows if p["pr"]]
+    med = median(con_pr) if con_pr else 1.0
+    lineas: dict[str, list[dict]] = {}
+    for p in rows:
+        p["fe"] = p["fo"] = p["lo"] = None
+        if p["pa"] > 0 and p["lt"] > 0:
+            p["fe"] = round(p["pa"] / p["lt"], 1)
+            if p["tipo"] not in ("extinguir", "sin_prev"):
+                lineas.setdefault(p["ln"] or "", []).append(p)
+    for ln, g in lineas.items():
+        prl = [p["pr"] for p in g if p["pr"]]
+        pl = median(prl) if prl else med
+        w = {p["k"]: math.sqrt(p["pa"] * (p["pr"] or pl)) for p in g}
+        n, sw = sum(p["pa"] / p["lt"] for p in g), sum(w.values())
+        lm = lmin.get(ln, 0)
+        for p in g:
+            p["fo"] = _fab(n * w[p["k"]] / sw)
+            p["lo"] = max(lote_calc(p["pa"], p["fo"]), lm)
 
 
 def _ruido(p: float, erp: float) -> bool:
@@ -100,7 +131,8 @@ def parametros(refs: list[dict], freq: dict, ss_pct: dict, ns: dict, dec: dict, 
             k=k, n=r.get("n", ""), md=md, abc=r["abc"], xyz=r.get("xyz", ""), ln=r.get("ln", ""), pr=pr, pm=round(sum(r["pv"][1:4]) / 3),
             er=None if etr is None else round(etr, 3), sg=None if sesgo is None else round(sesgo, 3), flag=flag, tipo=tipo,
             mn=mn, lt=lt, xl=xl, est=est, ssp=ssp, lc=lc, ltp=ltp, ss=ss, lote=lote, d=bool(d), estado=estado,
-            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube))
+            smax=smax, de=round(((ss - mn) + (lote - lt) / 2) * pr), dx=dx, lm=lm or None, lms=sube, pa=sum(r["pv"])))
+    frecuencia_optima(rows, lmin)
     return rows
 
 
@@ -120,4 +152,7 @@ def resumen(rows: list[dict]) -> dict:
         x["med_prop"] += (p["ssp"] + p["ltp"] / 2) * pr
         x["med_dec"] += (dss + dlt / 2) * pr
     grupos = [{k: round(v) if isinstance(v, float) else v for k, v in x.items()} for _, x in sorted(g.items())]
-    return dict(grupos=grupos, estados=dict(Counter(p["estado"] for p in rows)))
+    fo = [p for p in rows if p["fo"]]  # frecuencia óptima frente al lote del ERP, en las mismas referencias
+    frec = dict(n=len(fo), fab_erp=round(sum(p["fe"] for p in fo)), fab_opt=sum(p["fo"] for p in fo),
+                lote_erp=round(sum(p["lt"] / 2 * (p["pr"] or 0) for p in fo)), lote_opt=round(sum(p["lo"] / 2 * (p["pr"] or 0) for p in fo)))
+    return dict(grupos=grupos, estados=dict(Counter(p["estado"] for p in rows)), frec=frec)

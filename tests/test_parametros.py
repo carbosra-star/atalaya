@@ -124,5 +124,19 @@ check("resumen: SS decidido (decisión o ERP)", ba["ss_dec"] == 800 * 1 + 1000 *
 check("resumen: stock medio decidido", ba["med_dec"] == (800 + 1000) * 1 + (1000 + 10000) * 2, ba)
 check("resumen: estados", res["estados"] == {"decidido": 1, "cambio": 2}, res["estados"])
 
+# Frecuencia óptima: las fabricaciones de hoy de la línea (12 + 1 = 13) se reparten por la raíz del consumo en €
+# (√48.000 y √3.000 → 10,4 y 2,6) y se redondean a 12 y 3; otras líneas, sin lote del ERP o a extinguir no entran
+c = calc([ref("G", pv=[4000] * 12, lt=4000), ref("S", pv=[250] * 12, lt=3000), ref("O", ln="L2", lt=24000),
+          ref("N", lt=0), ref("X", ext=True)])
+check("frecuencia óptima: fabricaciones con el lote del ERP", c["G"]["fe"] == 12 and c["S"]["fe"] == 1, (c["G"]["fe"], c["S"]["fe"]))
+check("frecuencia óptima: reparto por la raíz del consumo en €", c["G"]["fo"] == 12 and c["S"]["fo"] == 3, (c["G"]["fo"], c["S"]["fo"]))
+check("frecuencia óptima: lote con esa frecuencia", c["S"]["lo"] == 1000 and c["G"]["lo"] == 4000, (c["S"]["lo"], c["G"]["lo"]))
+check("frecuencia óptima: sola en su línea mantiene las fabricaciones", c["O"]["fo"] == 1, c["O"]["fo"])
+check("frecuencia óptima: sin lote del ERP o a extinguir, sin cifra", c["N"]["fo"] is None and c["X"]["fo"] is None)
+c = calc([ref("G", pv=[4000] * 12, lt=4000, pr=0), ref("S", pv=[250] * 12, lt=3000), ref("T", pv=[4000] * 12, lt=4000)])
+check("frecuencia óptima: sin precio, mediana de la línea", c["G"]["fo"] == c["T"]["fo"], (c["G"]["fo"], c["T"]["fo"]))
+F = P.resumen(list(calc([ref("G", pv=[4000] * 12, lt=4000), ref("S", pv=[250] * 12, lt=3000)]).values()))["frec"]
+check("resumen de la frecuencia óptima", F == dict(n=2, fab_erp=13, fab_opt=15, lote_erp=3500, lote_opt=2500), F)
+
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

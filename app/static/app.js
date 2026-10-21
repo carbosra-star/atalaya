@@ -1026,7 +1026,7 @@ const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia', extinguir: 'a 
 const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'estadistico' }, lote: { src: p.ltp === p.lt ? 'erp' : 'calculado' } });
 // Columnas ordenables de la tabla de parámetros (valor de cada fila); las de texto empiezan de la A a la Z
 const PSORT = { k: p => p.k, abc: p => p.abc, pm: p => p.pm, er: p => p.er, mn: p => p.mn, xl: p => p.xl, est: p => p.est,
-  ss: p => p.d ? p.ss : p.ssp, lt: p => p.lt, lote: p => p.d ? p.lote : p.ltp, de: p => p.pr > 0 ? p.de : null, estado: p => PEST[p.estado] };
+  ss: p => p.d ? p.ss : p.ssp, lt: p => p.lt, lote: p => p.d ? p.lote : p.ltp, fe: p => p.fe, fo: p => p.fo, lo: p => p.lo, de: p => p.pr > 0 ? p.de : null, estado: p => PEST[p.estado] };
 const PSORT_TXT = ['k', 'abc', 'estado'];
 async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y buscador, sin volver a pedirlos)
   if (!S.ds) return noData(main, 'Stock mínimo y lotes');
@@ -1042,12 +1042,13 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   xs.sort((a, b) => { const x = PSORT[sk](a), y = PSORT[sk](b);
     return (x == null) - (y == null) || (x == null ? 0 : (x < y ? -1 : x > y ? 1 : 0) * sd) || Math.abs(b.de) - Math.abs(a.de) || (a.k < b.k ? -1 : 1); });
   const ths = (label, key, cls = '', tip = '') => thSort(label, key, sk, sd, cls, tip);
-  const E = P.resumen.estados, nAbas = E.decidido || 0;
+  const E = P.resumen.estados, F = P.resumen.frec || {}, nAbas = E.decidido || 0;
   const tot = (k) => P.resumen.grupos.reduce((s, g) => s + g[k], 0);
   const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const cnt = (est, t) => `<a class="kpi kpi-link" href="#/parametros?estado=${est}"><div class="v">${fmt(E[est] || 0)}</div><div class="l">${t}</div></a>`;
   const pct = (x) => x == null ? '<span class="muted">—</span>' : Math.round(x * 100) + ' %';
   const n0 = (v) => v == null ? '<span class="muted">—</span>' : fmt(v);
+  const d1 = (v) => v == null ? '<span class="muted">—</span>' : v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
   const fila = (p) => {
     const marca = [PTIPO[p.tipo], p.flag ? 'corregir previsión' : '', p.lms ? 'mín. de línea' : ''].filter(Boolean).join(' · ');
     const ctl = canW ? `<td class="nowrap"><select data-ss="${esc(p.k)}" aria-label="Stock mínimo de ${esc(p.k)}"><option value="erp">ERP</option><option value="excel">Excel</option><option value="estadistico" ${p.est == null ? 'disabled' : ''}>Estadístico</option><option value="manual">Manual</option></select>
@@ -1057,7 +1058,8 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
         <button class="btn ghost sm" data-dec="${esc(p.k)}">Decidir</button></td>` : '';
     return `<tr>${refCell({ k: p.k, n: p.n })}<td class="nowrap"><span class="abcxyz">${abcTag(p.abc)}${xyzTag(p.xyz)}</span></td><td class="r num">${fmt(p.pm)}</td><td class="r num">${pct(p.er)}</td>
       <td class="r num">${fmt(p.mn)}</td><td class="r num">${fmt(p.xl)}</td><td class="r num">${n0(p.est)}</td><td class="r num"><b>${fmt(p.d ? p.ss : p.ssp)}</b></td>
-      <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
+      <td class="r num">${d1(p.fe)}</td><td class="r num">${n0(p.fo)}</td>
+      <td class="r num">${fmt(p.lt)}</td><td class="r num"><b>${fmt(p.d ? p.lote : p.ltp)}</b></td><td class="r num">${n0(p.lo)}</td><td class="r num ${p.de > 0 ? 'neg' : ''}">${p.pr > 0 ? eur(p.de) : '<span class="muted">sin precio</span>'}</td>
       <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
   };
   const lim = 2000;  // contra stock con ABC: unas 800 referencias, caben todas
@@ -1068,6 +1070,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
       { g: 'Stock medio €', c: [thc('ERP', 'r', 'Stock medio del ERP'), thc('Prop.', 'r', 'Stock medio propuesto'), thc('Dec.', 'r', 'Stock medio decidido')] }])}</thead><tbody>
       ${P.resumen.grupos.map(g => `<tr><th scope="row">${esc(g.md)} · ${abcTag(g.abc)}</th><td class="r num">${fmt(g.n)}</td><td class="r num">${keur(g.ss_erp)}</td><td class="r num">${keur(g.ss_prop)}</td><td class="r num">${keur(g.ss_dec)}</td><td class="r num">${keur(g.med_erp)}</td><td class="r num">${keur(g.med_prop)}</td><td class="r num">${keur(g.med_dec)}</td></tr>`).join('')}
       <tr><th scope="row"><b>Total</b></th><td class="r num"><b>${fmt(tot('n'))}</b></td>${['ss_erp', 'ss_prop', 'ss_dec', 'med_erp', 'med_prop', 'med_dec'].map(k => `<td class="r num"><b>${keur(tot(k))}</b></td>`).join('')}</tr></tbody></table></div>
+    ${F.n ? `<p><b>Frecuencia óptima por referencia</b> (informativa): con las mismas fabricaciones al año que hoy en cada línea (${fmt(F.fab_erp)} con el lote del ERP; ${fmt(F.fab_opt)} tras redondear), el stock medio de lote de ${fmt(F.n)} referencias pasa de <b>${keur(F.lote_erp)}</b> a <b>${keur(F.lote_opt)}</b> (${F.lote_opt <= F.lote_erp ? '−' : '+'}${keur(Math.abs(F.lote_opt - F.lote_erp))}).</p>` : ''}
     <div class="kpis">${cnt('decidir', 'Por decidir a mano')}${cnt('cambio', 'Con cambio propuesto')}${cnt('decidido', 'Decididos, pendientes de ABAS')}${cnt('aplicado', 'Aplicados')}</div>
     <p>${nAbas ? `<a class="btn" href="/api/parametros/abas.csv" download>Descargar cambios para ABAS (${fmt(nAbas)})</a>` : '<span class="muted">No hay cambios pendientes de cargar en ABAS.</span>'}</p>
     <form class="filters" id="pF" onsubmit="return false">
@@ -1083,10 +1086,12 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
       ${canW && xs.some(p => p.estado === 'cambio') ? `<button class="btn ghost sm" id="pBulk">Aceptar las ${fmt(xs.filter(p => p.estado === 'cambio').length)} propuestas con cambio</button>` : ''}</div>
     <div class="tw"><table class="ptab"><caption class="sr">Parámetros por referencia</caption><thead>${head2([ths('Referencia', 'k'), ths('ABC', 'abc'), ths('Previsión/mes', 'pm', 'r'), ths('Error previsión', 'er', 'r'),
       { g: 'Stock mínimo', c: [ths('ERP', 'mn', 'r', 'Stock mínimo del ERP'), ths('Excel', 'xl', 'r', 'Stock mínimo método Excel'), ths('Estadístico', 'est', 'r', 'Stock mínimo estadístico'), ths('Propuesta · Decidido', 'ss', 'r', 'Stock mínimo propuesto · decidido')] },
-      { g: 'Lote', c: [ths('ERP', 'lt', 'r', 'Lote del ERP'), ths('Propuesta · Decidido', 'lote', 'r', 'Lote propuesto · decidido')] },
+      { g: 'Fabricaciones/año', c: [ths('ERP', 'fe', 'r', 'Fabricaciones al año con el lote del ERP'), ths('Óptima', 'fo', 'r', 'Fabricaciones al año con la frecuencia óptima')] },
+      { g: 'Lote', c: [ths('ERP', 'lt', 'r', 'Lote del ERP'), ths('Propuesta · Decidido', 'lote', 'r', 'Lote propuesto · decidido'), ths('Frec. óptima', 'lo', 'r', 'Lote con la frecuencia óptima')] },
       ths('Δ € stock medio', 'de', 'r'), ths('Estado', 'estado'), ...(canW ? [thc('Decisión')] : [])])}</thead>
-      <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 13 : 12}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
-    <p class="muted small">Δ € = variación del stock medio (stock mínimo + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.</p>`;
+      <tbody>${xs.slice(0, lim).map(fila).join('') || `<tr><td colspan="${canW ? 16 : 15}" class="empty">Nada con estos filtros.</td></tr>`}</tbody></table></div>
+    <p class="muted small">Δ € = variación del stock medio (stock mínimo + lote/2) a coste frente al ERP. Previsión/mes: media de los 3 próximos meses. Error: desviación típica de (venta − previsión) ÷ venta media, 12 meses cerrados.
+      Frecuencia óptima: en cada línea se reparten las fabricaciones al año de hoy (previsión anual ÷ lote del ERP) en proporción a la raíz del consumo anual en €, redondeadas a 1, 2, 3, 4, 6, 12 o 24; de momento solo informativa.</p>`;
   xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
   $$('.ptab [data-sort]', main).forEach(b => b.onclick = async () => {
     const k2 = b.dataset.sort;

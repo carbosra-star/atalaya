@@ -502,8 +502,8 @@ def param_list():
     if not row:
         return jsonify({"empty": True})
     k, refs = request.args.get("ref"), _refs(row)
-    if k:  # ficha: solo esa referencia (el cálculo es por referencia)
-        return jsonify({"rows": _param_rows([r for r in refs if r["k"] == k]), "hoy": row["hoy"]})
+    if k:  # ficha: solo esa referencia (se calcula con todas: la frecuencia óptima reparte por línea)
+        return jsonify({"rows": [p for p in _param_rows(refs) if p["k"] == k], "hoy": row["hoy"]})
     rows = _param_rows(refs)
     return jsonify({"rows": rows, "resumen": parametros.resumen(rows), "hoy": row["hoy"]})
 
@@ -619,6 +619,7 @@ def param_xlsx():
             ("Plazo extra (días lab.)", 10, "0"), ("SM ERP", 10, "#,##0"), ("SM Excel", 10, "#,##0"),
             ("SM estadístico", 11, "#,##0"), ("SM propuesto", 11, "#,##0"), ("SM decidido", 11, "#,##0"),
             ("Lote ERP", 10, "#,##0"), ("Lote calculado", 11, "#,##0"), ("Lote propuesto", 11, "#,##0"), ("Lote decidido", 11, "#,##0"),
+            ("Fab./año ERP", 9, "0.0"), ("Fab./año óptima", 9, "0"), ("Lote frecuencia óptima", 12, "#,##0"),
             ("Stock máximo", 11, "#,##0"), ("Δ € stock medio", 12, "#,##0"), ("Estado", 18, None), ("Observaciones", 28, None)]
     wb = Workbook()
     ws = wb.active
@@ -631,7 +632,7 @@ def param_xlsx():
                                     f'lote al mínimo de la línea ({p["lm"]})' if p["lms"] else "") if x)
         ws.append([p["k"], p["n"], p["md"], p["abc"], p["xyz"] or "—", alias.get(p["ln"], p["ln"]) or "—", p["pr"] or None, p["pm"], p["er"], p["sg"],
                    p["dx"] or None, p["mn"], p["xl"], p["est"], p["ssp"], p["ss"] if p["d"] else None,
-                   p["lt"], p["lc"], p["ltp"], p["lote"] if p["d"] else None, p["smax"], p["de"] if p["pr"] else None,
+                   p["lt"], p["lc"], p["ltp"], p["lote"] if p["d"] else None, p["fe"], p["fo"], p["lo"], p["smax"], p["de"] if p["pr"] else None,
                    PARAM_EST[p["estado"]], obs])
     for i, (_, w, f) in enumerate(cols, 1):
         letra = ws.cell(1, i).column_letter
