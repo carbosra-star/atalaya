@@ -626,10 +626,10 @@ async function pageRef(main, [k]) {
         <p class="meta">${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p></div>
         <form onsubmit="return false" class="fesc">${scenarioCtl()}</form></div>
       <div class="fdiag s-${e.sem}">
-        <div class="fdt"><p>${pill(e.sem, e.why)}</p>
+        <div class="fdt"><div class="t">Estado</div><div class="fst"><span class="dot" aria-hidden="true"></span>${esc(SEMT[e.sem])}</div><p class="fwhy">${esc(e.why)}</p>
           ${r.ext ? `<p class="extbar">${EXT_TAG}Se consume el stock y no se repone.${r.sc ? ` Sucesor: <a href="${refHref(r.sc)}">${esc(r.sc)}</a>${S.byK[r.sc] ? ' ' + esc(S.byK[r.sc].r.n) : ''}.` : ' Sin sucesor activo.'}</p>` : ''}</div>
         <div class="fnum">
-          <div><div class="t">Stock hoy</div><div class="v">${fmt(r.st)}<small> uds</small></div><div class="l">${r.st > 0 && r.pr > 0 ? keur(r.st * r.pr) + ' · ' : ''}cubre ${cobTxt(e.cob)} <span title="Cobertura prudente: con la previsión corregida por su acierto">(prudente ${cobTxt(e.cobp)})</span>${extra}</div></div>
+          <div><div class="t">Stock hoy</div><div class="v">${fmt(r.st)}<small> uds</small></div><div class="l">${r.st > 0 && r.pr > 0 ? (r.st * r.pr < 1000 ? eur(r.st * r.pr) : keur(r.st * r.pr)) + ' · ' : ''}cubre ${cobTxt(e.cob)} <span title="Cobertura prudente: con la previsión corregida por su acierto">(prudente ${cobTxt(e.cobp)})</span>${extra}</div></div>
           <div><div class="t">Stock mínimo</div><div class="v">${r.mn ? fmt(r.mn) : '–'}<small>${r.mn ? ' uds' : ''}</small></div><div class="l">${r.lt ? `lote ${fmt(r.lt)}` : 'sin lote en ABAS'}${p0 && p0.d ? ` · decidido ${fmt(p0.ss)}` : ''}</div></div>
           <div><div class="t" title="${RF_TIP}">Primera rotura</div><div class="v${e.rot < 0 && !e.rf ? ' ok' : ' neg'}">${e.rot < 0 && !e.rf ? 'No' : rfTxt(e)}</div><div class="l">${e.rot < 0 && !e.rf ? 'en los 12 meses' : 'con las entradas del escenario'}</div></div>
           <div><div class="t">Próxima entrada</div><div class="v">${prox ? fdate(prox.d, true) : '–'}</div><div class="l">${prox ? `${prox.t === 'PC' ? 'pedido de compra' : prox.t === 'OF' ? 'OF' : 'propuesta'} · ${fmt(prox.q)} uds${prox.late ? ' · <span class="neg">fecha pasada</span>' : ''}` : 'ninguna en el escenario'}</div></div>

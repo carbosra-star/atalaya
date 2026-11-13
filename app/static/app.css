@@ -357,8 +357,14 @@ input.tu::placeholder{color:var(--ink2);opacity:.45}
 
 /* Ficha: diagnóstico arriba y detalle en pestañas */
 .fdiag{display:flex;gap:18px;flex-wrap:wrap;align-items:center;background:var(--sheet);border:1px solid var(--rule);border-left:6px solid var(--c,var(--gris));border-radius:10px;padding:12px 16px;margin:12px 0}
-.fdiag .fdt{flex:1 1 240px}.fdiag .fdt p{margin:4px 0}
-.fdiag .pill{font-size:15px;padding:5px 12px}
+.fdiag{padding:0;overflow:hidden;align-items:stretch}
+.fdiag .fdt{flex:1 1 240px;background:var(--cb,var(--soft));padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:4px}
+.fdiag .fdt .t{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);font-weight:600}
+.fdiag .fst{display:flex;align-items:center;gap:9px;font:700 22px/1.15 var(--narrow);color:var(--c,var(--ink))}
+.fdiag .fst .dot{width:12px;height:12px;border-radius:50%;background:var(--c,var(--gris));box-shadow:0 0 0 4px color-mix(in srgb,var(--c,var(--gris)) 22%,transparent);flex:none}
+.fdiag .fwhy{margin:2px 0 0;color:var(--ink);font-size:14px;line-height:1.35}
+.fdiag .fdt .extbar{margin:6px 0 0}
+.fdiag .fnum{padding:14px 18px 14px 0;align-content:center}
 .fnum{flex:3 1 520px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .fnum>div{border-left:1px solid var(--rule);padding-left:12px}
 .fnum .t{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);font-weight:600;margin-bottom:4px}
