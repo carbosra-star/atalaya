@@ -293,6 +293,21 @@ k4 = next((p["k"] for p in rows.values() if p["lo"] is None), None)
 if k4:
     check("decidir con frecuencia óptima sin cifra se rechaza", dec([{"ref": k4, "ss": {"src": "erp"}, "lote": {"src": "optimo"}}]).status_code == 400)
 c.put("/api/config", json={"reparto": {"pct": 50}}, headers=H)
+sm_ = c.get("/api/parametros/sm").json
+cv_ = sm_["curva"]
+check("stock mínimo: curva con menos roturas cuanto más presupuesto", len(cv_) > 5 and all(a[0] <= b[0] and a[1] >= b[1] + -0.05 for a, b in zip(cv_, cv_[1:])), cv_)
+check("stock mínimo: el mismo dinero no da más roturas que hoy", abs(sm_["punto"]["eur"] - sm_["hoy"]["eur"]) <= sm_["hoy"]["eur"] * 0.01 + 1000 and sm_["punto"]["rot"] <= sm_["hoy"]["rot"], (sm_["hoy"], sm_["punto"]))
+check("stock mínimo: por mandante y bloques", [m["md"] for m in sm_["md"]] == ["Belloch", "Yunsey"] and all(p["bq"] in ("sube", "baja", "extinguir", "taller", "igual", "decidido") for p in sm_["rows"]))
+sm2 = c.get(f"/api/parametros/sm?pres={sm_['base'] * 2}").json
+check("stock mínimo: con más presupuesto, menos roturas", sm2["punto"]["rot"] <= sm_["punto"]["rot"] and sm2["punto"]["eur"] > sm_["punto"]["eur"], (sm_["punto"], sm2["punto"]))
+k5 = next((p["k"] for p in sm2["rows"] if p["bq"] in ("sube", "baja") and p["k"] not in (k1, k2, k3)), None)
+if k5:
+    r = c.post("/api/parametros/decisiones", json={"items": [{"ref": k5, "ss": {"src": "curva"}, "lote": {"src": "erp"}}], "pres": sm_["base"] * 2}, headers=H)
+    p5 = c.get(f"/api/parametros?ref={k5}").json["rows"][0]
+    s5 = next(p for p in sm2["rows"] if p["k"] == k5)
+    check("decidir con la curva: el stock mínimo del punto elegido", r.status_code == 200 and p5["ss"] == s5["sm"] and p5["lote"] == p5["lt"], (r.json, p5["ss"], s5["sm"]))
+    h5 = c.get(f"/api/parametros/{k5}/historial").json
+    check("decidir con la curva: fuente guardada", h5 and h5[0]["src_ss"] == "curva", h5[:1])
 check("plazo extra de una referencia fuera de ámbito se rechaza", c.put("/api/parametros/999999999999/plazo", json={"dias": 5}, headers=H).status_code == 400)
 check("plazo extra fuera de rango se rechaza", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 300}, headers=H).status_code == 400)
 check("plazo extra", c.put(f"/api/parametros/{k1}/plazo", json={"dias": 21, "motivo": "Tubos 66 días"}, headers=H).status_code == 200

@@ -112,7 +112,7 @@ function aciertoHTML(r) {
   const grupo = `de su grupo ${esc(r.md)} · ${esc(r.abc)}`;
   const orig = r.fo === 'ref' ? 'propio' : r.fo === 'grupo' ? grupo : 'sin datos, no se corrige';
   const txt = (r.hm >= 6 && sp > 0 ? `Vendido / previsto: ${pct(sv / sp)}` : r.hm ? `Solo ${r.hm} meses con previsión` : 'Sin previsión vigente') +
-    ` · Error medio: ${r.er == null ? 'sin dato' : pct(r.er) + (r.eo === 'grupo' ? ' (' + grupo + ')' : '')} · Factor: ${String(r.fc).replace('.', ',')} (${orig})`;
+    ` · Error de previsión: ${r.xe == null ? 'sin dato (menos de 6 meses)' : '±' + pct(r.xe)} · Factor: ${String(r.fc).replace('.', ',')} (${orig})`;
   const src = S.ds.meta.hist_src || [];
   return `<p>${txt}</p><div class="tw"><table class="mt"><caption class="sr">Previsión vigente y venta de los 12 últimos meses</caption><thead><tr><th scope="col">Unidades</th>${r.hp.map((_, i) => `<th scope="col" class="r">${monthLabel(i - 12)}</th>`).join('')}</tr></thead><tbody>
     <tr><th scope="row">Previsión vigente</th>${r.hp.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr>
@@ -601,9 +601,10 @@ function diarioHTML(r, e) {
     <tr><td class="num">${fdate(hoy, true)}</td><td>Stock hoy</td><td></td><td class="r num"><b>${fmt(r.st)}</b></td></tr>${filas.join('')}</tbody></table></div>
     <p class="muted small">Hasta fin de ${monthLabel(DIARIO_MESES - 1)}. Pedidos en su fecha de envío (los atrasados, hoy); entradas: ${ESC_TXT[S.esc]}.</p>`;
 }
-// Ficha: bloques de consulta plegados; se recuerda cuáles se han abierto mientras dura la sesión
-const FICHA_ABIERTOS = new Set();
-const blkFicha = (id, titulo, resumen, cuerpo) => `<details class="blk" data-fb="${id}"${FICHA_ABIERTOS.has(id) ? ' open' : ''}><summary><h2>${titulo}</h2>${resumen ? `<span class="muted small">${resumen}</span>` : ''}</summary>${cuerpo}</details>`;
+// Ficha: arriba el diagnóstico y el gráfico; el detalle en pestañas cerradas (se recuerda la abierta durante la sesión)
+const blkFicha = (id, titulo, resumen, cuerpo) => `<section class="fsec" data-fb="${id}"><h3>${titulo}${resumen ? ` <span class="muted small">· ${resumen}</span>` : ''}</h3>${cuerpo}</section>`;
+const fichaTabs = (tabs) => `<div class="ftabs" role="tablist" aria-label="Detalle">${tabs.map(t => `<button type="button" role="tab" id="ft-${t.id}" data-ft="${t.id}" aria-controls="fp-${t.id}" aria-selected="${S.fichaTab === t.id}">${t.t}${t.b ? `<span class="fb">${t.b}</span>` : ''}</button>`).join('')}</div>
+  ${tabs.map(t => `<div class="fpane" role="tabpanel" id="fp-${t.id}" aria-labelledby="ft-${t.id}"${S.fichaTab === t.id ? '' : ' hidden'}>${t.html}</div>`).join('')}`;
 
 async function pageRef(main, [k]) {
   if (!S.ds) return noData(main, 'Referencia');
@@ -614,23 +615,28 @@ async function pageRef(main, [k]) {
     const [notes, acts, par, hist, dvr, dvh] = await Promise.all([api('/api/notes/' + encodeURIComponent(k)), api('/api/actions?ref=' + encodeURIComponent(k)),
       api('/api/parametros?ref=' + encodeURIComponent(k)), api('/api/parametros/' + encodeURIComponent(k) + '/historial'),
       api('/api/desviacion?ref=' + encodeURIComponent(k)), api('/api/desviacion/' + encodeURIComponent(k) + '/historial')]);
+    const smr = await api('/api/parametros/sm?ref=' + encodeURIComponent(k) + (S.smPres ? '&pres=' + S.smPres : '')).catch(() => null);
     const canW = can('admin', 'planificador');
+    const p0 = par && par.rows && par.rows[0], d0 = dvr && dvr.rows && dvr.rows[0];
+    const ent = r.en.filter(v => Cob.counts(v.t, S.esc)), prox = ent.find(v => !v.late) || ent[0];
+    const nFirm = r.en.filter(v => v.t === 'OF' || v.t === 'PC').length, nProp = r.en.length - nFirm;
+    const extra = e.sem === 'exceso' ? `<br><span class="neg">Exceso: ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}</span>` : ['rojo', 'extinguir'].includes(e.sem) && e.fa ? `<br><span class="neg">Falta: ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}</span>` : '';
     main.innerHTML = `<p class="crumbs"><a href="#/coberturas">Coberturas</a> › ${esc(r.k)}</p>
       <div class="head"><div><h1><span class="num">${esc(r.k)}</span>${copyBtn(r.k, 'código', true)} ${esc(r.n)}</h1>
-        <p class="meta">${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p>
-        ${r.ext ? `<p class="extbar">${EXT_TAG}Se consume el stock y no se repone.${r.sc ? ` Sucesor: <a href="${refHref(r.sc)}">${esc(r.sc)}</a>${S.byK[r.sc] ? ' ' + esc(S.byK[r.sc].r.n) : ''}.` : ' Sin sucesor activo.'}</p>` : ''}
-        <p>${pill(e.sem, e.why)}</p></div>
-        <form onsubmit="return false">${scenarioCtl()}</form></div>
-      <div class="kpis">
-        <div class="kpi"><div class="v">${fmt(r.st)}</div><div class="l">Stock hoy</div></div>
-        <div class="kpi"><div class="v">${r.st > 0 ? (r.pr > 0 ? eur(r.st * r.pr) : 'sin precio') : '–'}</div><div class="l">Valor del stock${e.sem === 'exceso' ? `<br>Exceso: ${fmt(e.ex)} uds${r.pr > 0 ? ' · ' + eur(e.ex * r.pr) : ''}` : ['rojo', 'extinguir'].includes(e.sem) && e.fa ? `<br>Falta: ${fmt(e.fa)} uds${r.pr > 0 ? ' · ' + eur(e.fa * r.pr) : ''}` : ''}</div></div>
-        <div class="kpi"><div class="v">${r.mn ? fmt(r.mn) : '–'}</div><div class="l">Stock mínimo${r.lt ? ` · Lote ${fmt(r.lt)}` : ''}</div></div>
-        <div class="kpi"><div class="v">${cobTxt(e.cob)}</div><div class="l">Cobertura</div></div>
-        <div class="kpi"><div class="v">${cobTxt(e.cobp)}</div><div class="l">Cobertura prudente</div></div>
-        <div class="kpi"><div class="v">${e.rot < 0 && !e.rf ? 'No' : rfTxt(e)}</div><div class="l" title="${RF_TIP}">Primera rotura</div></div>${pico(e)}</div>
+        <p class="meta">${esc(r.md)} · ${esc(r.mc || 'sin marca')} · línea ${lnLink(r.ln)} · ABC ${abcRef(r)}${abcDetalle(r) ? ` <span class="small">(${abcDetalle(r)})</span>` : ''} · ${esc(r.gp)}${!r.ext && r.sc ? ` · sucesor <a href="${refHref(r.sc)}">${esc(r.sc)}</a>` : ''}</p></div>
+        <form onsubmit="return false" class="fesc">${scenarioCtl()}</form></div>
+      <div class="fdiag s-${e.sem}">
+        <div class="fdt"><p>${pill(e.sem, e.why)}</p>
+          ${r.ext ? `<p class="extbar">${EXT_TAG}Se consume el stock y no se repone.${r.sc ? ` Sucesor: <a href="${refHref(r.sc)}">${esc(r.sc)}</a>${S.byK[r.sc] ? ' ' + esc(S.byK[r.sc].r.n) : ''}.` : ' Sin sucesor activo.'}</p>` : ''}</div>
+        <div class="fnum">
+          <div><div class="t">Stock hoy</div><div class="v">${fmt(r.st)}<small> uds</small></div><div class="l">${r.st > 0 && r.pr > 0 ? keur(r.st * r.pr) + ' · ' : ''}cubre ${cobTxt(e.cob)} <span title="Cobertura prudente: con la previsión corregida por su acierto">(prudente ${cobTxt(e.cobp)})</span>${extra}</div></div>
+          <div><div class="t">Stock mínimo</div><div class="v">${r.mn ? fmt(r.mn) : '–'}<small>${r.mn ? ' uds' : ''}</small></div><div class="l">${r.lt ? `lote ${fmt(r.lt)}` : 'sin lote en ABAS'}${p0 && p0.d ? ` · decidido ${fmt(p0.ss)}` : ''}</div></div>
+          <div><div class="t" title="${RF_TIP}">Primera rotura</div><div class="v${e.rot < 0 && !e.rf ? ' ok' : ' neg'}">${e.rot < 0 && !e.rf ? 'No' : rfTxt(e)}</div><div class="l">${e.rot < 0 && !e.rf ? 'en los 12 meses' : 'con las entradas del escenario'}</div></div>
+          <div><div class="t">Próxima entrada</div><div class="v">${prox ? fdate(prox.d, true) : '–'}</div><div class="l">${prox ? `${prox.t === 'PC' ? 'pedido de compra' : prox.t === 'OF' ? 'OF' : 'propuesta'} · ${fmt(prox.q)} uds${prox.late ? ' · <span class="neg">fecha pasada</span>' : ''}` : 'ninguna en el escenario'}</div></div>
+        </div></div>
       <div class="chartbox">${chartSVG(r, e)}<p class="muted small">Línea: stock fin de mes · gris: demanda · azul: entradas (${ESC_TXT[S.esc]}) · discontinua: stock mínimo</p></div>
-      <h2>Mes a mes</h2>
-      <div class="tw"><table class="mt"><caption class="sr">Proyección mes a mes</caption><thead><tr><th scope="col">Concepto</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
+      ${fichaTabs([
+        { id: 'mes', t: 'Mes a mes', b: '', html: `      <div class="tw"><table class="mt"><caption class="sr">Proyección mes a mes</caption><thead><tr><th scope="col">Concepto</th>${Array.from({ length: n }, (_, i) => `<th scope="col" class="r">${monthLabel(i)}</th>`).join('')}</tr></thead><tbody>
         <tr><th scope="row">Previsión${pvSel(r).c ? ' corregida' : ''}</th>${pvSel(r).p.map((v, i) => `<td class="r num">${fmt(i === 0 ? pvSel(r).p0 : v)}</td>`).join('')}</tr>
         <tr><th scope="row">Pedidos</th>${r.pd.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr>
         <tr><th scope="row">Demanda</th>${e.all.dem.map(v => `<td class="r num"><b>${fmt(v)}</b></td>`).join('')}</tr>
@@ -640,20 +646,29 @@ async function pageRef(main, [k]) {
       <ul class="notas muted small">${[prevSrcText(), restoText(r),
         r.at ? `Pedidos atrasados: ${fmt(r.at)}${r.ab ? ` (${fmt(r.ab)} de meses anteriores, encima de la previsión)` : ''}.` : '',
         r.ao && r.ao.length ? `<span class="neg">Con más de 30 días de retraso, no cuentan: ${r.ao.map(p => `${fdate(p[0], true)} · ${fmt(p[1])}`).join('; ')}. Revisar en ABAS.</span>` : ''].filter(Boolean).map(t => `<li>${t}</li>`).join('')}</ul>
-      <div class="two">
-        <section><h2>Próximas semanas</h2>${diarioHTML(r, e)}</section>
-        <section><h2>Entradas previstas</h2>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.dm != null ? `<span class="aviso" title="Sin fijar y con fecha del MRP dentro del plazo de fabricación: se cuenta en la primera fecha posible si se lanzara hoy">MRP ${v.dm ? fdate(v.dm) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}</section></div>
-      ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
-        const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', reparto: 'reparto', manual: 'manual', calculado: 'calculado', optimo: 'frec. óptima' };
-        return blkFicha('par', 'Parámetros', `ERP ${fmt(p.mn)} · ${fmt(p.lt)} · propuesta ${fmt(p.ssp)} · ${fmt(p.ltp)}`, `
-        <div class="kpis"><div class="kpi"><div class="v">${fmt(p.mn)} · ${fmt(p.lt)}</div><div class="l">ERP: Stock mínimo · Lote</div></div>
-          <div class="kpi"><div class="v">${fmt(p.xl)} · ${p.est == null ? '—' : fmt(p.est)} · ${fmt(p.sr)}</div><div class="l">Stock mínimo Excel · Estadístico · Reparto${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}</div></div>
-          <div class="kpi"><div class="v">${fmt(p.ssp)} · ${fmt(p.ltp)}</div><div class="l">Propuesta: Stock mínimo · Lote</div></div>
-          <div class="kpi"><div class="v">${p.d ? fmt(p.ss) + ' · ' + fmt(p.lote) : '—'}</div><div class="l">${PEST[p.estado]}${p.smax ? ' · Stock máximo ' + fmt(p.smax) : ''}</div></div></div>
+` },
+        { id: 'sem', t: 'Próximas semanas y entradas', b: `${nFirm} firmes · ${nProp} propuestas`, html: `      <div class="two">
+        <section><h3>Próximas semanas</h3>${diarioHTML(r, e)}</section>
+        <section><h3>Entradas previstas</h3>${r.en.length ? `<ul class="list">${r.en.map(v => `<li>${entTag(v.t, false)}<span class="num">${fdate(v.d)}</span><b class="num">${fmt(v.q)} uds</b>${v.late ? '<span class="neg">fecha pasada</span>' : ''}${v.dm != null ? `<span class="aviso" title="Sin fijar y con fecha del MRP dentro del plazo de fabricación: se cuenta en la primera fecha posible si se lanzara hoy">MRP ${v.dm ? fdate(v.dm) : 'sin fecha'} · no llega en 3 semanas</span>` : ''}${v.id ? `<span class="muted small">${v.t === 'PC' ? 'pedido' : 'nº'} ${esc(v.id)}${copyBtn(v.id, v.t === 'PC' ? 'nº de pedido' : 'nº de OF', true)}${v.mq ? ' · ' + esc(v.mq) : ''}${v.pv ? ' · ' + esc(v.pv) : ''}</span>` : ''}</li>`).join('')}</ul>` : '<p class="muted">Sin OF, pedidos de compra ni propuestas.</p>'}${ztBloque(r)}</section></div>
+` },
+        { id: 'par', t: 'Stock mínimo y lote', b: smr && smr.rows && smr.rows[0] ? `${fmt(smr.rows[0].mn)} → ${fmt(smr.rows[0].bq === 'decidido' ? smr.rows[0].ss : smr.rows[0].sm)}` : p0 ? PEST[p0.estado] : '', html: `      ${(() => { const p = par && par.rows && par.rows[0]; if (!p) return '';
+        const SRC = { erp: 'ERP', excel: 'Excel', estadistico: 'estadístico', reparto: 'reparto', curva: 'curva de roturas', manual: 'manual', calculado: 'calculado', optimo: 'frec. óptima' };
+        const q = smr && smr.rows && smr.rows[0], dd = (v) => q && q.pm > 0 ? `${fmt(v / q.pm * 30)} días de venta` : '';
+        const r1x = (v) => v == null ? '—' : v.toLocaleString('es-ES', { maximumFractionDigits: v < 10 ? 1 : 0 });
+        return blkFicha('par', 'Stock mínimo', q ? (S.smPres ? `presupuesto elegido ${keur(S.smPres)}` : 'con el mismo dinero que hoy') : '', `
+        ${q ? `<div class="kpis"><div class="kpi"><div class="v">${fmt(q.mn)}</div><div class="l">Hoy en ABAS · ${dd(q.mn)}</div></div>
+          <div class="kpi"><div class="v">${q.bq === 'taller' && q.tipo !== 'irregular' ? '—' : fmt(q.sm)}</div><div class="l">Propuesta${q.sm ? ' · ' + dd(q.sm) : ''}</div></div>
+          <div class="kpi"><div class="v">${q.rh == null ? '—' : `${r1x(q.rh)} → ${r1x(q.rs)}`}</div><div class="l">Roturas/año estimadas</div></div>
+          <div class="kpi"><div class="v">${q.er == null ? '—' : '±' + Math.round(q.er * 100) + ' %'}</div><div class="l">Error de previsión</div></div></div>
+        <p>${esc(smMotivo(q))}. <a href="#/parametros">Ver en Stock mínimo</a></p>` : ''}
+        <h3>Lote</h3>
+        <p>ABAS: <b>${fmt(p.lt)}</b>${p.fe ? ` (${String(p.fe).replace('.', ',')} fabricaciones/año)` : ''} · con frecuencia óptima: <b>${p.lo == null ? '—' : fmt(p.lo)}</b>${p.fo ? ` (${p.fo}/año)` : ''}${p.d ? ` · decidido: <b>${fmt(p.ss)} · ${fmt(p.lote)}</b> (${PEST[p.estado]})` : ''}${p.smax ? ` · stock máximo ${fmt(p.smax)}` : ''}</p>
+        <p class="muted small">Otros cálculos del stock mínimo: método Excel ${fmt(p.xl)} · estadístico ${p.est == null ? '—' : fmt(p.est)} · con la frecuencia óptima ${fmt(p.sr)}${PTIPO[p.tipo] ? ' (' + PTIPO[p.tipo] + ')' : ''}${p.flag ? ' · corregir previsión' : ''}.</p>
         ${can('admin', 'planificador') ? `<form class="form" id="plzF" style="max-width:none"><div class="row"><label>Plazo extra de material (días laborables)<input type="number" name="dias" min="0" max="250" value="${p.dx}"></label><label style="flex:1">Motivo<input name="motivo" maxlength="500"></label><button class="btn ghost">Guardar plazo</button></div></form>` : (p.dx ? `<p class="muted small">Plazo extra de material: ${p.dx} días laborables.</p>` : '')}
         ${hist.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de decisiones</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Usuario</th><th scope="col" class="r">Stock mínimo</th><th scope="col" class="r">Lote</th><th scope="col">Antes (ERP)</th><th scope="col">Motivo</th><th scope="col">Aplicado</th></tr></thead><tbody>
           ${hist.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.by || '')}</td><td class="r num">${fmt(h.ss)} <span class="muted small">${SRC[h.src_ss]}</span></td><td class="r num">${fmt(h.lote)} <span class="muted small">${SRC[h.src_lote]}</span></td><td class="num">${fmt(h.ss_antes)} · ${fmt(h.lote_antes)}</td><td>${esc(h.motivo)}</td><td class="num">${h.aplicado ? fdate(h.aplicado) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Sin decisiones todavía. Se deciden en <a href="#/parametros">Stock mínimo y lotes</a>.</p>'}`); })()}
-      ${(() => { const p = dvr && dvr.rows && dvr.rows[0]; if (!p) return '';
+` },
+        { id: 'prev', t: 'Previsión', b: [r.xe == null ? '' : `error ±${Math.round(r.xe * 100)} %`, d0 ? (d0.estado === 'acordado' ? 'acordado ' + pctTxt(d0.ca) : DEST[d0.estado]) : ''].filter(Boolean).join(' · '), html: `      ${(() => { const p = dvr && dvr.rows && dvr.rows[0]; if (!p) return '';
         const SRCD = { propuesta: 'propuesta', manual: 'manual', mantener: 'mantener' };
         return blkFicha('rev', 'Revisión de la previsión ' + esc(dvr.version), `propuesta ${pctTxt(p.cp)}${p.estado === 'acordado' ? ' · acordado ' + pctTxt(p.ca) : ' · sin acuerdo'}`, `
         <p class="small"><a href="#/desviacion/versiones/${encodeURIComponent(p.k)}">Ver cada versión de la previsión mes a mes</a></p>
@@ -663,21 +678,27 @@ async function pageRef(main, [k]) {
           <div class="kpi"><div class="v">${p.estado === 'acordado' ? pctTxt(p.ca) : '—'}</div><div class="l">${p.estado === 'acordado' ? 'Acordado · Previsión corregida ' + fmt(p.pvc.reduce((s, x) => s + x, 0)) : 'Sin acuerdo · se decide en <a href="#/desviacion?mc=' + encodeURIComponent(p.mc) + '">Desviación</a>'}</div></div></div>
         ${dvh.length ? `<div class="tw"><table class="fit"><caption class="sr">Historial de acuerdos de previsión</caption><thead><tr><th scope="col">Fecha</th><th scope="col">Versión</th><th scope="col">Usuario</th><th scope="col" class="r">Corrección</th><th scope="col">Motivo</th></tr></thead><tbody>
           ${dvh.map(h => `<tr><td class="num">${fdt(h.created)}</td><td>${esc(h.version)}</td><td>${esc(h.by || '')}</td><td class="r num">${pctTxt(h.pct)} <span class="muted small">${SRCD[h.src]}</span></td><td>${esc(h.motivo)}</td></tr>`).join('')}</tbody></table></div>` : ''}`); })()}
-      ${blkFicha('aci', 'Acierto de la previsión', r.er == null ? '' : `error ${Math.round(r.er * 100)} %${r.fc == null ? '' : ' · factor ' + String(r.fc).replace('.', ',')}`, aciertoHTML(r))}
+      ${blkFicha('aci', 'Acierto de la previsión', r.xe == null ? '' : `error ±${Math.round(r.xe * 100)} %`, aciertoHTML(r))}
       ${r.hp ? '' : blkFicha('vta', 'Venta de los últimos 12 meses', '', `<div class="tw"><table class="mt" style="min-width:0"><thead><tr>${r.vt.map((_, i) => `<th scope="col" class="r">${monthLabel(i - 12)}</th>`).join('')}</tr></thead><tbody><tr>${r.vt.map(v => `<td class="r num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>`)}
-      <div${ACCIONES ? ' class="two"' : ''}>
-        ${ACCIONES ? `<section><h2>Acciones</h2>
+` },
+        { id: 'notas', t: ACCIONES ? 'Acciones y notas' : 'Notas', b: String(notes.length + (ACCIONES ? acts.filter(a => a.status === 'abierta').length : 0)), html: `      <div${ACCIONES ? ' class="two"' : ''}>
+        ${ACCIONES ? `<section><h3>Acciones</h3>
           ${acts.length ? acts.map(a => `<div class="act ${a.status !== 'abierta' ? 'done' : ''}"><div><div class="t">${esc(a.text)}</div><div class="st muted">${a.owner ? esc(a.owner) + ' · ' : ''}${a.due ? 'para el ' + fdate(a.due) + ' · ' : ''}${esc(a.status)}</div></div>
             ${canW && a.status === 'abierta' ? `<div><button class="btn ghost sm" data-done="${a.id}">Hecha</button></div>` : '<div></div>'}</div>`).join('') : '<p class="muted">Sin acciones.</p>'}
           ${canW ? `<form class="form" id="actF" style="margin-top:10px"><label>Nueva acción<input name="text" required maxlength="2000"></label>
             <div class="row"><label>Responsable<input name="owner" maxlength="120"></label><label>Fecha límite<input type="date" name="due"></label><button class="btn">Añadir acción</button></div></form>` : ''}</section>` : ''}
-        <section><h2>Notas</h2>
+        <section><h3>Notas</h3>
           ${notes.map(nt => `<div class="note"><div>${esc(nt.text)}</div><div class="by">${esc(nt.by)} · ${fdt(nt.created)}${S.me && (S.me.role === 'admin' || (S.me.role === 'planificador' && S.me.id === nt.uid)) ? ` · <button type="button" class="btn ghost sm" data-delnote="${nt.id}">Borrar</button>` : ''}</div></div>`).join('') || '<p class="muted">Sin notas.</p>'}
           ${canW ? `<form class="form" id="noteF"><label>Nueva nota<textarea name="text" required maxlength="4000"></textarea></label><div><button class="btn">Guardar nota</button></div></form>` : ''}
-        </section></div>`;
+        </section></div>` },
+      ])}`;
     bindScenario(main, draw);
     bindChart(main, r, e);
-    $$('details[data-fb]', main).forEach(d => d.ontoggle = () => { if (d.open) FICHA_ABIERTOS.add(d.dataset.fb); else FICHA_ABIERTOS.delete(d.dataset.fb); });
+    $$('[data-ft]', main).forEach(b => b.onclick = () => {  // pulsar la pestaña abierta la cierra
+      S.fichaTab = S.fichaTab === b.dataset.ft ? null : b.dataset.ft;
+      $$('[data-ft]', main).forEach(x => x.setAttribute('aria-selected', String(x.dataset.ft === S.fichaTab)));
+      $$('.fpane', main).forEach(pn => { pn.hidden = pn.id !== 'fp-' + S.fichaTab; });
+    });
     const af = $('#actF'); if (af) af.onsubmit = async (ev) => { ev.preventDefault(); const fd = new FormData(af); try { await api('/api/actions', { method: 'POST', body: { ref: k, text: fd.get('text'), owner: fd.get('owner'), due: fd.get('due') } }); await refreshActions(); updateChrome(); toast('Acción añadida'); draw(); } catch (e2) { toast(e2.message); } };
     const nf = $('#noteF'); if (nf) nf.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/api/notes/' + encodeURIComponent(k), { method: 'POST', body: { text: new FormData(nf).get('text') } }); S.notes[k] = (S.notes[k] || 0) + 1; toast('Nota guardada'); draw(); } catch (e2) { toast(e2.message); } };
     $$('[data-delnote]', main).forEach(b => b.onclick = async () => {
@@ -1022,6 +1043,184 @@ async function pageData(main) {
   $('#cfgF').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target; try { S.cfg = await api('/api/config', { method: 'PUT', body: { horizonte: parseInt(f.hz.value, 10), exceso: { Belloch: parseInt(f.exB.value, 10), Yunsey: parseInt(f.exY.value, 10) } } }); recompute(); updateChrome(); toast('Criterios guardados'); } catch (e) { toast(e.message); } };
 }
 
+// ---------------------------------------------------------------- Stock mínimo (curva presupuesto → roturas)
+// Pestañas de la sección: stock mínimo (curva y bloques) y la tabla de lotes y detalle
+const parTabs = (cur) => `<div class="seg partabs" role="group" aria-label="Vista"><a role="button" href="#/parametros" aria-pressed="${cur === 'sm'}">Stock mínimo</a><a role="button" href="#/parametros?vista=lotes" aria-pressed="${cur === 'lotes'}">Lotes y detalle</a></div>`;
+async function pageParams(main, P0) {
+  const { q } = parseHash();
+  return q.get('vista') === 'lotes' ? pageLotes(main, P0) : pageSM(main, P0);
+}
+const SMB = {
+  sube: { t: '▲ Subir', cls: 'up', lead: 'La previsión de estas referencias falla más de lo que cubre su stock mínimo: aquí cada € evita más roturas.', bulk: true },
+  baja: { t: '▼ Bajar', cls: 'dn', lead: 'Previsión fiable o colchón por encima de lo que rinde: el dinero se pasa a las que más lo necesitan.', bulk: true },
+  extinguir: { t: '▼ A extinguir → 0', cls: 'dn', lead: 'Se consumen y no se reponen: no necesitan colchón.', bulk: true },
+  taller: { t: '✋ Decidir en el taller', cls: '', lead: 'Sin un error de previsión fiable: venta irregular (la cifra es orientativa), menos de 6 meses de historia o sin previsión el próximo trimestre. Se quedan con el del ERP salvo que se decida otra cosa.' },
+  igual: { t: '= Sin cambio', cls: '', lead: 'La propuesta queda a menos del 10 % (o de 100 uds) del stock mínimo actual.' },
+  decidido: { t: '✓ Ya decididas', cls: '', lead: 'Decisiones tomadas: pendientes de cargar en ABAS o ya aplicadas.' },
+};
+const r100sm = (v) => fmt(Math.round(v / 100) * 100);
+// Motivo del stock mínimo propuesto, en una frase (pantalla Stock mínimo y ficha)
+const smMotivo = (p) => {
+  const e = p.er != null ? Math.round(p.er * 100) : null, sg = p.sg != null ? Math.round(Math.abs(p.sg) * 100) : null;
+  switch (p.bq) {
+    case 'extinguir': return 'A extinguir: se consume y no se repone';
+    case 'taller': return p.tipo === 'irregular' ? `Venta irregular (error ±${e} % al mes): cifra orientativa` : p.tipo === 'sin_hist' ? 'Menos de 6 meses con previsión: sin error medible' : 'Sin previsión el próximo trimestre (temporada o baja)';
+    case 'sube': return `La previsión falla ±${r100sm(p.sl)} uds en el plazo y el stock mínimo cubre ${fmt(p.mn)}` + (p.flag && p.sg < 0 ? ` · se vende un ${sg} % más de lo previsto: corregir previsión` : '');
+    case 'baja': return p.flag && p.sg > 0 ? `Se prevé un ${sg} % de más: no necesita más colchón, corregir previsión` : `Previsión fiable (±${r100sm(p.sl)} uds en el plazo): con ${fmt(p.sm)} basta`;
+    case 'igual': return 'El stock mínimo actual ya está bien dimensionado';
+    default: return PEST[p.estado] || '';
+  }
+};
+const SMB_ORDEN = ['sube', 'baja', 'extinguir', 'taller', 'igual', 'decidido'];
+// Curva: interpolación lineal entre puntos (€ ascendente, roturas descendentes)
+const curvaRot = (cv, e) => { if (e <= cv[0][0]) return cv[0][1]; for (let i = 1; i < cv.length; i++) if (e <= cv[i][0]) { const [x0, y0] = cv[i - 1], [x1, y1] = cv[i]; return y0 + (y1 - y0) * (e - x0) / (x1 - x0); } return cv[cv.length - 1][1]; };
+const curvaEur = (cv, r) => { if (r >= cv[0][1]) return cv[0][0]; for (let i = 1; i < cv.length; i++) if (r >= cv[i][1]) { const [x0, y0] = cv[i - 1], [x1, y1] = cv[i]; return y1 === y0 ? x1 : x0 + (x1 - x0) * (r - y0) / (y1 - y0); } return cv[cv.length - 1][0]; };
+function smChart(M) {
+  const W = 680, H = 300, L = 56, R = 16, T = 16, B = 40, cv = M.curva;
+  const xmax = Math.max(cv[cv.length - 1][0], M.hoy.eur) * 1.04, ymax = Math.max(cv[0][1], M.hoy.rot) * 1.1;
+  const X = (e) => L + e / xmax * (W - L - R), Y = (r) => T + (1 - r / ymax) * (H - T - B);
+  const stepE = xmax > 1.2e6 ? 250000 : 100000, stepR = ymax > 400 ? 100 : 50;
+  let g = '';
+  for (let e = stepE; e < xmax; e += stepE) g += `<line x1="${X(e)}" y1="${T}" x2="${X(e)}" y2="${H - B}" class="gl"/><text x="${X(e)}" y="${H - B + 16}" text-anchor="middle">${fmt(e / 1000)}</text>`;
+  for (let r = stepR; r < ymax; r += stepR) g += `<line x1="${L}" y1="${Y(r)}" x2="${W - R}" y2="${Y(r)}" class="gl"/><text x="${L - 6}" y="${Y(r) + 4}" text-anchor="end">${r}</text>`;
+  const path = cv.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' ');
+  const mismo = curvaRot(cv, M.hoy.eur), igualE = curvaEur(cv, M.hoy.rot);
+  return `<svg class="chart smchart" id="smC" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="smT smD"><title id="smT">Stock mínimo en € frente a roturas al año estimadas</title>
+    <desc id="smD">Hoy en ABAS: ${keur(M.hoy.eur)} y ${fmt(M.hoy.rot)} roturas al año. Con el mejor reparto, el mismo dinero daría ${fmt(mismo)} roturas y las mismas roturas costarían ${keur(igualE)}.</desc>
+    <g class="ax">${g}<line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/><line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}"/>
+      <text x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle">Stock mínimo (k€)</text><text x="14" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 14 ${(T + H - B) / 2})">Roturas/año estimadas</text></g>
+    <line class="ref" x1="${X(M.hoy.eur)}" y1="${Y(M.hoy.rot)}" x2="${X(M.hoy.eur)}" y2="${Y(mismo)}"/><line class="ref" x1="${X(M.hoy.eur)}" y1="${Y(M.hoy.rot)}" x2="${X(igualE)}" y2="${Y(M.hoy.rot)}"/>
+    <path d="${path}" class="cv"/>
+    <circle cx="${X(M.hoy.eur)}" cy="${Y(M.hoy.rot)}" r="6" class="hoy"/><text x="${X(M.hoy.eur) + 10}" y="${Y(M.hoy.rot) - 8}" class="hoyT">Hoy en ABAS</text>
+    <circle id="smPt" cx="${X(M.punto.eur)}" cy="${Y(M.punto.rot)}" r="7" class="pt"/>
+    <rect id="smHit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" style="cursor:crosshair"/></svg>`;
+}
+async function pageSM(main, M0) {
+  if (!S.ds) return noData(main, 'Stock mínimo');
+  const { q } = parseHash();
+  const M = M0 && M0.curva ? M0 : await api('/api/parametros/sm' + (q.get('pres') ? '?pres=' + encodeURIComponent(q.get('pres')) : ''));
+  if (M.empty) return noData(main, 'Stock mínimo');
+  const canW = can('admin', 'planificador'), cv = M.curva, H0 = M.hoy, Pt = M.punto;
+  const md = q.get('md') || '', abc = q.get('abc') || '', bq = q.get('q') || '', toks = bq.toLowerCase().split(/\s+/).filter(Boolean);
+  const xs = M.rows.filter(p => (!md || p.md === md) && (!abc || p.abc === abc) && (!toks.length || toks.every(w => (p.k + ' ' + p.n).toLowerCase().includes(w))));
+  const pct = (a, b) => { if (!b) return ''; const d = Math.round((a / b - 1) * 100); return `${d > 0 ? '+' : ''}${d} %`; };
+  const r1 = (v) => v == null ? '<span class="muted">—</span>' : v.toLocaleString('es-ES', { maximumFractionDigits: v < 10 ? 1 : 0 });
+  const dias = (v, p) => p.pm > 0 ? `<br><span class="muted small">${fmt(v / p.pm * 30)} días</span>` : '';
+  const r100 = (v) => fmt(Math.round(v / 100) * 100);
+  const motivo = smMotivo;
+  const ctl = (p) => {
+    if (!canW || p.bq === 'decidido') return canW ? '<td></td>' : '';
+    const acc = p.sm !== p.mn ? `<button class="btn ghost sm" data-smacc="${esc(p.k)}">Aceptar</button> ` : '';
+    return `<td class="nowrap">${acc}<button class="btn ghost sm" data-smerp="${esc(p.k)}" title="Mantener el stock mínimo de ABAS">Mantener</button> <button class="btn ghost sm" data-smman="${esc(p.k)}" title="Otro stock mínimo (pide el motivo)">Otro…</button></td>`;
+  };
+  const fila = (p) => {
+    const prop = p.bq === 'decidido' ? p.ss : p.sm, de = (prop - p.mn) * p.pp, cls = prop > p.mn ? 'up' : prop < p.mn ? 'dn' : '';
+    const propTxt = p.bq === 'taller' && p.tipo !== 'irregular' ? '<span class="muted">—</span>' : `<b class="${cls}">${fmt(prop)}</b>${dias(prop, p)}`;
+    return `<tr>${refCell({ k: p.k, n: p.n })}<td class="nowrap"><span class="abcxyz">${abcTag(p.abc)}${xyzTag(p.xyz)}</span></td><td class="r num">${fmt(p.pm)}</td><td class="r num">${p.er == null ? '<span class="muted">—</span>' : '±' + Math.round(p.er * 100) + ' %'}</td>
+      <td class="r num">${fmt(p.mn)}${dias(p.mn, p)}</td><td class="r num">${propTxt}</td><td class="r num nowrap">${p.rh == null ? '<span class="muted">—</span>' : p.bq === 'taller' && p.tipo !== 'irregular' ? r1(p.rh) : `${r1(p.rh)} → ${r1(p.bq === 'decidido' ? null : p.rs)}`}</td>
+      <td class="r num">${Math.abs(de) < 1 ? '<span class="muted">—</span>' : (de > 0 ? '+' : '') + keur(de)}</td><td class="small smmot">${esc(motivo(p))}</td>${ctl(p)}</tr>`;
+  };
+  const porB = {}; SMB_ORDEN.forEach(b => { porB[b] = []; }); xs.forEach(p => porB[p.bq].push(p));
+  const absDe = (p) => Math.abs(((p.bq === 'decidido' ? p.ss : p.sm) - p.mn) * p.pp);
+  const blk = (b) => {
+    const L = porB[b].sort((x, y) => absDe(y) - absDe(x) || (x.k < y.k ? -1 : 1)), D = SMB[b];
+    if (!L.length) return '';
+    const de = L.reduce((s, p) => s + ((b === 'decidido' ? p.ss : p.sm) - p.mn) * p.pp, 0);
+    const rh = L.reduce((s, p) => s + (p.rh || 0), 0), rs = L.reduce((s, p) => s + (p.rs || 0), 0);
+    const res = [b === 'igual' || b === 'taller' ? '' : `${de > 0 ? '+' : ''}${keur(de)}`, b === 'decidido' || !rh ? '' : b === 'taller' ? `roturas/año hoy ${r1(rh)}` : `roturas/año ${r1(rh)} → ${r1(rs)}`].filter(Boolean).join(' · ');
+    const bulk = canW && D.bulk ? ` <button class="btn ghost sm" data-smbulk="${b}">Aceptar las ${fmt(L.length)}</button>` : '';
+    return `<details class="blk smblk" data-smb="${b}" ${S.smOpen && S.smOpen[b] ? 'open' : ''}><summary><h2><span class="${D.cls}">${D.t}</span> <span class="muted">· ${fmt(L.length)} refs.</span></h2><span class="muted">${res}</span></summary>
+      <p class="muted small">${D.lead}${bulk}</p>
+      <div class="tw"><table><caption class="sr">${D.t}</caption><thead>${head2([thc('Referencia'), thc('ABC'), thc('Previsión/mes', 'r', 'Media de los 3 próximos meses'), thc('Error prev.', 'r', 'Error típico mensual de la previsión'),
+        { g: 'Stock mínimo', c: [thc('Hoy', 'r', 'Stock mínimo en ABAS'), thc(b === 'decidido' ? 'Decidido' : 'Propuesta', 'r')] }, thc('Roturas/año', 'r', 'Estimadas: hoy → con la propuesta'), thc('Δ €', 'r'), thc('Motivo'), ...(canW ? [thc('Decisión')] : [])])}</thead>
+      <tbody>${L.map(fila).join('')}</tbody></table></div></details>`;
+  };
+  const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const nAbas = M.rows.filter(p => p.estado === 'decidido').length;
+  const ke = (n) => fmt(n / 1000) + ' k€';  // siempre en k€: en M€ con un decimal no se ve el cambio
+  const kpi = (v, l) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  const mismaR = curvaEur(cv, H0.rot);
+  main.innerHTML = `<h1>Stock mínimo</h1>${parTabs('sm')}
+    <p class="lead">El stock mínimo es el colchón contra el error de la previsión. La curva da, para cada presupuesto, el mejor reparto posible: el dinero va a las referencias donde evita más roturas. Lotes: los de hoy en ABAS.</p>
+    <div class="smtop">
+      <div class="smcv">${smChart(M)}</div>
+      <div class="smside">
+        <div class="smctl">
+          <label class="fld">Presupuesto de stock mínimo (k€)<input type="number" id="smE" min="0" step="10" value="${Math.round(Pt.eur / 1000)}"></label>
+          <label class="fld">Roturas/año estimadas<input type="number" id="smR" min="0" step="1" value="${Math.round(Pt.rot)}"></label>
+        </div>
+        <input type="range" id="smS" min="${cv[0][0]}" max="${cv[cv.length - 1][0]}" step="1000" value="${Pt.eur}" aria-label="Presupuesto de stock mínimo">
+        <div class="smbtn"><button class="btn ghost sm" data-smgo="${H0.eur}">Mismo dinero que hoy</button><button class="btn ghost sm" data-smgo="${Math.round(mismaR)}">Mismas roturas que hoy</button></div>
+        <p class="small muted">Con el mismo dinero que hoy: <b>${fmt(H0.rot)} → ${fmt(curvaRot(cv, H0.eur))}</b> roturas/año. Las roturas de hoy se tendrían con <b>${keur(mismaR)}</b> (${pct(mismaR, H0.eur)}).</p>
+      </div>
+    </div>
+    <div class="kpis">
+      ${kpi(`${ke(H0.eur)} → ${ke(Pt.eur)}`, `Stock mínimo en € · hoy → propuesta (${pct(Pt.eur, H0.eur) || '='})`)}
+      ${kpi(`${fmt(H0.uds / 1000)} k → ${fmt(Pt.uds / 1000)} k uds`, `Stock mínimo en unidades (${pct(Pt.uds, H0.uds)})`)}
+      ${kpi(`${ke(H0.med)} → ${ke(Pt.med)}`, `Stock medio total: stock mínimo + medio lote (${pct(Pt.med, H0.med) || '='})`)}
+      ${kpi(`${fmt(H0.rot)} → ${fmt(Pt.rot)}`, 'Roturas/año estimadas')}
+    </div>
+    <div class="tw"><table class="fit"><caption class="sr">Por mandante</caption><thead>${head2([thc('Mandante'), thc('Referencias', 'r'), { g: 'Stock mínimo €', c: [thc('Hoy', 'r'), thc('Propuesta', 'r')] }, { g: 'Roturas/año', c: [thc('Hoy', 'r'), thc('Propuesta', 'r')] }])}</thead>
+      <tbody>${M.md.map(m => `<tr><th scope="row">${m.md}</th><td class="r num">${fmt(m.n)}</td><td class="r num">${keur(m.eur_hoy)}</td><td class="r num"><b>${keur(m.eur)}</b></td><td class="r num">${fmt(m.rot_hoy)}</td><td class="r num"><b>${fmt(m.rot)}</b></td></tr>`).join('')}</tbody></table></div>
+    <h2>Qué cambia, por referencia</h2>
+    <form class="filters" id="smF" onsubmit="return false">
+      <label class="fld">Buscar<input type="search" name="q" id="smQ" value="${esc(bq)}" placeholder="Código o artículo" autocomplete="off"></label>
+      <label class="fld">Mandante<select name="md">${opts(['Belloch', 'Yunsey'], md, 'Todos')}</select></label>
+      <label class="fld">ABC<select name="abc">${opts(['A', 'B', 'C', 'D'], abc, 'Todas')}</select></label>
+      ${canW ? `<label class="fld" style="flex:1 1 260px">Motivo (obligatorio con «Otro»)<input id="smMot" maxlength="500" value="${esc(S.smMot || '')}"></label>` : ''}
+    </form>
+    ${SMB_ORDEN.map(blk).join('') || '<p class="muted">Nada con estos filtros.</p>'}
+    <p>${nAbas ? `<a class="btn" href="/api/parametros/abas.csv" download>Descargar cambios para ABAS (${fmt(nAbas)})</a>` : '<span class="muted">No hay cambios pendientes de cargar en ABAS.</span>'}</p>
+    <p class="muted small">Roturas estimadas: por cada fabricación (previsión anual ÷ lote del ERP), probabilidad de que en las 3 semanas de reposición se venda más de lo previsto en una cantidad mayor que el stock mínimo,
+      con el error típico de la previsión de la referencia (desviación de venta − previsión vigente desde ene-25, ajustada al plazo y a la previsión del próximo trimestre). Cuenta ciclos con rotura, no unidades ni días;
+      sirve para comparar repartos, no es la cifra real de roturas. Irregulares con el error a 150 %; sin error de previsión se quedan con el del ERP; la sobreprevisión de más del 20 % no sube. Días: stock mínimo ÷ previsión media mensual × 30.</p>`;
+  // Curva: el control y las casillas mueven el punto al momento; al soltar se recalcula el reparto
+  const svg = $('#smC'), pt = $('#smPt');
+  const W = 680, Lm = 56, Rm = 16, xmax = Math.max(cv[cv.length - 1][0], H0.eur) * 1.04, ymax = Math.max(cv[0][1], H0.rot) * 1.1;
+  const X = (e) => Lm + e / xmax * (W - Lm - Rm), Y = (r) => 16 + (1 - r / ymax) * (300 - 16 - 40);
+  const mover = (e) => { pt.setAttribute('cx', X(e)); pt.setAttribute('cy', Y(curvaRot(cv, e))); $('#smE').value = Math.round(e / 1000); $('#smR').value = Math.round(curvaRot(cv, e)); };
+  const ir = async (e, foco) => {
+    e = Math.max(0, Math.round(e)); setQuery({ pres: Math.round(e) === H0.eur ? '' : e }); S.smPres = Math.round(e) === H0.eur ? null : e;
+    const M2 = await api('/api/parametros/sm?pres=' + e); await pageSM(main, M2);
+    if (foco) { const f = $(foco); if (f) f.focus(); }
+  };
+  $('#smS').oninput = (ev) => mover(+ev.target.value);
+  $('#smS').onchange = (ev) => ir(+ev.target.value, '#smS');
+  $('#smE').onchange = (ev) => ir(+ev.target.value * 1000, '#smE');
+  $('#smR').onchange = (ev) => ir(curvaEur(cv, +ev.target.value), '#smR');
+  $('#smHit').onclick = (ev) => { const b = svg.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width * W; ir(Math.min(Math.max((x - Lm) / (W - Lm - Rm) * xmax, cv[0][0]), cv[cv.length - 1][0])); };
+  $$('[data-smgo]', main).forEach(b => b.onclick = () => ir(+b.dataset.smgo));
+  // Bloques plegados/abiertos: se conservan al recalcular
+  $$('details.smblk', main).forEach(d => d.ontoggle = () => { S.smOpen = S.smOpen || {}; S.smOpen[d.dataset.smb] = d.open; });
+  $('#smF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'q') return; setQuery({ [n]: ev.target.value }); pageSM(main, M); });
+  $('#smQ').addEventListener('input', (ev) => {
+    clearTimeout(S.smQt);
+    S.smQt = setTimeout(async () => { const pos = ev.target.selectionStart; setQuery({ q: ev.target.value.trim() }); await pageSM(main, M); const i = $('#smQ'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }, 200);
+  });
+  const mot = $('#smMot'); if (mot) mot.oninput = (ev) => { S.smMot = ev.target.value; };
+  const enviar = async (items) => {
+    try {
+      const r = await api('/api/parametros/decisiones', { method: 'POST', body: { items, motivo: mot ? mot.value.trim() : '', pres: Pt.eur === H0.eur ? null : M.pres } });
+      toast(`${r.n} ${r.n === 1 ? 'decisión guardada' : 'decisiones guardadas'}`);
+      await pageSM(main, await api('/api/parametros/sm?pres=' + M.pres));
+    } catch (e) { toast(e.message); }
+  };
+  const it = (k, ss) => ({ ref: k, ss, lote: { src: 'erp' } });
+  $$('[data-smacc]', main).forEach(b => b.onclick = () => enviar([it(b.dataset.smacc, { src: 'curva' })]));
+  $$('[data-smerp]', main).forEach(b => b.onclick = () => enviar([it(b.dataset.smerp, { src: 'erp' })]));
+  $$('[data-smman]', main).forEach(b => b.onclick = () => {
+    if (!(mot && mot.value.trim())) { toast('Escribe primero el motivo (encima de los bloques)'); if (mot) mot.focus(); return; }
+    const t = prompt(`Stock mínimo para ${b.dataset.smman} (uds)`); if (t == null) return;
+    const v = parseInt(String(t).replace(/\./g, ''), 10);
+    if (!(v >= 0)) { toast('Escribe el stock mínimo en unidades'); return; }
+    enviar([it(b.dataset.smman, { src: 'manual', v })]);
+  });
+  $$('[data-smbulk]', main).forEach(b => b.onclick = (ev) => {
+    ev.preventDefault(); const L = porB[b.dataset.smbulk].filter(p => p.sm !== p.mn);
+    if (L.length && confirm(`¿Aceptar la propuesta en ${L.length} referencias?`)) enviar(L.map(p => it(p.k, { src: 'curva' })));
+  });
+}
+
 // ---------------------------------------------------------------- Stock mínimo y lotes
 const PEST = { decidir: 'Decidir a mano', cambio: 'Con cambio', igual: 'Igual', decidido: 'Pendiente de ABAS', aplicado: 'Aplicado' };
 const PTIPO = { irregular: 'irregular', sin_hist: 'sin historia', extinguir: 'a extinguir', sin_prev: 'sin previsión' };
@@ -1031,7 +1230,7 @@ const srcProp = (p) => ({ ss: { src: p.ssp === p.mn ? 'erp' : 'reparto' }, lote:
 const PSORT = { k: p => p.k, abc: p => p.abc, pm: p => p.pm, er: p => p.er, mn: p => p.mn, xl: p => p.xl, est: p => p.est, sr: p => p.sr,
   ss: p => p.d ? p.ss : p.ssp, lt: p => p.lt, lote: p => p.d ? p.lote : p.ltp, fe: p => p.fe, fo: p => p.fo, lo: p => p.lo, de: p => p.pr > 0 ? p.de : null, estado: p => PEST[p.estado] };
 const PSORT_TXT = ['k', 'abc', 'estado'];
-async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y buscador, sin volver a pedirlos)
+async function pageLotes(main, P0) {  // P0: datos ya cargados (filtros y buscador, sin volver a pedirlos)
   if (!S.ds) return noData(main, 'Stock mínimo y lotes');
   const P = P0 && P0.rows ? P0 : await api('/api/parametros');  // el router pasa las partes de la ruta: no son datos
   if (P.empty) return noData(main, 'Stock mínimo y lotes');
@@ -1048,7 +1247,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   const E = P.resumen.estados, F = P.resumen.frec || {}, nAbas = E.decidido || 0;
   const tot = (k) => P.resumen.grupos.reduce((s, g) => s + g[k], 0);
   const opts = (vals, cur, all) => `<option value="">${all}</option>` + vals.map(v => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
-  const cnt = (est, t) => `<a class="kpi kpi-link" href="#/parametros?estado=${est}"><div class="v">${fmt(E[est] || 0)}</div><div class="l">${t}</div></a>`;
+  const cnt = (est, t) => `<a class="kpi kpi-link" href="#/parametros?vista=lotes&estado=${est}"><div class="v">${fmt(E[est] || 0)}</div><div class="l">${t}</div></a>`;
   const pct = (x) => x == null ? '<span class="muted">—</span>' : Math.round(x * 100) + ' %';
   const n0 = (v) => v == null ? '<span class="muted">—</span>' : fmt(v);
   const d1 = (v) => v == null ? '<span class="muted">—</span>' : v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
@@ -1066,7 +1265,7 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
       <td class="nowrap">${PEST[p.estado]}${marca ? ` <span class="muted small">(${marca})</span>` : ''}</td>${ctl}</tr>`;
   };
   const lim = 2000;  // contra stock con ABC: unas 800 referencias, caben todas
-  main.innerHTML = `<h1>Stock mínimo y lotes</h1>
+  main.innerHTML = `<h1>Stock mínimo y lotes</h1>${parTabs('lotes')}
     <p class="lead">Contra stock con ABC. Stock mínimo: ERP, método Excel (lote × % de la clase) y estadístico (nivel de servicio × error de previsión × plazo). Propuesta: stock mínimo del reparto con presupuesto fijo y lote con la frecuencia óptima (sin lote en el ERP, el calculado por clase); se queda el ERP si el cambio es pequeño.</p>
     <div class="tw"><table class="fit"><caption class="sr">Valor por mandante y clase</caption><thead>${head2([thc('Mandante · Clase'), thc('Referencias', 'r'),
       { g: 'Stock mínimo €', c: [thc('ERP', 'r', 'Stock mínimo del ERP'), thc('Prop.', 'r', 'Stock mínimo propuesto'), thc('Dec.', 'r', 'Stock mínimo decidido')] },
@@ -1102,21 +1301,21 @@ async function pageParams(main, P0) {  // P0: datos ya cargados (filtros y busca
   xs.slice(0, lim).forEach(p => { const sp = srcProp(p), e = CSS.escape(p.k); const a = $(`[data-ss="${e}"]`, main), b = $(`[data-lt="${e}"]`, main); if (a) a.value = sp.ss.src; if (b) b.value = sp.lote.src; });
   $$('.ptab [data-sort]', main).forEach(b => b.onclick = async () => {
     const k2 = b.dataset.sort;
-    setQuery({ sort: k2, dir: sk === k2 ? -sd : (PSORT_TXT.includes(k2) ? 1 : -1) }); await pageParams(main, P);
+    setQuery({ sort: k2, dir: sk === k2 ? -sd : (PSORT_TXT.includes(k2) ? 1 : -1) }); await pageLotes(main, P);
     const f = $(`.ptab [data-sort="${k2}"]`, main); if (f) f.focus();
   });
-  $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo' || n === 'q') return; setQuery({ [n]: ev.target.value }); pageParams(main, P); });
+  $('#pF').addEventListener('change', (ev) => { const n = ev.target.name; if (!n || n === 'motivo' || n === 'q') return; setQuery({ [n]: ev.target.value }); pageLotes(main, P); });
   $('#pQ').addEventListener('input', (ev) => {
     clearTimeout(S.pQt);
     S.pQt = setTimeout(async () => {
       const pos = ev.target.selectionStart;
-      setQuery({ q: ev.target.value.trim() }); await pageParams(main, P);
+      setQuery({ q: ev.target.value.trim() }); await pageLotes(main, P);
       const i = $('#pQ'); if (i) { i.focus(); i.setSelectionRange(pos, pos); }
     }, 200);
   });
   const motivo = () => ($('#pMot') ? $('#pMot').value.trim() : '');
   if ($('#pMot')) $('#pMot').oninput = (ev) => { S.pMot = ev.target.value; };  // se conserva al cambiar de filtro
-  const enviar = async (items) => { try { const r = await api('/api/parametros/decisiones', { method: 'POST', body: { items, motivo: motivo() } }); toast(`${r.n} ${r.n === 1 ? 'decisión guardada' : 'decisiones guardadas'}`); await pageParams(main); } catch (e) { toast(e.message); } };
+  const enviar = async (items) => { try { const r = await api('/api/parametros/decisiones', { method: 'POST', body: { items, motivo: motivo() } }); toast(`${r.n} ${r.n === 1 ? 'decisión guardada' : 'decisiones guardadas'}`); await pageLotes(main); } catch (e) { toast(e.message); } };
   $$('[data-ss],[data-lt]', main).forEach(s => s.onchange = () => { const k = s.dataset.ss || s.dataset.lt, inp = $(`[data-${s.dataset.ss ? 'ssv' : 'ltv'}="${CSS.escape(k)}"]`, main); inp.hidden = s.value !== 'manual'; if (!inp.hidden) inp.focus(); });
   $$('[data-dec]', main).forEach(b => b.onclick = () => {
     const k = b.dataset.dec, e = CSS.escape(k), it = { ref: k };

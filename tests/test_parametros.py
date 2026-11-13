@@ -165,5 +165,17 @@ check("reparto: la sobreprevisión no sube del ERP", c["S"]["sr"] <= 1000, c["S"
 R = P.resumen(list(rep([ref("Q", vt=ruido), ref("L", vt=loco)]).values()))["frec"]
 check("reparto: menos roturas con el mismo dinero", R["rot_rep"] <= R["rot_erp"] and R["n_rep"] == 2, R)
 
+# Stock mínimo solo (lotes del ERP): curva presupuesto → roturas y punto elegido
+rs = list(rep([ref("Q", vt=ruido), ref("L", vt=loco), ref("X", ext=True), ref("H", vt=[1000] * 3, hp=[1000] * 3)]).values())
+M = P.stock_minimo(rs)
+cv = M["curva"]
+check("curva: más presupuesto, menos roturas", all(a[0] <= b[0] and a[1] >= b[1] for a, b in zip(cv, cv[1:])), cv)
+check("curva: mismo dinero que hoy (± redondeo) y no más roturas", abs(M["punto"]["eur"] - M["hoy"]["eur"]) <= 200 and M["punto"]["rot"] <= M["hoy"]["rot"], (M["hoy"], M["punto"]))
+b = {p["k"]: p for p in rs}
+check("bloques: a extinguir y sin historia al taller", b["X"]["bq"] == "extinguir" and b["H"]["bq"] == "taller" and b["X"]["sm"] == 0, (b["X"]["bq"], b["H"]["bq"]))
+check("bloques: sube la que peor se prevé", b["L"]["bq"] == "sube" and b["L"]["rs"] < b["L"]["rh"], (b["L"]["bq"], b["L"]["sm"], b["L"]["rh"], b["L"]["rs"]))
+M2 = P.stock_minimo(rs, 2 * M["base"])
+check("punto con más presupuesto: menos roturas", M2["punto"]["rot"] < M["punto"]["rot"] and M2["punto"]["eur"] > M["punto"]["eur"], (M["punto"], M2["punto"]))
+
 print("\nTodo correcto" if not fails else f"\n{fails} comprobaciones fallidas")
 sys.exit(1 if fails else 0)

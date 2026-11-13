@@ -89,7 +89,7 @@ CREATE INDEX IF NOT EXISTS actions_ref ON actions(ref);
 CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS param_dec(
   id INTEGER PRIMARY KEY, ref TEXT NOT NULL, md TEXT NOT NULL, ss INTEGER NOT NULL, lote INTEGER NOT NULL,
-  src_ss TEXT NOT NULL CHECK(src_ss IN ('erp','excel','estadistico','reparto','manual')),
+  src_ss TEXT NOT NULL CHECK(src_ss IN ('erp','excel','estadistico','reparto','curva','manual')),
   src_lote TEXT NOT NULL CHECK(src_lote IN ('erp','calculado','optimo','manual')),
   ss_antes INTEGER, lote_antes INTEGER, motivo TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL, created TEXT NOT NULL,
   aplicado TEXT);
@@ -161,7 +161,7 @@ def init_db() -> None:
         if "vers" not in {r[1] for r in c.execute("PRAGMA table_info(loads)")}:  # versiones de previsión por referencia
             c.execute("ALTER TABLE loads ADD COLUMN vers BLOB")
         sql = c.execute("SELECT sql FROM sqlite_master WHERE name='param_dec'").fetchone()[0]
-        if "'reparto'" not in sql:  # fuentes nuevas (reparto, frecuencia óptima): el CHECK solo cambia rehaciendo la tabla
+        if "'curva'" not in sql:  # fuentes nuevas (reparto, frecuencia óptima, curva): el CHECK solo cambia rehaciendo la tabla
             c.execute("ALTER TABLE param_dec RENAME TO param_dec_v1")
             c.execute("DROP INDEX IF EXISTS param_dec_ref")
             c.execute("CREATE TABLE param_dec(" + SCHEMA.split("CREATE TABLE IF NOT EXISTS param_dec(")[1].split(";")[0])
@@ -526,7 +526,42 @@ def param_list():
     return jsonify({"rows": rows, "resumen": parametros.resumen(rows), "hoy": row["hoy"]})
 
 
-SRC_SS = {"erp": "mn", "excel": "xl", "estadistico": "est", "reparto": "sr", "manual": None}
+SM_CAMPOS = ("k", "n", "md", "abc", "xyz", "ln", "pm", "er", "sg", "flag", "tipo", "mn", "lt", "pp", "sl", "nh", "dx",
+             "sm", "rh", "rs", "bq", "estado", "d", "ss")
+
+
+def _pres(v) -> float | None:
+    """Presupuesto de stock mínimo en € (None: el mismo dinero que hoy)."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if 0 <= x <= 1e9 else None
+
+
+@app.get("/api/parametros/sm")
+@need()
+def param_sm():
+    """Stock mínimo solo (lotes del ERP): curva presupuesto → roturas, hoy, el punto elegido y las referencias."""
+    row = _load_row()
+    if not row:
+        return jsonify({"empty": True})
+    rows = _param_rows(_refs(row))
+    M = parametros.stock_minimo(rows, _pres(request.args.get("pres")))
+    k = request.args.get("ref")
+    if k:  # ficha: solo esa referencia (el reparto se calcula con todas)
+        return jsonify(dict(hoy=M["hoy"], punto=M["punto"], pres=M["pres"], base=M["base"],
+                            rows=[{c: p.get(c) for c in SM_CAMPOS} for p in rows if p["k"] == k]))
+    por_md = []
+    for m in ("Belloch", "Yunsey"):
+        xs = [p for p in rows if p["md"] == m]
+        por_md.append(dict(md=m, n=len(xs), eur_hoy=round(sum(p["mn"] * p["pp"] for p in xs)), eur=round(sum(p["sm"] * p["pp"] for p in xs)),
+                           rot_hoy=round(sum(p["rh"] or 0 for p in xs), 1), rot=round(sum(p["rs"] or 0 for p in xs), 1)))
+    M.update(rows=[{c: p.get(c) for c in SM_CAMPOS} for p in rows], md=por_md, hoy_fecha=row["hoy"])
+    return jsonify(M)
+
+
+SRC_SS = {"erp": "mn", "excel": "xl", "estadistico": "est", "reparto": "sr", "curva": "sm", "manual": None}
 SRC_LOTE = {"erp": "lt", "calculado": "lc", "optimo": "lo", "manual": None}
 
 
@@ -541,6 +576,8 @@ def param_decidir():
     if not row:
         return err("No hay datos cargados")
     P = {p["k"]: p for p in _param_rows(_refs(row))}
+    if any(isinstance(it, dict) and isinstance(it.get("ss"), dict) and it["ss"].get("src") == "curva" for it in items):
+        parametros.stock_minimo(list(P.values()), _pres(b.get("pres")))  # stock mínimo del punto elegido en la curva
     ins = []
     for it in items:
         p = P.get(it.get("ref")) if isinstance(it, dict) else None

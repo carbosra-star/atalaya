@@ -67,12 +67,12 @@ def frecuencia_optima(rows: list[dict], lmin: dict) -> None:
             p["lo"] = max(lote_calc(p["pa"], p["fo"]), lm)
 
 
-def _ss_lambda(e: list[dict], lam: float) -> list[float]:
+def _ss_lambda(e: list[dict], lam: float, nkey: str = "nr") -> list[float]:
     """Stock mínimo de cada referencia con el mismo beneficio marginal por € (lam): las roturas al año que evita la
     última unidad, n × φ(SM/σ) / σ, valen lam × precio; es decir φ(z) = lam × precio × σ / n, con z ≥ 0."""
     out = []
     for p in e:
-        x = lam * p["pp"] * p["sl"] * math.sqrt(2 * math.pi) / p["nr"]  # φ(z) / φ(0)
+        x = lam * p["pp"] * p["sl"] * math.sqrt(2 * math.pi) / p[nkey]  # φ(z) / φ(0)
         v = math.sqrt(-2 * math.log(x)) * p["sl"] if 0 < x < 1 else 0.0
         out.append(min(v, p["mn"]) if p["sg"] is not None and p["sg"] > SESGO else v)  # sobreprevisión: no se sube
     return out
@@ -85,30 +85,76 @@ def reparto(rows: list[dict], pct: float) -> None:
     Añade sr (stock mínimo repartido), nh y nr (fabricaciones/año de hoy y del reparto)."""
     ahorro = sum((p["lt"] - p["lo"]) / 2 * p["pp"] for p in rows if p["lo"] is not None)
     pres = sum(p["mn"] * p["pp"] for p in rows) + pct / 100 * max(0.0, ahorro)
-    e = []
     for p in rows:
         p["nh"] = p["fe"] or p["fc"]  # hoy: con el lote del ERP (sin lote, la frecuencia de la clase)
         p["nr"] = p["fo"] or p["nh"]
-        if p["sl"] and p["nr"]:
+    sr = _repartir(rows, pres, "nr")
+    for p in rows:
+        p["sr"] = sr[p["k"]]
+
+
+def _repartir(rows: list[dict], pres: float, nkey: str) -> dict[str, int]:
+    """Stock mínimo por referencia que evita más roturas con un presupuesto en € (pres), con nkey fabricaciones/año.
+    Las que no tienen error de previsión conservan el del ERP (0 a extinguir) y se descuentan del presupuesto."""
+    out, e = {}, []
+    for p in rows:
+        if p["sl"] and p[nkey]:
             e.append(p)
         else:
-            p["sr"] = 0 if p["tipo"] == "extinguir" else p["mn"]
-            pres -= p["sr"] * p["pp"]
+            out[p["k"]] = 0 if p["tipo"] == "extinguir" else p["mn"]
+            pres -= out[p["k"]] * p["pp"]
     if not e:
-        return
+        return out
+    cost = lambda lam: sum(v * p["pp"] for v, p in zip(_ss_lambda(e, lam, nkey), e))  # noqa: E731
     lo, hi = 1e-12, 1e6
-    if sum(v * p["pp"] for v, p in zip(_ss_lambda(e, lo), e)) <= pres:
+    if cost(lo) <= pres:
         hi = lo  # el presupuesto da para todo: nivel máximo
-    for _ in range(100):
-        if hi <= lo:
-            break
+    while hi > lo * (1 + 1e-6):  # bisección geométrica: el coste baja al subir lam
         mid = math.sqrt(lo * hi)
-        if sum(v * p["pp"] for v, p in zip(_ss_lambda(e, mid), e)) > pres:
+        if cost(mid) > pres:
             lo = mid
         else:
             hi = mid
-    for v, p in zip(_ss_lambda(e, hi), e):
-        p["sr"] = round100(v)
+    for v, p in zip(_ss_lambda(e, hi, nkey), e):
+        out[p["k"]] = round100(v)
+    return out
+
+
+def _rot1(p: dict, ss: float, nkey: str = "nh") -> float | None:
+    """Roturas al año esperadas de una referencia con ese stock mínimo (None sin error de previsión)."""
+    return p[nkey] * (1 - N01.cdf(ss / p["sl"])) if p["sl"] and p[nkey] else None
+
+
+CURVA = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5, 1.75, 2.0, 2.5)  # presupuestos (× SM del ERP)
+
+
+def stock_minimo(rows: list[dict], pres: float | None = None) -> dict:
+    """Stock mínimo solo, con los lotes del ERP (fabricaciones de hoy, nh): la curva presupuesto € → roturas/año del
+    mejor reparto, lo de hoy en ABAS y el punto elegido (pres €; por defecto, el mismo dinero que hoy). Añade a cada
+    fila sm (stock mínimo para ese presupuesto), rh y rs (roturas/año hoy y con sm) y bq (bloque de decisión)."""
+    base = sum(p["mn"] * p["pp"] for p in rows)
+    tot = lambda ss: dict(eur=round(sum(ss[p["k"]] * p["pp"] for p in rows)), uds=sum(ss[p["k"]] for p in rows),  # noqa: E731
+                          rot=round(sum(_rot1(p, ss[p["k"]]) or 0 for p in rows), 1),
+                          med=round(sum((ss[p["k"]] + p["lt"] / 2) * p["pp"] for p in rows)))
+    hoy = tot({p["k"]: p["mn"] for p in rows})
+    curva = []
+    for f in CURVA:
+        t = tot(_repartir(rows, f * base, "nh"))
+        curva.append([t["eur"], t["rot"]])
+    pres = base if pres is None else pres
+    sm = _repartir(rows, pres, "nh")
+    for p in rows:
+        v = sm[p["k"]]
+        p["sm"], p["rh"], p["rs"] = v, _rot1(p, p["mn"]), _rot1(p, v)
+        if p["d"]:
+            p["bq"] = "decidido"
+        elif p["tipo"] == "extinguir":
+            p["bq"] = "extinguir" if p["mn"] > 0 else "igual"
+        elif p["tipo"] != "ok":
+            p["bq"] = "taller"
+        else:
+            p["bq"] = "igual" if _ruido(v, p["mn"]) else "sube" if v > p["mn"] else "baja"
+    return dict(hoy=hoy, curva=curva, punto=tot(sm), pres=round(pres), base=round(base))
 
 
 def roturas(rows: list[dict], ss_key: str, n_key: str) -> float:
